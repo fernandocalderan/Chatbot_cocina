@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.api.auth import require_panel_token
 from app.api.deps import get_db
 from app.core.config import get_settings
 from app.core.flow_engine import FlowEngine
@@ -136,7 +137,7 @@ def get_history(session_id: str, db=Depends(get_db)):
     ]
 
 
-@router.post("/send")
+@router.post("/send", dependencies=[Depends(require_panel_token)])
 def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future use
     settings = get_settings()
     session_mgr = SessionManager(settings.redis_url)

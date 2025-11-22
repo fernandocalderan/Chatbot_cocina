@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends
 
+from app.api.auth import require_panel_token
 from app.api.deps import get_db
 from app.models.leads import Lead
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require_panel_token)])
 def list_leads(db=Depends(get_db)):
     leads = db.query(Lead).all()
     return [
