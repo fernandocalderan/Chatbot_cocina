@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.api.auth import require_auth
 from app.api.deps import get_db
 from app.models.appointments import Appointment
 from app.models.leads import Lead
@@ -18,7 +19,7 @@ class BookingRequest(BaseModel):
     session_id: str | None = None
 
 
-@router.get("/slots")
+@router.get("/slots", dependencies=[Depends(require_auth)])
 def get_slots():
     now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
     slots = [
@@ -29,7 +30,7 @@ def get_slots():
     return {"slots": slots}
 
 
-@router.post("/book")
+@router.post("/book", dependencies=[Depends(require_auth)])
 def book_slot(payload: BookingRequest, db=Depends(get_db)):
     slot_start = datetime.fromisoformat(payload.slot.replace("Z", "+00:00"))
     slot_end = slot_start + timedelta(minutes=30)

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     panel_api_token: str | None = None
     cors_origins: str | None = None  # comma-separated
     rate_limit_per_min: int = 120
+    jwt_secret: str | None = None
+    jwt_algorithm: str = "HS256"
+    jwt_exp_hours: int = 24
 
 
 @lru_cache(maxsize=1)

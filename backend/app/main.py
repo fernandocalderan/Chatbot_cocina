@@ -7,7 +7,7 @@ from app.api.flows import router as flows_router
 from app.api.leads import router as leads_router
 from app.core.config import get_settings
 from fastapi.middleware.cors import CORSMiddleware
-from app.middleware import add_request_context
+from app.middleware.rate_limiter import add_request_context
 
 settings = get_settings()
 
