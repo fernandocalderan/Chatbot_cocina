@@ -53,10 +53,38 @@ class ActionExecutor:
                         db.rollback()
             elif atype == "generate_ai_summary":
                 vars_data = state.get("vars", {})
-                if self.settings.use_ia:
-                    summary = self.ai_client.generate_commercial_brief(vars_data)
+                tenant_id = vars_data.get("tenant_id")
+                # Cargar prompt desde DB si existe
+                prompt_text = None
+                if db is not None and tenant_id:
+                    from app.models.ai_prompts import AiPrompt
+                    prompt = (
+                        db.query(AiPrompt)
+                        .filter(AiPrompt.tenant_id == tenant_id, AiPrompt.name == "commercial_brief")
+                        .order_by(AiPrompt.version.desc())
+                        .first()
+                    )
+                    if prompt:
+                        prompt_text = prompt.prompt_text
+
+                # Control de coste
+                if self.settings.use_ia and db is not None and tenant_id:
+                    from app.models.tenants import Tenant
+
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                    if tenant and tenant.ai_cost >= tenant.ai_monthly_limit:
+                        summary = self.ai_client._deterministic_brief(vars_data)
+                        tokens_in = tokens_out = 0
+                    else:
+                        summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(
+                            vars_data, prompt_text
+                        )
+                        cost = (tokens_in + tokens_out) * float(self.settings.ai_price_per_token_usd)
+                        if tenant:
+                            tenant.ai_cost = (tenant.ai_cost or 0) + cost
+                            db.commit()
                 else:
-                    summary = self.ai_client._deterministic_brief(vars_data)
+                    summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(vars_data, prompt_text)
                 state.setdefault("vars", {})["ai_summary"] = summary
             elif atype == "generate_pdf":
                 # Stub: solo marca placeholder

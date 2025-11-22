@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     jwt_secret: str | None = None
     jwt_algorithm: str = "HS256"
     jwt_exp_hours: int = 24
+    ai_price_per_token_usd: float = 0.000002
 
 
 @lru_cache(maxsize=1)

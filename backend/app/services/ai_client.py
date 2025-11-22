@@ -1,5 +1,5 @@
 import os
-from typing import Dict
+from typing import Dict, Tuple, Optional
 
 from openai import OpenAI
 
@@ -10,24 +10,34 @@ class AIClient:
         self.model = model or os.getenv("AI_MODEL", "gpt-4.1-mini")
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
 
-    def generate_commercial_brief(self, lead_data: Dict) -> str:
+    def generate_commercial_brief(self, lead_data: Dict, prompt_text: Optional[str] = None) -> Tuple[str, int, int]:
         """
         Llama a OpenAI para generar un breve resumen comercial.
+        Devuelve texto, tokens_in, tokens_out.
         """
         if not self.client or not self.api_key:
-            return self._deterministic_brief(lead_data)
+            brief = self._deterministic_brief(lead_data)
+            return brief, 0, 0
 
-        prompt = self._build_prompt(lead_data)
-        resp = self.client.responses.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "Eres un asistente de ventas de cocinas y muebles a medida. Redacta breve, claro y orientado a acción."},
-                {"role": "user", "content": prompt},
-            ],
-            max_output_tokens=180,
-            temperature=0.4,
-        )
-        return resp.output_text if hasattr(resp, "output_text") else self._deterministic_brief(lead_data)
+        prompt = prompt_text or self._build_prompt(lead_data)
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Eres un asistente de ventas de cocinas y muebles a medida. Redacta breve, claro y orientado a acción."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=180,
+                temperature=0.4,
+            )
+            text = resp.choices[0].message.content
+            usage = resp.usage
+            tokens_in = usage.prompt_tokens if usage else 0
+            tokens_out = usage.completion_tokens if usage else 0
+            return text, tokens_in, tokens_out
+        except Exception:
+            brief = self._deterministic_brief(lead_data)
+            return brief, 0, 0
 
     def _build_prompt(self, data: Dict) -> str:
         def get(k): return data.get(k) or "N/D"

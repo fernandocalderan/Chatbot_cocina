@@ -8,6 +8,7 @@ from app.models.configs import Config
 from app.models.messages import Message
 from app.models.files import FileAsset
 from app.models.audits import AuditLog
+from app.models.ai_prompts import AiPrompt
 
 __all__ = [
     "Tenant",
@@ -20,4 +21,5 @@ __all__ = [
     "Message",
     "FileAsset",
     "AuditLog",
+    "AiPrompt",
 ]

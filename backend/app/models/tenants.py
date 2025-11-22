@@ -17,6 +17,8 @@ class Tenant(Base):
     branding = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     idioma_default = sa.Column(sa.String(10), nullable=False, server_default="es")
     timezone = sa.Column(sa.String(64), nullable=False, server_default="Europe/Madrid")
+    ai_cost = sa.Column(sa.Float, nullable=False, server_default="0")
+    ai_monthly_limit = sa.Column(sa.Float, nullable=False, server_default="100")
     created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
     updated_at = sa.Column(
         sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()
