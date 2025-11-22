@@ -11,8 +11,14 @@ class DummyQuery:
     def filter_by(self, **kwargs):
         return self
 
+    def order_by(self, *args, **kwargs):
+        return self
+
     def first(self):
         return None
+
+    def all(self):
+        return []
 
 
 class DummySession:

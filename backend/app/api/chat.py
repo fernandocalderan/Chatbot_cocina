@@ -13,7 +13,9 @@ from app.core.session_manager import SessionManager
 from app.core.intent_classifier import IntentClassifier
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
+from app.models.messages import Message as DBMessage
 from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -59,6 +61,23 @@ def pick_lang(flow: dict, requested: Optional[str]) -> str:
     return "es"
 
 
+def save_message(db, session_id: str, tenant_id, role: str, content: str, block_id: Optional[str] = None, ai_meta=None):
+    try:
+        msg = DBMessage(
+            tenant_id=tenant_id,
+            session_id=session_id,
+            role=role,
+            content=content,
+            block_id=block_id,
+            ai_meta=ai_meta or {},
+            attachments=[],
+        )
+        db.add(msg)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+
+
 def compute_score(vars_data: dict, scoring_cfg: dict) -> tuple[int, dict]:
     weights = scoring_cfg.get("weights", {})
     breakdown = {}
@@ -97,6 +116,20 @@ def map_score_to_status(score: int, thresholds: dict) -> str:
     if score >= thresholds.get("warm_min", 40):
         return "warm"
     return "cold"
+
+
+@router.get("/history/{session_id}")
+def get_history(session_id: str, db=Depends(get_db)):
+    msgs = (
+        db.query(DBMessage)
+        .filter(DBMessage.session_id == session_id)
+        .order_by(DBMessage.id.asc())
+        .all()
+    )
+    return [
+        {"role": m.role, "content": m.content, "block_id": m.block_id, "created_at": m.created_at.isoformat() if m.created_at else None}
+        for m in msgs
+    ]
 
 
 @router.post("/send")
@@ -147,6 +180,18 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
             state.setdefault("vars", {})[save_as] = payload.message
     elif current_block.get("type") == "message":
         pass
+
+    # Intent heuristic o IA (flag use_ia)
+    if current_block.get("type") == "input":
+        if settings.use_ia:
+            inferred = intent.classify(payload.message)  # placeholder IA
+        else:
+            inferred = intent.classify(payload.message)
+        for k, v in inferred.items():
+            state.setdefault("vars", {})[k] = v
+
+    # Guardar mensaje del usuario
+    save_message(db, session_id, None, "user", payload.message, block_id=current_block_id)
 
     next_block_id = engine.next_block(current_block, payload.message)
     if next_block_id:
@@ -226,9 +271,8 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
             data["slots"] = slots
         return {"id": block_id, **data}
 
-    return {"session_id": session_id, "block": serialize_block(next_block_id or current_block_id, next_block)}
-    # Intent heuristic: rellenar campos si vienen en texto libre
-    if current_block.get("type") == "input":
-        inferred = intent.classify(payload.message)
-        for k, v in inferred.items():
-            state.setdefault("vars", {})[k] = v
+    bot_block = serialize_block(next_block_id or current_block_id, next_block)
+    # Guardar mensaje del bot
+    save_message(db, session_id, None, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
+
+    return {"session_id": session_id, "block": bot_block}

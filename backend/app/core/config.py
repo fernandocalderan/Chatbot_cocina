@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/chatbot"
     redis_url: str = "redis://redis:6379/0"
     log_level: str = "INFO"
+    use_ia: bool = False
 
 
 @lru_cache(maxsize=1)
