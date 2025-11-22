@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.flow_engine import FlowEngine
 from app.core.session_manager import SessionManager
 from app.core.intent_classifier import IntentClassifier
+from app.core.actions import ActionExecutor
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
@@ -27,7 +28,10 @@ class ChatInput(BaseModel):
 
 
 def load_base_flow() -> dict:
-    flow_path = Path(__file__).resolve().parent.parent / "flows" / "base_flow.json"
+    flow_dir = Path(__file__).resolve().parent.parent / "flows"
+    primary = flow_dir / "lead_intake_v1.json"
+    fallback = flow_dir / "base_flow.json"
+    flow_path = primary if primary.exists() else fallback
     with flow_path.open() as f:
         return json.load(f)
 
@@ -139,6 +143,7 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     flow_data = load_base_flow()
     engine = FlowEngine(flow_data)
     intent = IntentClassifier()
+    executor = ActionExecutor()
 
     session_id = payload.session_id or ""
     state = session_mgr.load(session_id) if session_id else {}
@@ -271,7 +276,12 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
             data["slots"] = slots
         return {"id": block_id, **data}
 
-    bot_block = serialize_block(next_block_id or current_block_id, next_block)
+    bot_block_id = next_block_id or current_block_id
+    bot_block = serialize_block(bot_block_id, next_block)
+    # Ejecutar acciones del bloque
+    state = executor.execute_actions(bot_block.get("actions", []), session_id, state, db=db)
+    session_mgr.save(session_id, state)
+
     # Guardar mensaje del bot
     save_message(db, session_id, None, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
 
