@@ -1,12 +1,15 @@
 import logging
 from typing import Any
 
+from app.services.ai_client import AIClient
+
 logger = logging.getLogger(__name__)
 
 
 class ActionExecutor:
-    def __init__(self):
-        pass
+    def __init__(self, settings):
+        self.settings = settings
+        self.ai_client = AIClient(model=settings.ai_model, api_key=None)
 
     def execute_actions(self, actions: list[dict], session_id: str, state: dict, db=None):
         """
@@ -16,14 +19,18 @@ class ActionExecutor:
             atype = action.get("type")
             logger.info({"event": "action_start", "action": atype, "session_id": session_id, "params": action})
             if atype == "compute_lead_score":
-                # Stub: no hace nada, scoring ya se maneja en /chat/send
+                # Stub: scoring manejado en /chat/send
                 pass
             elif atype == "create_or_update_lead":
                 # Stub: ya manejado en /chat/send
                 pass
             elif atype == "generate_ai_summary":
-                # Stub: no genera IA aún
-                state.setdefault("vars", {})["ai_summary"] = "Resumen IA pendiente (stub)."
+                vars_data = state.get("vars", {})
+                if self.settings.use_ia:
+                    summary = self.ai_client.generate_commercial_brief(vars_data)
+                else:
+                    summary = self.ai_client._deterministic_brief(vars_data)
+                state.setdefault("vars", {})["ai_summary"] = summary
             elif atype == "generate_pdf":
                 # Stub: solo marca placeholder
                 state.setdefault("vars", {})["summary_pdf"] = "s3://stub/summary.pdf"

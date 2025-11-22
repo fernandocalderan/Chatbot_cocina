@@ -143,7 +143,7 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     flow_data = load_base_flow()
     engine = FlowEngine(flow_data)
     intent = IntentClassifier()
-    executor = ActionExecutor()
+    executor = ActionExecutor(settings)
 
     session_id = payload.session_id or ""
     state = session_mgr.load(session_id) if session_id else {}

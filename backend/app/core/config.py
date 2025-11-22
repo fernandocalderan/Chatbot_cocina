@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     log_level: str = "INFO"
     use_ia: bool = False
+    ai_model: str = "gpt-4.1-mini"
 
 
 @lru_cache(maxsize=1)
