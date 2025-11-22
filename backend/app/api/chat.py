@@ -306,4 +306,25 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     # Guardar mensaje del bot
     save_message(db, session_id, None, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
 
-    return {"session_id": session_id, "block": bot_block}
+    # Construir opciones con label en idioma
+    opts = []
+    for opt in bot_block.get("options", []) or []:
+        label = opt.get(f"label_{lang}") or opt.get("label_es") or opt.get("id")
+        opts.append({"id": opt.get("id"), "label": label})
+
+    vars_data = state.get("vars", {})
+    state_summary = {
+        "project_type": vars_data.get("project_type"),
+        "budget": vars_data.get("budget"),
+        "urgency": vars_data.get("urgency"),
+        "lead_score": vars_data.get("lead_score", 0),
+    }
+
+    return {
+        "session_id": session_id,
+        "block_id": bot_block.get("id"),
+        "type": bot_block.get("type"),
+        "text": bot_block.get("text"),
+        "options": opts,
+        "state_summary": state_summary,
+    }
