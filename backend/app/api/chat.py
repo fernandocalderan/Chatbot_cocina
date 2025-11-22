@@ -279,7 +279,12 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     bot_block_id = next_block_id or current_block_id
     bot_block = serialize_block(bot_block_id, next_block)
     # Ejecutar acciones del bloque
-    state = executor.execute_actions(bot_block.get("actions", []), session_id, state, db=db)
+    # Inyectar scoring config en acciones si aplica
+    actions = bot_block.get("actions", [])
+    for action in actions:
+        if action.get("type") == "compute_lead_score":
+            action["scoring_config"] = flow_data.get("scoring", {})
+    state = executor.execute_actions(actions, session_id, state, db=db)
     session_mgr.save(session_id, state)
 
     # Guardar mensaje del bot

@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from app.services.ai_client import AIClient
+from app.services.scoring_service import compute_score
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,35 @@ class ActionExecutor:
             atype = action.get("type")
             logger.info({"event": "action_start", "action": atype, "session_id": session_id, "params": action})
             if atype == "compute_lead_score":
-                # Stub: scoring manejado en /chat/send
-                pass
+                scoring_cfg = action.get("scoring_config") or {}
+                score, breakdown = compute_score(state, scoring_cfg)
+                state.setdefault("vars", {})["lead_score"] = score
+                state.setdefault("vars", {})["lead_score_breakdown"] = breakdown
             elif atype == "create_or_update_lead":
-                # Stub: ya manejado en /chat/send
-                pass
+                if db is not None:
+                    vars_data = state.get("vars", {})
+                    from app.models.leads import Lead
+                    from sqlalchemy.exc import SQLAlchemyError
+
+                    try:
+                        lead = db.query(Lead).filter(Lead.session_id == session_id).first()
+                        if lead:
+                            lead.meta_data = vars_data
+                            lead.score = vars_data.get("lead_score")
+                            lead.score_breakdown_json = vars_data.get("lead_score_breakdown", {})
+                        else:
+                            lead = Lead(
+                                tenant_id=None,
+                                session_id=session_id,
+                                status="nuevo",
+                                score=vars_data.get("lead_score"),
+                                score_breakdown_json=vars_data.get("lead_score_breakdown", {}),
+                                meta_data=vars_data,
+                            )
+                            db.add(lead)
+                        db.commit()
+                    except SQLAlchemyError:
+                        db.rollback()
             elif atype == "generate_ai_summary":
                 vars_data = state.get("vars", {})
                 if self.settings.use_ia:
