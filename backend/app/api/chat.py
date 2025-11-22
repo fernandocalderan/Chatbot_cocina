@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from loguru import logger
 
 from app.api.auth import require_auth
 from app.api.deps import get_db
@@ -196,6 +197,15 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
         for k, v in inferred.items():
             state.setdefault("vars", {})[k] = v
 
+    logger.info(
+        {
+            "event": "chat_send_input",
+            "session_id": session_id,
+            "tenant_id": state.get("vars", {}).get("tenant_id"),
+            "block_id": current_block_id,
+            "message": payload.message,
+        }
+    )
     # Guardar mensaje del usuario
     save_message(db, session_id, None, "user", payload.message, block_id=current_block_id)
 
@@ -248,6 +258,15 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
         score, breakdown = compute_score(vars_data, scoring_cfg)
         thresholds = scoring_cfg.get("thresholds", {})
         lead_status = map_score_to_status(score, thresholds)
+        logger.info(
+            {
+                "event": "scoring_applied",
+                "session_id": session_id,
+                "tenant_id": state.get("vars", {}).get("tenant_id"),
+                "score": score,
+                "breakdown": breakdown,
+            }
+        )
         try:
             lead = db.query(DBLead).filter(DBLead.session_id == session_id).first()
             if lead:
@@ -306,6 +325,16 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
 
     # Guardar mensaje del bot
     save_message(db, session_id, None, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
+    logger.info(
+        {
+            "event": "chat_send_output",
+            "session_id": session_id,
+            "tenant_id": state.get("vars", {}).get("tenant_id"),
+            "block_id": bot_block.get("id"),
+            "type": bot_block.get("type"),
+            "text": bot_block.get("text"),
+        }
+    )
 
     # Construir opciones con label en idioma
     opts = []

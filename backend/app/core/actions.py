@@ -26,6 +26,14 @@ class ActionExecutor:
                 score, breakdown = compute_score(state, scoring_cfg)
                 state.setdefault("vars", {})["lead_score"] = score
                 state.setdefault("vars", {})["lead_score_breakdown"] = breakdown
+                logger.info(
+                    {
+                        "event": "action_scoring",
+                        "session_id": session_id,
+                        "score": score,
+                        "breakdown": breakdown,
+                    }
+                )
             elif atype == "create_or_update_lead":
                 if db is not None:
                     vars_data = state.get("vars", {})
@@ -75,6 +83,13 @@ class ActionExecutor:
                     if tenant and tenant.ai_cost >= tenant.ai_monthly_limit:
                         summary = self.ai_client._deterministic_brief(vars_data)
                         tokens_in = tokens_out = 0
+                        logger.info(
+                            {
+                                "event": "ai_summary_fallback_cost_limit",
+                                "session_id": session_id,
+                                "tenant_id": tenant_id,
+                            }
+                        )
                     else:
                         summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(
                             vars_data, prompt_text
@@ -83,8 +98,27 @@ class ActionExecutor:
                         if tenant:
                             tenant.ai_cost = (tenant.ai_cost or 0) + cost
                             db.commit()
+                        logger.info(
+                            {
+                                "event": "ai_summary_generated",
+                                "session_id": session_id,
+                                "tenant_id": tenant_id,
+                                "tokens_in": tokens_in,
+                                "tokens_out": tokens_out,
+                                "cost": cost,
+                            }
+                        )
                 else:
                     summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(vars_data, prompt_text)
+                    logger.info(
+                        {
+                            "event": "ai_summary_fallback",
+                            "session_id": session_id,
+                            "tenant_id": tenant_id,
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
+                        }
+                    )
                 state.setdefault("vars", {})["ai_summary"] = summary
             elif atype == "generate_pdf":
                 # Stub: solo marca placeholder

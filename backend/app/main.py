@@ -9,8 +9,10 @@ from app.api.metrics import router as metrics_router
 from app.core.config import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.rate_limiter import add_request_context
+from app.core.logger import setup_logger
 
 settings = get_settings()
+setup_logger()
 
 
 def get_application() -> FastAPI:
