@@ -3,6 +3,7 @@ from typing import Any
 
 from app.services.ai_client import AIClient
 from app.services.scoring_service import compute_score
+from app.services.agenda_service import AgendaService
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ class ActionExecutor:
     def __init__(self, settings):
         self.settings = settings
         self.ai_client = AIClient(model=settings.ai_model, api_key=None)
+        self.agenda_service = AgendaService()
 
     def execute_actions(self, actions: list[dict], session_id: str, state: dict, db=None):
         """
@@ -63,8 +65,21 @@ class ActionExecutor:
                 # Stub: loguea notificación
                 logger.info({"event": "notify_team_stub", "session_id": session_id, "payload": action})
             elif atype == "load_available_slots":
-                # Stub: nada aquí; slots se agregan en serialización del bloque
-                pass
+                slots = self.agenda_service.get_slots(
+                    tenant_id=state.get("vars", {}).get("tenant_id"),
+                    visit_type=state.get("vars", {}).get("visit_type"),
+                    location=state.get("vars", {}).get("location"),
+                )
+                state.setdefault("vars", {})["available_slots"] = slots
+            elif atype == "book_appointment":
+                # La creación en DB se maneja cuando el usuario envía el slot; aquí aseguramos slots en estado.
+                if state.get("vars", {}).get("available_slots") is None:
+                    slots = self.agenda_service.get_slots(
+                        tenant_id=state.get("vars", {}).get("tenant_id"),
+                        visit_type=state.get("vars", {}).get("visit_type"),
+                        location=state.get("vars", {}).get("location"),
+                    )
+                    state.setdefault("vars", {})["available_slots"] = slots
             elif atype == "end_session":
                 state["ended"] = True
             logger.info({"event": "action_end", "action": atype, "session_id": session_id})

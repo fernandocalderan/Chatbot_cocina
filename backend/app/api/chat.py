@@ -198,6 +198,17 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     # Guardar mensaje del usuario
     save_message(db, session_id, None, "user", payload.message, block_id=current_block_id)
 
+    # Si bloque es appointment, guardar slot elegido y book en agenda
+    if current_block.get("type") == "appointment":
+        state.setdefault("vars", {})["appointment_slot"] = payload.message
+        visit_type = state.get("vars", {}).get("visit_type")
+        slot_start = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
+        slot_end = slot_start + timedelta(minutes=30)
+        lead = db.query(DBLead).filter(DBLead.session_id == session_id).first()
+        lead_id = lead.id if lead else None
+        tenant_id = lead.tenant_id if lead else None
+        executor.agenda_service.book(db, lead_id, tenant_id, slot_start, slot_end, visit_type)
+
     next_block_id = engine.next_block(current_block, payload.message)
     if next_block_id:
         state["current_block"] = next_block_id
@@ -278,6 +289,11 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
 
     bot_block_id = next_block_id or current_block_id
     bot_block = serialize_block(bot_block_id, next_block)
+    # Si el bloque es appointment, rellenar slots desde estado
+    if bot_block.get("type") == "appointment":
+        slots_state = state.get("vars", {}).get("available_slots")
+        if slots_state:
+            bot_block["slots"] = slots_state
     # Ejecutar acciones del bloque
     # Inyectar scoring config en acciones si aplica
     actions = bot_block.get("actions", [])

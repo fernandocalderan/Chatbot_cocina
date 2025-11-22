@@ -473,6 +473,9 @@
             "location",
             "tenant_calendar"
           ]
+        },
+        {
+          "type": "book_appointment"
         }
       ],
       "next": "summary_with_appointment"
