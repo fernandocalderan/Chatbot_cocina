@@ -12,10 +12,8 @@ ensure_login()
 
 st.title("Editor de flujo")
 
-tenant = st.text_input("Tenant ID", "demo")
-
 if st.button("Cargar flujo"):
-    flow = fetch_flow(tenant)
+    flow = fetch_flow()
     if flow and "flow" in flow:
         st.session_state["flow_data"] = flow["flow"]
     else:

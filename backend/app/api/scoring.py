@@ -1,30 +1,23 @@
-import json
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.auth import oauth2_scheme, require_auth
+from app.api.deps import get_db
+from app.models.flow import Scoring
 
 router = APIRouter(prefix="/scoring", tags=["scoring"])
-_FLOW_PATH = Path(__file__).resolve().parent.parent / "flows" / "base_flow.json"
-
-
-def _load_flow() -> dict:
-    with _FLOW_PATH.open() as f:
-        return json.load(f)
-
-
-def _save_flow(data: dict):
-    with _FLOW_PATH.open("w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 @router.post("/update", dependencies=[Depends(require_auth)])
-def update_scoring(payload: dict, token: str = Depends(oauth2_scheme)):
-    try:
-        flow = _load_flow()
-        flow["scoring"] = payload
-        _save_flow(flow)
-        return {"status": "updated", "scoring": payload}
-    except Exception as exc:  # pragma: no cover - simple guard
-        raise HTTPException(status_code=500, detail=f"error_updating_scoring: {exc}")
+def update_scoring(payload: dict, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    if payload is None:
+        raise HTTPException(status_code=400, detail="invalid_payload")
+    scoring = db.query(Scoring).filter(Scoring.id == 1).first()
+    if not scoring:
+        scoring = Scoring(id=1, data=payload)
+        db.add(scoring)
+    else:
+        scoring.data = payload
+    db.commit()
+    db.refresh(scoring)
+    return {"status": "updated", "scoring": scoring.data}

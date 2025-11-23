@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.config import get_settings
+from app.core.security import verify_password
 from app.models.users import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -22,7 +23,7 @@ class LoginInput(BaseModel):
 @router.post("/login")
 def login(payload: LoginInput, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user or not user.hashed_password or user.hashed_password != payload.password:
+    if not user or not user.hashed_password or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
     settings = get_settings()
     if not settings.jwt_secret:

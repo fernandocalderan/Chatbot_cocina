@@ -7,6 +7,7 @@ from app.models.tenants import Tenant
 from app.models.users import User
 from app.models.flows import Flow
 from app.models.configs import Config
+from app.core.security import get_password_hash
 
 
 def seed_demo() -> None:
@@ -26,15 +27,36 @@ def seed_demo() -> None:
             db.flush()
 
         user = db.query(User).filter_by(tenant_id=tenant.id, email="admin@demo.com").first()
+        demo_hashed = get_password_hash("demo")
         if not user:
             user = User(
                 id=uuid.uuid4(),
                 tenant_id=tenant.id,
                 email="admin@demo.com",
-                hashed_password="demo",  # placeholder, no real auth yet
+                hashed_password=demo_hashed,
                 role="admin",
             )
             db.add(user)
+        else:
+            if not user.hashed_password or user.hashed_password == "demo" or not user.hashed_password.startswith("$2"):
+                user.hashed_password = demo_hashed
+                db.add(user)
+
+        master = db.query(User).filter_by(tenant_id=tenant.id, email="master@demo.com").first()
+        master_hashed = get_password_hash("master123")
+        if not master:
+            master = User(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                email="master@demo.com",
+                hashed_password=master_hashed,
+                role="admin",
+            )
+            db.add(master)
+        else:
+            if not master.hashed_password or not master.hashed_password.startswith("$2"):
+                master.hashed_password = master_hashed
+                db.add(master)
 
         flow = db.query(Flow).filter_by(tenant_id=tenant.id, version=1).first()
         if not flow:

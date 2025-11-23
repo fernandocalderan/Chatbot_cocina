@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.auth import oauth2_scheme, require_auth
+from app.api.deps import get_db
+from app.models.flow import Flow, Scoring
 
 router = APIRouter(prefix="/flows", tags=["flows"])
 _FLOW_PATH = Path(__file__).resolve().parent.parent / "flows" / "base_flow.json"
@@ -38,15 +41,40 @@ def create_flow(tenant_id: str, payload: dict, token: str = Depends(oauth2_schem
     return {"tenant_id": tenant_id, "status": "received", "payload": payload}
 
 
+@router.get("/current", dependencies=[Depends(require_auth)])
+def get_current_flow(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    flow = db.query(Flow).filter(Flow.name == "base").first()
+    if flow:
+        return {"flow": flow.data}
+    # fallback al json local si no hay registro en DB
+    try:
+        return {"flow": _load_flow()}
+    except FileNotFoundError:
+        return {"flow": {}}
+
+
 @router.get("/scoring", dependencies=[Depends(require_auth)])
-def get_scoring(token: str = Depends(oauth2_scheme)):
-    data = _load_flow()
-    return data.get("scoring", {})
+def get_scoring(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    scoring = db.query(Scoring).filter(Scoring.id == 1).first()
+    if not scoring:
+        scoring = Scoring(id=1, data={})
+        db.add(scoring)
+        db.commit()
+        db.refresh(scoring)
+    return scoring.data or {}
 
 
 @router.post("/update", dependencies=[Depends(require_auth)])
-def update_flow(payload: dict, token: str = Depends(oauth2_scheme)):
+def update_flow(payload: dict, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     if not payload:
         raise HTTPException(status_code=400, detail="invalid_payload")
-    _save_flow(payload)
-    return {"status": "updated"}
+
+    flow = db.query(Flow).filter(Flow.name == "base").first()
+    if not flow:
+        flow = Flow(name="base", data=payload)
+        db.add(flow)
+    else:
+        flow.data = payload
+    db.commit()
+    db.refresh(flow)
+    return flow.data

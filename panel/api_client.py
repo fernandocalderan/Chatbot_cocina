@@ -70,8 +70,8 @@ def api_post(path: str, payload: dict) -> Any:
     return None
 
 
-def fetch_flow(tenant_id: str = "demo"):
-    return api_get(f"/flows/{tenant_id}")
+def fetch_flow():
+    return api_get("/flows/current")
 
 
 def chat_send(message: str, session_id: str | None = None, lang: str = "es"):
