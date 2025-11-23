@@ -1,11 +1,14 @@
+import os
 from fastapi import FastAPI
 
 from app.api.appointments import router as appointments_router
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.routes.health import router as health_router
 from app.api.flows import router as flows_router
 from app.api.leads import router as leads_router
 from app.api.metrics import router as metrics_router
+from app.api.scoring import router as scoring_router
 from app.core.config import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.rate_limiter import add_request_context
@@ -24,8 +27,10 @@ def get_application() -> FastAPI:
     )
     # CORS
     origins = []
-    if settings.cors_origins:
-        origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    env_origins = os.getenv("CORS_ORIGINS")
+    cors_raw = env_origins if env_origins is not None else settings.cors_origins
+    if cors_raw:
+        origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
     if origins:
         app.add_middleware(
             CORSMiddleware,
@@ -38,11 +43,13 @@ def get_application() -> FastAPI:
     app.middleware("http")(add_request_context)
 
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(flows_router)
     app.include_router(chat_router)
     app.include_router(appointments_router)
     app.include_router(leads_router)
     app.include_router(metrics_router)
+    app.include_router(scoring_router)
     return app
 
 

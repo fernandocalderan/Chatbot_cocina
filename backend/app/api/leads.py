@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.auth import require_auth
+from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db
 from app.models.leads import Lead
 
@@ -8,7 +8,7 @@ router = APIRouter(prefix="/leads", tags=["leads"])
 
 
 @router.get("/", dependencies=[Depends(require_auth)])
-def list_leads(db=Depends(get_db)):
+def list_leads(db=Depends(get_db), token: str = Depends(oauth2_scheme)):
     leads = db.query(Lead).all()
     return [
         {

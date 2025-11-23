@@ -1,0 +1,53 @@
+.chat-window-wrapper {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 999999;
+  animation: fadeIn 0.3s ease;
+}
+
+.chat-window {
+  width: 380px;
+  height: 600px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  position: relative;
+  animation: slideUp 0.25s ease;
+}
+
+.chat-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: rgba(0, 0, 0, 0.08);
+  color: #555;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  z-index: 10;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.auth import require_auth
+from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db
 from app.models.tenants import Tenant
 
@@ -8,7 +8,7 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
 @router.get("/ai", dependencies=[Depends(require_auth)])
-def ai_metrics(db=Depends(get_db)):
+def ai_metrics(db=Depends(get_db), token: str = Depends(oauth2_scheme)):
     rows = db.query(Tenant).all()
     return [
         {

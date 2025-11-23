@@ -2,12 +2,13 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from loguru import logger
 
-from app.api.auth import require_auth
+from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db
 from app.core.config import get_settings
 from app.core.flow_engine import FlowEngine
@@ -125,7 +126,7 @@ def map_score_to_status(score: int, thresholds: dict) -> str:
 
 
 @router.get("/history/{session_id}", dependencies=[Depends(require_auth)])
-def get_history(session_id: str, db=Depends(get_db)):
+def get_history(session_id: str, db=Depends(get_db), token: str = Depends(oauth2_scheme)):
     msgs = (
         db.query(DBMessage)
         .filter(DBMessage.session_id == session_id)
@@ -139,7 +140,7 @@ def get_history(session_id: str, db=Depends(get_db)):
 
 
 @router.post("/send", dependencies=[Depends(require_auth)])
-def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future use
+def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oauth2_scheme)):  # db kept for future use
     settings = get_settings()
     session_mgr = SessionManager(settings.redis_url)
     flow_data = load_base_flow()
@@ -147,12 +148,9 @@ def send_message(payload: ChatInput, db=Depends(get_db)):  # db kept for future 
     intent = IntentClassifier()
     executor = ActionExecutor(settings)
 
-    session_id = payload.session_id or ""
-    state = session_mgr.load(session_id) if session_id else {}
-    if not session_id:
-        import uuid
-
-        session_id = str(uuid.uuid4())
+    session_id = payload.session_id or str(uuid4())
+    state = session_mgr.load(session_id) or {}
+    if not state:
         state = {"current_block": flow_data.get("start_block", "start"), "vars": {}}
         session_mgr.save(session_id, state)
         try:
