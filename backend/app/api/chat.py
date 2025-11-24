@@ -4,22 +4,25 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from loguru import logger
 
 from app.api.auth import oauth2_scheme, require_auth
-from app.api.deps import get_db
+from app.api.deps import get_db, get_tenant_id
 from app.core.config import get_settings
 from app.core.flow_engine import FlowEngine
 from app.core.session_manager import SessionManager
 from app.core.intent_classifier import IntentClassifier
+from app.core.ai_extractor import AIExtractor
 from app.core.actions import ActionExecutor
+from app.core.idempotency import IdempotencyStore
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
+from app.models.tenants import Tenant
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -50,13 +53,34 @@ def validate_input(block: dict, user_input: str):
         if not (min_chars <= len(user_input) <= max_chars):
             raise HTTPException(status_code=400, detail="invalid_length")
     elif vtype == "phone":
-        if not re.match(r"^\+?\d{7,15}$", user_input):
+        if not re.match(r"^\+?\d{7,15}$", user_input.strip()):
             raise HTTPException(status_code=400, detail="invalid_phone")
     elif vtype == "email_optional":
         if user_input.strip() == "":
             return
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", user_input):
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", user_input.strip()):
             raise HTTPException(status_code=400, detail="invalid_email")
+    elif vtype == "area_m2":
+        nums = [float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)]
+        if not nums:
+            raise HTTPException(status_code=400, detail="invalid_area")
+        area = nums[0]
+        if len(nums) >= 2:
+            area = nums[0] * nums[1]
+        min_m2 = float(validation.get("min_m2", 0.5))
+        max_m2 = float(validation.get("max_m2", 300.0))
+        if not (min_m2 <= area <= max_m2):
+            raise HTTPException(status_code=400, detail="invalid_area")
+    elif vtype == "budget":
+        nums = [float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)]
+        if not nums:
+            raise HTTPException(status_code=400, detail="invalid_budget")
+        min_budget = float(validation.get("min_budget", 500))
+        max_budget = float(validation.get("max_budget", 300000))
+        low = min(nums)
+        high = max(nums)
+        if low > high or low < min_budget or high > max_budget:
+            raise HTTPException(status_code=400, detail="invalid_budget")
 
 
 def pick_lang(flow: dict, requested: Optional[str]) -> str:
@@ -126,10 +150,10 @@ def map_score_to_status(score: int, thresholds: dict) -> str:
 
 
 @router.get("/history/{session_id}", dependencies=[Depends(require_auth)])
-def get_history(session_id: str, db=Depends(get_db), token: str = Depends(oauth2_scheme)):
+def get_history(session_id: str, db=Depends(get_db), tenant_id: str = Depends(get_tenant_id), token: str = Depends(oauth2_scheme)):
     msgs = (
         db.query(DBMessage)
-        .filter(DBMessage.session_id == session_id)
+        .filter(DBMessage.session_id == session_id, DBMessage.tenant_id == tenant_id)
         .order_by(DBMessage.id.asc())
         .all()
     )
@@ -140,31 +164,61 @@ def get_history(session_id: str, db=Depends(get_db), token: str = Depends(oauth2
 
 
 @router.post("/send", dependencies=[Depends(require_auth)])
-def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oauth2_scheme)):  # db kept for future use
+def send_message(
+    payload: ChatInput,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    tenant_id: str = Depends(get_tenant_id),
+    db=Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):  # db kept for future use
     settings = get_settings()
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="missing_idempotency_key")
+
+    idemp_store = IdempotencyStore(settings.redis_url)
+    existing = idemp_store.get(idempotency_key)
+    if existing is not None:
+        return existing
+
     session_mgr = SessionManager(settings.redis_url)
     flow_data = load_base_flow()
     engine = FlowEngine(flow_data)
-    intent = IntentClassifier()
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    flags = tenant.flags_ia if tenant else {}
+    use_ai_intent = bool(flags.get("intent_extraction_enabled") or settings.use_ia)
+    ai_extractor = AIExtractor(settings.openai_api_key, settings.ai_model) if use_ai_intent else None
+    intent = IntentClassifier(ai_extractor=ai_extractor)
     executor = ActionExecutor(settings)
 
     session_id = payload.session_id or str(uuid4())
     state = session_mgr.load(session_id) or {}
+    if state and state.get("vars", {}).get("tenant_id") not in (None, tenant_id):
+        raise HTTPException(status_code=403, detail="tenant_mismatch")
     if not state:
-        state = {"current_block": flow_data.get("start_block", "start"), "vars": {}}
-        session_mgr.save(session_id, state)
-        try:
-            db_obj = DBSesion(
-                id=session_id,
-                tenant_id=None,
-                canal="web",
-                state=state.get("current_block"),
-                variables_json=state.get("vars", {}),
-            )
-            db.add(db_obj)
-            db.commit()
-        except SQLAlchemyError:
-            db.rollback()
+        # Intentar cargar desde DB si existe
+        db_state = db.query(DBSesion).filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id).first()
+        if db_state:
+            vars_data = db_state.variables_json or {}
+            vars_data.setdefault("tenant_id", tenant_id)
+            state = {"current_block": db_state.state or flow_data.get("start_block", "start"), "vars": vars_data}
+            session_mgr.save(session_id, state)
+        else:
+            state = {"current_block": flow_data.get("start_block", "start"), "vars": {"tenant_id": tenant_id}}
+            session_mgr.save(session_id, state)
+            try:
+                db_obj = DBSesion(
+                    id=session_id,
+                    tenant_id=tenant_id,
+                    canal="web",
+                    state=state.get("current_block"),
+                    variables_json=state.get("vars", {}),
+                )
+                db.add(db_obj)
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+    else:
+        state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
 
     start_block = flow_data.get("start_block", "start")
     current_block_id = state.get("current_block", start_block)
@@ -183,15 +237,27 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
         save_as = current_block.get("save_as")
         if save_as:
             state.setdefault("vars", {})[save_as] = payload.message
+    elif current_block.get("type") == "appointment":
+        try:
+            slot_dt = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_appointment_slot")
+        now = datetime.now(timezone.utc) - timedelta(minutes=5)
+        future_limit = now + timedelta(days=365)
+        if slot_dt < now or slot_dt > future_limit:
+            raise HTTPException(status_code=400, detail="invalid_appointment_slot")
+        state.setdefault("vars", {})["appointment_slot"] = payload.message
+    elif current_block.get("type") == "attachment":
+        # payload.message expected to be file_id or s3_key reference
+        save_as = current_block.get("save_as") or "attachment"
+        state.setdefault("vars", {}).setdefault("attachments", [])
+        state["vars"]["attachments"].append({save_as: payload.message})
     elif current_block.get("type") == "message":
         pass
 
     # Intent heuristic o IA (flag use_ia)
     if current_block.get("type") == "input":
-        if settings.use_ia:
-            inferred = intent.classify(payload.message)  # placeholder IA
-        else:
-            inferred = intent.classify(payload.message)
+        inferred = intent.classify(payload.message, use_ai=use_ai_intent)
         for k, v in inferred.items():
             state.setdefault("vars", {})[k] = v
 
@@ -205,7 +271,7 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
         }
     )
     # Guardar mensaje del usuario
-    save_message(db, session_id, None, "user", payload.message, block_id=current_block_id)
+    save_message(db, session_id, tenant_id, "user", payload.message, block_id=current_block_id)
 
     # Si bloque es appointment, guardar slot elegido y book en agenda
     if current_block.get("type") == "appointment":
@@ -213,10 +279,10 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
         visit_type = state.get("vars", {}).get("visit_type")
         slot_start = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
         slot_end = slot_start + timedelta(minutes=30)
-        lead = db.query(DBLead).filter(DBLead.session_id == session_id).first()
+        lead = db.query(DBLead).filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id).first()
         lead_id = lead.id if lead else None
-        tenant_id = lead.tenant_id if lead else None
-        executor.agenda_service.book(db, lead_id, tenant_id, slot_start, slot_end, visit_type)
+        lead_tenant = lead.tenant_id if lead else tenant_id
+        executor.agenda_service.book(db, lead_id, lead_tenant, slot_start, slot_end, visit_type)
 
     next_block_id = engine.next_block(current_block, payload.message)
     if next_block_id:
@@ -232,14 +298,16 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
 
     # Persist session to DB
     try:
-        db_state = db.query(DBSesion).filter(DBSesion.id == session_id).first()
+        db_state = db.query(DBSesion).filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id).first()
         if db_state:
             db_state.state = state.get("current_block")
             db_state.variables_json = state.get("vars", {})
+            if not db_state.tenant_id:
+                db_state.tenant_id = tenant_id
         else:
             db_state = DBSesion(
                 id=session_id,
-                tenant_id=None,
+                tenant_id=tenant_id,
                 canal="web",
                 state=state.get("current_block"),
                 variables_json=state.get("vars", {}),
@@ -266,7 +334,7 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
             }
         )
         try:
-            lead = db.query(DBLead).filter(DBLead.session_id == session_id).first()
+            lead = db.query(DBLead).filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id).first()
             if lead:
                 lead.score = score
                 lead.score_breakdown_json = breakdown
@@ -274,7 +342,7 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
                 lead.status = lead_status
             else:
                 lead = DBLead(
-                    tenant_id=None,
+                    tenant_id=tenant_id,
                     session_id=session_id,
                     status=lead_status,
                     score=score,
@@ -322,7 +390,7 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
     session_mgr.save(session_id, state)
 
     # Guardar mensaje del bot
-    save_message(db, session_id, None, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
+    save_message(db, session_id, tenant_id, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
     logger.info(
         {
             "event": "chat_send_output",
@@ -348,7 +416,7 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
         "lead_score": vars_data.get("lead_score", 0),
     }
 
-    return {
+    response_data = {
         "session_id": session_id,
         "block_id": bot_block.get("id"),
         "type": bot_block.get("type"),
@@ -356,3 +424,5 @@ def send_message(payload: ChatInput, db=Depends(get_db), token: str = Depends(oa
         "options": opts,
         "state_summary": state_summary,
     }
+    idemp_store.set(idempotency_key, response_data)
+    return response_data

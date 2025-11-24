@@ -72,3 +72,45 @@ class AIClient:
             pieces.append(f"Contacto por: {data['preferred_channel']}.")
         pieces.append("Recomendación: agendar llamada y compartir moodboard inicial.")
         return " ".join(pieces)
+
+    def generate_text_snippet(self, kind: str, vars_data: Dict) -> Tuple[str, int, int]:
+        """
+        Genera textos cortos (welcome, closing, micro_proposal) con OpenAI.
+        Devuelve texto, tokens_in, tokens_out. Fallback determinista si no hay API.
+        """
+        if not self.client or not self.api_key:
+            return self._deterministic_snippet(kind, vars_data), 0, 0
+
+        system_prompts = {
+            "welcome": "Eres un asistente amable de una tienda de cocinas/muebles. Redacta un saludo breve, cálido y profesional.",
+            "closing": "Eres un asistente amable. Redacta un cierre corto invitando a seguir en contacto.",
+            "micro_proposal": "Eres un consultor de cocinas/muebles. Genera una micro-propuesta de 3-4 líneas con próxima acción.",
+        }
+        user_prompt = self._build_prompt(vars_data)
+        system_msg = system_prompts.get(kind, system_prompts["welcome"])
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=120,
+                temperature=0.5,
+            )
+            text = resp.choices[0].message.content
+            usage = resp.usage
+            tokens_in = usage.prompt_tokens if usage else 0
+            tokens_out = usage.completion_tokens if usage else 0
+            return text, tokens_in, tokens_out
+        except Exception:
+            return self._deterministic_snippet(kind, vars_data), 0, 0
+
+    def _deterministic_snippet(self, kind: str, data: Dict) -> str:
+        name = data.get("contact_name") or "allí"
+        if kind == "closing":
+            return f"Gracias por tu tiempo, {name}. Te contactaremos para seguir afinando tu proyecto."
+        if kind == "micro_proposal":
+            base = self._deterministic_brief(data)
+            return f"{base} Próximo paso: agendar una llamada breve para confirmar requisitos."
+        return "Hola, soy tu asistente para proyectos a medida. Te ayudaré a recoger los datos clave y preparar una propuesta inicial."

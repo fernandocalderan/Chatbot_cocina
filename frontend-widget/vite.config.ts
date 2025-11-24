@@ -9,13 +9,17 @@ export default defineConfig({
   build: {
     lib: {
       entry: "src/main.jsx",
-      name: "ChatWidget",
-      fileName: "chat-widget",
+      name: "OpunnenceWidget",
+      fileName: () => `chat-widget.js`,
+      formats: ["umd"],
     },
     rollupOptions: {
-      external: [],
+      external: ["react", "react-dom"],
       output: {
-        globals: {},
+        globals: {
+          react: "React",
+          "react-dom": "ReactDOM",
+        },
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith(".css")) {
             return "chat-widget.css";

@@ -7,19 +7,28 @@ from utils import format_timestamp, load_styles
 
 load_styles()
 if "token" not in st.session_state:
-    st.switch_page("auth.py")
+    st.switch_page("auth")
 ensure_login()
 
 st.title("Citas")
 st.caption("Gestiona citas y cambia su estado con confirmación/cancelación.")
 
-appointments = list_appointments()
+with st.spinner("Cargando citas..."):
+    appointments = list_appointments()
+
+if appointments is None:
+    appointments = []
+elif not isinstance(appointments, dict) and not isinstance(appointments, list):
+    st.error(f"Error al cargar citas: {appointments}")
+    appointments = []
 
 if not appointments:
     st.info("No hay citas disponibles.")
 else:
     df_rows = []
     for appt in appointments:
+        if not isinstance(appt, dict):
+            continue
         df_rows.append(
             {
                 "slot_start": format_timestamp(appt.get("slot_start")),
@@ -41,12 +50,14 @@ else:
             f"· Estado: `{appt.get('status')}` · Lead: `{appt.get('lead_id') or '-'}`"
         )
         if col_confirm.button("Confirmar", key=f"confirm_{i}"):
-            res = confirm_appointment(appt.get("id"))
+            with st.spinner("Confirmando cita..."):
+                res = confirm_appointment(appt.get("id"))
             if res:
                 st.success("Cita confirmada")
                 st.rerun()
         if col_cancel.button("Cancelar", key=f"cancel_{i}"):
-            res = cancel_appointment(appt.get("id"))
+            with st.spinner("Cancelando cita..."):
+                res = cancel_appointment(appt.get("id"))
             if res:
                 st.warning("Cita cancelada")
                 st.rerun()

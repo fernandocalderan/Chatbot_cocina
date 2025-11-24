@@ -175,9 +175,9 @@
       },
       "save_as": "measures",
       "validation": {
-        "type": "text_length",
-        "min_chars": 3,
-        "max_chars": 120
+        "type": "area_m2",
+        "min_m2": 0.5,
+        "max_m2": 300
       },
       "next": "ask_style"
     },
@@ -207,9 +207,9 @@
       },
       "save_as": "budget",
       "validation": {
-        "type": "text_length",
-        "min_chars": 1,
-        "max_chars": 60
+        "type": "budget",
+        "min_budget": 500,
+        "max_budget": 300000
       },
       "next": "ask_urgency"
     },

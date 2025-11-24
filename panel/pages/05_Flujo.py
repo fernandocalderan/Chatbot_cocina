@@ -7,15 +7,18 @@ from utils import load_styles
 
 load_styles()
 if "token" not in st.session_state:
-    st.switch_page("auth.py")
+    st.switch_page("auth")
 ensure_login()
 
 st.title("Editor de flujo")
 
 if st.button("Cargar flujo"):
-    flow = fetch_flow()
-    if flow and "flow" in flow:
+    with st.spinner("Cargando flujo..."):
+        flow = fetch_flow()
+    if isinstance(flow, dict) and "flow" in flow:
         st.session_state["flow_data"] = flow["flow"]
+    elif isinstance(flow, dict) and flow.get("detail"):
+        st.error(f"Error al cargar flujo: {flow}")
     else:
         st.warning("No se pudo cargar el flujo.")
 
@@ -64,7 +67,8 @@ if flow_data:
                 block["text"] = {"es": text_es, "en": text_en, "ca": text_ca, "pt": text_pt}
                 block["options"] = new_options
                 flow_data["blocks"][editing] = block
-                res = update_flow(flow_data)
+                with st.spinner("Guardando flujo..."):
+                    res = update_flow(flow_data)
                 if res:
                     st.success("Bloque guardado y flujo actualizado.")
             except json.JSONDecodeError:

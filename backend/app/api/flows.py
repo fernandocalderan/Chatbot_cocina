@@ -1,15 +1,17 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.auth import oauth2_scheme, require_auth
-from app.api.deps import get_db
-from app.models.flow import Flow, Scoring
+from app.api.deps import get_db, get_tenant_id
+from app.models.flow import Scoring
+from app.models.flows import Flow as FlowVersioned
 
 router = APIRouter(prefix="/flows", tags=["flows"])
-_FLOW_PATH = Path(__file__).resolve().parent.parent / "flows" / "base_flow.json"
+_FLOW_PATH = Path(__file__).resolve().parent.parent / "flows" / "lead_intake_v1.json"
 
 
 def _load_flow() -> dict:
@@ -17,44 +19,45 @@ def _load_flow() -> dict:
         return json.load(f)
 
 
-def _save_flow(data: dict):
-    with _FLOW_PATH.open("w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-@router.get("/{tenant_id}", dependencies=[Depends(require_auth)])
-def get_flow(tenant_id: str, token: str = Depends(oauth2_scheme)):
-    # Stub: lee el flujo base desde archivo ignorando tenant_id
-    data = _load_flow()
-    return {"tenant_id": tenant_id, "flow": data}
-
-
-@router.get("/{tenant_id}/{version}", dependencies=[Depends(require_auth)])
-def get_flow_version(tenant_id: str, version: str, token: str = Depends(oauth2_scheme)):
-    data = _load_flow()
-    return {"tenant_id": tenant_id, "version": version, "flow": data}
-
-
-@router.post("/{tenant_id}", dependencies=[Depends(require_auth)])
-def create_flow(tenant_id: str, payload: dict, token: str = Depends(oauth2_scheme)):
-    # Stub: en futuro persistirá en DB; ahora eco del request.
-    return {"tenant_id": tenant_id, "status": "received", "payload": payload}
-
-
 @router.get("/current", dependencies=[Depends(require_auth)])
-def get_current_flow(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
-    flow = db.query(Flow).filter(Flow.name == "base").first()
+def get_current_flow(
+    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme), current_tenant: str = Depends(get_tenant_id)
+):
+    # Buscar la versión publicada más reciente para el tenant
+    flow = (
+        db.query(FlowVersioned)
+        .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
+        .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+        .first()
+    )
     if flow:
-        return {"flow": flow.data}
-    # fallback al json local si no hay registro en DB
+        return {
+            "tenant_id": current_tenant,
+            "flow_id": str(flow.id),
+            "version": flow.version,
+            "estado": flow.estado,
+            "published_at": flow.published_at.isoformat() if flow.published_at else None,
+            "flow": flow.schema_json,
+        }
+    # fallback al json local (lead_intake_v1) si no hay registro en DB
     try:
-        return {"flow": _load_flow()}
+        data = _load_flow()
+        return {
+            "tenant_id": current_tenant,
+            "flow_id": None,
+            "version": data.get("version"),
+            "estado": "fallback",
+            "published_at": None,
+            "flow": data,
+        }
     except FileNotFoundError:
-        return {"flow": {}}
+        return {"tenant_id": current_tenant, "flow": {}}
 
 
 @router.get("/scoring", dependencies=[Depends(require_auth)])
-def get_scoring(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+def get_scoring(
+    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme), current_tenant: str = Depends(get_tenant_id)
+):
     scoring = db.query(Scoring).filter(Scoring.id == 1).first()
     if not scoring:
         scoring = Scoring(id=1, data={})
@@ -65,16 +68,38 @@ def get_scoring(db: Session = Depends(get_db), token: str = Depends(oauth2_schem
 
 
 @router.post("/update", dependencies=[Depends(require_auth)])
-def update_flow(payload: dict, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+def update_flow(
+    payload: dict,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+    current_tenant: str = Depends(get_tenant_id),
+):
     if not payload:
         raise HTTPException(status_code=400, detail="invalid_payload")
 
-    flow = db.query(Flow).filter(Flow.name == "base").first()
-    if not flow:
-        flow = Flow(name="base", data=payload)
-        db.add(flow)
-    else:
-        flow.data = payload
+    latest_flow = (
+        db.query(FlowVersioned)
+        .filter(FlowVersioned.tenant_id == current_tenant)
+        .order_by(FlowVersioned.version.desc())
+        .first()
+    )
+    next_version = (latest_flow.version + 1) if latest_flow else 1
+
+    new_flow = FlowVersioned(
+        tenant_id=current_tenant,
+        version=next_version,
+        schema_json=payload,
+        estado="published",
+        published_at=datetime.now(timezone.utc),
+    )
+    db.add(new_flow)
     db.commit()
-    db.refresh(flow)
-    return flow.data
+    db.refresh(new_flow)
+    return {
+        "tenant_id": current_tenant,
+        "flow_id": str(new_flow.id),
+        "version": new_flow.version,
+        "estado": new_flow.estado,
+        "published_at": new_flow.published_at.isoformat() if new_flow.published_at else None,
+        "flow": new_flow.schema_json,
+    }

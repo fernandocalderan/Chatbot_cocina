@@ -5,7 +5,7 @@ import ChatOptions from "./ChatOptions";
 import ChatInput from "./ChatInput";
 import TypingIndicator from "./TypingIndicator";
 
-export default function ChatContainer({ apiUrl, tenantTheme, strings }) {
+export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, strings }) {
   const [messages, setMessages] = useState([]);
   const [options, setOptions] = useState([]);
   const [input, setInput] = useState("");
@@ -41,9 +41,22 @@ export default function ChatContainer({ apiUrl, tenantTheme, strings }) {
     setTyping(true);
 
     try {
-      const res = await fetch(`${apiUrl}/chat/send`, {
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey) {
+        headers["x-api-key"] = apiKey;
+        headers["Authorization"] = `Bearer ${apiKey}`;
+      } else if (widgetToken) {
+        headers["Authorization"] = `Bearer ${widgetToken}`;
+      }
+      if (tenantId) {
+        headers["X-Tenant-ID"] = tenantId;
+      }
+      const idempotencyKey = `${sessionIdRef.current || "anon"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      headers["Idempotency-Key"] = idempotencyKey;
+
+      const res = await fetch(`${apiUrl}/v1/chat/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ message: trimmed, session_id: sessionIdRef.current }),
       });
 

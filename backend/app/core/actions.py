@@ -11,8 +11,21 @@ logger = logging.getLogger(__name__)
 class ActionExecutor:
     def __init__(self, settings):
         self.settings = settings
-        self.ai_client = AIClient(model=settings.ai_model, api_key=None)
+        self.ai_client = AIClient(model=settings.ai_model, api_key=settings.openai_api_key)
         self.agenda_service = AgendaService()
+
+    def _can_use_ai(self, tenant):
+        if not tenant:
+            return False
+        return (tenant.ai_cost or 0) < (tenant.ai_monthly_limit or 0)
+
+    def _register_cost(self, tenant, tokens_in: int, tokens_out: int, db):
+        if not tenant or db is None:
+            return
+        cost = (tokens_in + tokens_out) * float(self.settings.ai_price_per_token_usd)
+        tenant.ai_cost = (tenant.ai_cost or 0) + cost
+        db.commit()
+        return cost
 
     def execute_actions(self, actions: list[dict], session_id: str, state: dict, db=None):
         """
@@ -76,38 +89,24 @@ class ActionExecutor:
                         prompt_text = prompt.prompt_text
 
                 # Control de coste
-                if self.settings.use_ia and db is not None and tenant_id:
+                tenant = None
+                if db is not None and tenant_id:
                     from app.models.tenants import Tenant
-
                     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-                    if tenant and tenant.ai_cost >= tenant.ai_monthly_limit:
-                        summary = self.ai_client._deterministic_brief(vars_data)
-                        tokens_in = tokens_out = 0
-                        logger.info(
-                            {
-                                "event": "ai_summary_fallback_cost_limit",
-                                "session_id": session_id,
-                                "tenant_id": tenant_id,
-                            }
-                        )
-                    else:
-                        summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(
-                            vars_data, prompt_text
-                        )
-                        cost = (tokens_in + tokens_out) * float(self.settings.ai_price_per_token_usd)
-                        if tenant:
-                            tenant.ai_cost = (tenant.ai_cost or 0) + cost
-                            db.commit()
-                        logger.info(
-                            {
-                                "event": "ai_summary_generated",
-                                "session_id": session_id,
-                                "tenant_id": tenant_id,
-                                "tokens_in": tokens_in,
-                                "tokens_out": tokens_out,
-                                "cost": cost,
-                            }
-                        )
+
+                if self.settings.use_ia and tenant and self._can_use_ai(tenant):
+                    summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(vars_data, prompt_text)
+                    cost = self._register_cost(tenant, tokens_in, tokens_out, db)
+                    logger.info(
+                        {
+                            "event": "ai_summary_generated",
+                            "session_id": session_id,
+                            "tenant_id": tenant_id,
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
+                            "cost": cost,
+                        }
+                    )
                 else:
                     summary, tokens_in, tokens_out = self.ai_client.generate_commercial_brief(vars_data, prompt_text)
                     logger.info(
@@ -144,5 +143,46 @@ class ActionExecutor:
                     state.setdefault("vars", {})["available_slots"] = slots
             elif atype == "end_session":
                 state["ended"] = True
+            elif atype in {"generate_ai_welcome", "generate_ai_closing", "generate_ai_micro_proposal"}:
+                vars_data = state.get("vars", {})
+                tenant_id = vars_data.get("tenant_id")
+                tenant = None
+                if db is not None and tenant_id:
+                    from app.models.tenants import Tenant
+
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                flags = tenant.flags_ia if tenant and tenant.flags_ia else {}
+                if flags.get("text_gen_enabled") and self._can_use_ai(tenant):
+                    kind = (
+                        "welcome"
+                        if atype == "generate_ai_welcome"
+                        else "closing"
+                        if atype == "generate_ai_closing"
+                        else "micro_proposal"
+                    )
+                    text, tokens_in, tokens_out = self.ai_client.generate_text_snippet(kind, vars_data)
+                    cost = self._register_cost(tenant, tokens_in, tokens_out, db)
+                    state.setdefault("vars", {})[f"{kind}_text"] = text
+                    logger.info(
+                        {
+                            "event": "ai_text_generated",
+                            "kind": kind,
+                            "session_id": session_id,
+                            "tenant_id": tenant_id,
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
+                            "cost": cost,
+                        }
+                    )
+                else:
+                    kind = (
+                        "welcome"
+                        if atype == "generate_ai_welcome"
+                        else "closing"
+                        if atype == "generate_ai_closing"
+                        else "micro_proposal"
+                    )
+                    text = self.ai_client._deterministic_snippet(kind, vars_data)
+                    state.setdefault("vars", {})[f"{kind}_text"] = text
             logger.info({"event": "action_end", "action": atype, "session_id": session_id})
         return state

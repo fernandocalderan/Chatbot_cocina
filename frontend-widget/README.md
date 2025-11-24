@@ -24,14 +24,18 @@ Incluye JS y CSS desde el CDN, añade el contenedor y ejecuta la init:
 <script>
   ChatWidget.init({
     apiUrl: "https://api.opunnence.com/v1",
+    apiKey: "TOKEN_API",
     tenantTheme: "blue"
   });
 </script>
 ```
 Colócalo al final del `<body>` (o tras el contenedor) para asegurar que `#widget-root` existe.
 
+En local (Vite): `VITE_API_BASE=http://localhost:8100 VITE_API_KEY=TOKEN_API npm run dev`.
+
 ## Parámetros admitidos en `ChatWidget.init`
 - `apiUrl` (**string, requerido**): endpoint base de la API del chatbot (ej. staging o prod).
+- `apiKey` (**string, opcional**): token de acceso para la API (se envía como `x-api-key` y `Authorization`). Útil cuando el backend exige auth incluso en local.
 - `tenantTheme` (**string, opcional**): paleta principal. Valores soportados: `blue`, `green`, `black` (sin valor usa el tema por defecto).
 - `language` (**string, opcional**): `es` o `en`. Cualquier otro valor hace fallback a `es`. Ejemplo: `language: "en"`.
 - `startOpen` (**boolean, opcional**): `true` abre la ventana al cargar, `false` muestra solo la burbuja. Ejemplo: `startOpen: true`.

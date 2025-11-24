@@ -15,7 +15,7 @@ make migrate
 make seed
 ```
 
-Healthcheck: `http://localhost:8100/health` (ver puertos en `docker-compose.yml`).
+Healthcheck: `http://localhost:8100/v1/health` (ver puertos en `docker-compose.yml`).
 
 ## Notas
 - Configuración en `.env` (copiado de `.env.example`).

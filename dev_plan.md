@@ -108,15 +108,15 @@ Panel profesional (Streamlit) consumiendo la API
   - Estructura repo: backend (FastAPI), frontend-widget, panel (Streamlit), infra (compose, scripts).
   - Docker Compose con api+db+redis (+minio opcional). .env.example, Makefile (run, test, format, lint, migrate).
   - CI básico (lint+tests).
-  - Entrega: entorno local levanta, healthcheck `/health`.
+  - Entrega: entorno local levanta, healthcheck `/v1/health`.
 - Fase 2 Modelado de datos
   - Tablas base alembic: tenants, users, flows, sessions, leads, appointments, configs, messages, files, audits.
   - Seeds: tenant demo, flow base v1, usuario admin demo.
   - Entrega: migraciones reproducibles; script `make seed`.
 - Fase 3 Motor del chat (core)
-  - FlowEngine y SessionManager funcionales; API `/chat/send` que recibe message y devuelve siguiente bloque.
+  - FlowEngine y SessionManager funcionales; API `/v1/chat/send` que recibe message y devuelve siguiente bloque.
   - LeadScoring stub (regla fija), IntentClassifier stub (sin IA, regex/reglas).
-  - Idempotency-Key obligatorio en `/chat/send` para evitar duplicados.
+  - Idempotency-Key obligatorio en `/v1/chat/send` para evitar duplicados.
   - Formato sugerido de Idempotency-Key: `{session_id}-{timestamp_ms}`.
   - Entrega: flujo determinista funciona sin IA; sesiones persistentes; versionado publish/unpublish.
 - Fase 4 Flujo conversacional base
@@ -131,9 +131,9 @@ Panel profesional (Streamlit) consumiendo la API
 - Fase 6 Agenda inteligente
   - Motor de disponibilidad con reglas; slots generados 15/30/60; reservas con bloqueo de solapes.
   - Recordatorios reales por WhatsApp y email; timezone por tenant y offset cliente.
-  - Idempotency-Key obligatorio en `/appointments/book`; previene doble reserva.
+  - Idempotency-Key obligatorio en `/v1/appointments/book`; previene doble reserva.
   - Reintentos de webhooks de agenda/WhatsApp con backoff 5s/20s/60s (3 intentos) y log para reingesta manual.
-  - Entrega: endpoint `/appointments/slots` y `/appointments/book`.
+  - Entrega: endpoint `/v1/appointments/slots` y `/v1/appointments/book`.
 - Fase 7 Widget del chat
   - Burbuja JS embebible; states básicos; soporta botones/inputs; persistencia session_id en localStorage.
   - Personalización por tenant (colores, logo, textos básicos); auto-detección de idioma.

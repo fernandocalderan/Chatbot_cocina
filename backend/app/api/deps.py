@@ -1,6 +1,8 @@
 import os
 from collections.abc import Generator
 
+from fastapi import HTTPException, Request, status
+
 from app.db.session import SessionLocal
 
 
@@ -52,3 +54,10 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
+
+
+def get_tenant_id(request: Request) -> str:
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="tenant_not_resolved")
+    return tenant_id

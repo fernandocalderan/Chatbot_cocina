@@ -1,13 +1,22 @@
 import re
 from typing import Optional
 
+from app.core.ai_extractor import AIExtractor
 
 class IntentClassifier:
     """
     Stub determinista para extraer campos básicos sin IA.
     """
 
-    def classify(self, text: str) -> dict:
+    def __init__(self, ai_extractor: AIExtractor | None = None):
+        self.ai_extractor = ai_extractor
+
+    def classify(self, text: str, use_ai: bool = False) -> dict:
+        if use_ai and self.ai_extractor:
+            ai_data = self.ai_extractor.extract(text)
+            if ai_data:
+                return ai_data
+
         data: dict[str, Optional[str]] = {
             "urgency": None,
             "budget": None,

@@ -1,4 +1,6 @@
+import logging
 import os
+import uuid
 from typing import Any
 
 import requests
@@ -6,6 +8,10 @@ import streamlit as st
 
 # API base: usa API_BASE si está, o por defecto el puerto de docker-compose (8100)
 API_BASE = os.getenv("API_BASE", "http://localhost:8100").rstrip("/")
+API_PREFIX = "/v1"
+TENANT_ID = os.getenv("PANEL_TENANT_ID")
+API_TOKEN = os.getenv("PANEL_API_TOKEN")
+logger = logging.getLogger(__name__)
 
 
 class API:
@@ -13,17 +19,33 @@ class API:
         self.api_url = api_url.rstrip("/")
         self.token = token
 
+    def _full_url(self, path: str) -> str:
+        return f"{self.api_url}{API_PREFIX}{path}"
+
     def headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        elif API_TOKEN:
+            headers["x-api-key"] = API_TOKEN
+            headers["Authorization"] = f"Bearer {API_TOKEN}"
+        tenant = _current_tenant_id()
+        if tenant:
+            headers["X-Tenant-ID"] = tenant
         return headers
 
     def get(self, path: str):
-        return requests.get(self.api_url + path, headers=self.headers(), timeout=10)
+        return requests.get(self._full_url(path), headers=self.headers(), timeout=10)
 
-    def post(self, path: str, data: dict):
-        return requests.post(self.api_url + path, json=data, headers=self.headers(), timeout=10)
+    def post(self, path: str, data: dict, idempotency_key: str | None = None):
+        headers = self.headers()
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        return requests.post(self._full_url(path), json=data, headers=headers, timeout=10)
+
+
+def _current_tenant_id() -> str | None:
+    return st.session_state.get("tenant_id") or TENANT_ID
 
 
 def _client() -> API:
@@ -31,43 +53,52 @@ def _client() -> API:
     return API(API_BASE, token)
 
 
-def api_login(email: str, password: str) -> str | None:
+def api_login(email: str, password: str, tenant_id: str | None = None) -> str | None:
     try:
-        resp = requests.post(f"{API_BASE}/auth/login", json={"email": email, "password": password}, timeout=10)
+        tenant_header = tenant_id or _current_tenant_id() or ""
+        resp = requests.post(
+            f"{API_BASE}{API_PREFIX}/auth/login",
+            json={"email": email, "password": password},
+            headers={"X-Tenant-ID": tenant_header, **({"x-api-key": API_TOKEN, "Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {})},
+            timeout=10,
+        )
     except requests.RequestException as exc:
         st.error(f"Error de red al autenticar: {exc}")
         return None
+
     if resp.ok:
         data = resp.json()
         return data.get("access_token")
-    st.error(f"Login inválido: {resp.text}")
+
+    _handle_api_error(resp, fallback_message="No se pudo iniciar sesión.")
     return None
+
+
+def _handle_api_error(resp: requests.Response, fallback_message: str = "No se pudo completar la operación con la API."):
+    try:
+        detail = resp.json()
+    except Exception:
+        detail = resp.text
+    status = resp.status_code
+    st.error(f"{fallback_message} (código {status}).")
+    logger.error("API error %s %s: %s", status, getattr(resp.request, "url", "<sin_url>"), detail)
+    return {"detail": detail, "status_code": status}
 
 
 def api_get(path: str) -> Any:
     client = _client()
-    try:
-        resp = client.get(path)
-    except requests.RequestException as exc:
-        st.error(f"Error de red: {exc}")
-        return None
+    resp = client.get(path)
     if resp.ok:
         return resp.json()
-    st.error(f"Error {resp.status_code}: {resp.text}")
-    return None
+    return _handle_api_error(resp)
 
 
-def api_post(path: str, payload: dict) -> Any:
+def api_post(path: str, payload: dict, idempotency_key: str | None = None) -> Any:
     client = _client()
-    try:
-        resp = client.post(path, payload)
-    except requests.RequestException as exc:
-        st.error(f"Error de red: {exc}")
-        return None
+    resp = client.post(path, payload, idempotency_key=idempotency_key)
     if resp.ok:
         return resp.json()
-    st.error(f"Error {resp.status_code}: {resp.text}")
-    return None
+    return _handle_api_error(resp)
 
 
 def fetch_flow():
@@ -78,7 +109,8 @@ def chat_send(message: str, session_id: str | None = None, lang: str = "es"):
     payload: dict[str, Any] = {"message": message, "lang": lang}
     if session_id:
         payload["session_id"] = session_id
-    return api_post("/chat/send", payload)
+    idemp_key = f"{session_id or 'no-session'}-{uuid.uuid4()}"
+    return api_post("/chat/send", payload, idempotency_key=idemp_key)
 
 
 def chat_history(session_id: str):
@@ -86,11 +118,21 @@ def chat_history(session_id: str):
 
 
 def list_leads():
-    return api_get("/leads") or []
+    data = api_get("/leads")
+    if isinstance(data, dict) and "items" in data:
+        return data.get("items") or []
+    if isinstance(data, list):
+        return data
+    return []
 
 
 def list_appointments():
-    return api_get("/appointments") or []
+    data = api_get("/appointments")
+    if isinstance(data, dict) and "items" in data:
+        return data.get("items") or []
+    if isinstance(data, list):
+        return data
+    return []
 
 
 def confirm_appointment(appt_id: str):
@@ -113,8 +155,8 @@ def update_flow(payload: dict):
     return api_post("/flows/update", payload)
 
 
-def login(email: str, password: str) -> str | None:
-    return api_login(email, password)
+def login(email: str, password: str, tenant_id: str | None = None) -> str | None:
+    return api_login(email, password, tenant_id)
 
 
 def load_scoring_from_flow():

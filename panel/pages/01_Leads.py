@@ -7,17 +7,27 @@ from utils import format_timestamp, load_styles
 
 load_styles()
 if "token" not in st.session_state:
-    st.switch_page("auth.py")
+    st.switch_page("auth")
 ensure_login()
 
 st.title("Leads")
-leads = list_leads()
+with st.spinner("Cargando leads..."):
+    leads = list_leads()
+
+# Manejo de errores: si no es lista, mostrar y abortar
+if leads is None:
+    leads = []
+elif not isinstance(leads, list):
+    st.error(f"Error al cargar leads: {leads}")
+    leads = []
 
 if not leads:
     st.info("No hay leads disponibles.")
 else:
     rows = []
     for lead in leads:
+        if not isinstance(lead, dict):
+            continue
         meta = lead.get("metadata") or {}
         rows.append(
             {

@@ -7,6 +7,9 @@ from app.models.tenants import Tenant
 from app.models.users import User
 from app.models.flows import Flow
 from app.models.configs import Config
+from app.models.leads import Lead
+from app.models.sessions import Session as DBSess
+from app.models.appointments import Appointment
 from app.core.security import get_password_hash
 
 
@@ -22,6 +25,7 @@ def seed_demo() -> None:
                 plan="Pro",
                 idioma_default="es",
                 timezone="Europe/Madrid",
+                flags_ia={"intent_extraction_enabled": True, "text_gen_enabled": True},
             )
             db.add(tenant)
             db.flush()
@@ -58,21 +62,60 @@ def seed_demo() -> None:
                 master.hashed_password = master_hashed
                 db.add(master)
 
-        flow = db.query(Flow).filter_by(tenant_id=tenant.id, version=1).first()
-        if not flow:
-            flow = Flow(
+        flows = db.query(Flow).filter_by(tenant_id=tenant.id).all()
+        if not flows:
+            flow_simple = Flow(
                 id=uuid.uuid4(),
                 tenant_id=tenant.id,
                 version=1,
                 estado="published",
                 schema_json={
                     "blocks": [
-                        {"id": "bienvenida", "type": "message", "text": "Hola, ¿en qué podemos ayudarte?"},
-                        {"id": "contacto", "type": "input", "field": "telefono"},
+                        {"id": "welcome", "type": "message", "text": "Hola, ¿en qué podemos ayudarte?"},
+                        {
+                            "id": "ask_need",
+                            "type": "options",
+                            "text": "¿Buscas cocina o armario?",
+                            "options": [
+                                {"id": "cocina", "label_es": "Cocina"},
+                                {"id": "armario", "label_es": "Armario"},
+                            ],
+                            "branches": {"cocina": "ask_budget", "armario": "ask_budget"},
+                        },
+                        {"id": "ask_budget", "type": "input", "text": "¿Presupuesto aproximado?", "next": "end"},
+                        {"id": "end", "type": "message", "text": "Gracias, te contactamos pronto."},
                     ]
                 },
             )
-            db.add(flow)
+            flow_branch = Flow(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                version=2,
+                estado="published",
+                schema_json={
+                    "blocks": [
+                        {"id": "welcome", "type": "message", "text": "Hola, te ayudamos con tu proyecto."},
+                        {
+                            "id": "ask_visit",
+                            "type": "options",
+                            "text": "¿Quieres cita ya?",
+                            "options": [
+                                {"id": "si", "label_es": "Sí"},
+                                {"id": "no", "label_es": "Prefiero info"},
+                            ],
+                            "branches": {"si": "ask_slot", "no": "summary"},
+                        },
+                        {
+                            "id": "ask_slot",
+                            "type": "appointment",
+                            "text": "Elige día y hora",
+                            "next": "summary",
+                        },
+                        {"id": "summary", "type": "message", "text": "Resumen enviado."},
+                    ]
+                },
+            )
+            db.add_all([flow_simple, flow_branch])
 
         config = db.query(Config).filter_by(tenant_id=tenant.id, tipo="response_times").first()
         if not config:
@@ -84,6 +127,56 @@ def seed_demo() -> None:
                 version=1,
             )
             db.add(config)
+
+        agenda_cfg = db.query(Config).filter_by(tenant_id=tenant.id, tipo="agenda_rules").first()
+        if not agenda_cfg:
+            agenda_cfg = Config(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                tipo="agenda_rules",
+                payload_json={
+                    "days_ahead": 5,
+                    "slot_minutes": 30,
+                    "workdays": [0, 1, 2, 3, 4, 5],
+                    "daily_ranges": [{"start": "10:00", "end": "14:00"}, {"start": "16:00", "end": "19:00"}],
+                    "holidays": [],
+                },
+                version=1,
+            )
+            db.add(agenda_cfg)
+
+        # Leads y citas de demo
+        existing_lead = db.query(Lead).filter_by(tenant_id=tenant.id).first()
+        if not existing_lead:
+            sess_id = uuid.uuid4()
+            session = DBSess(
+                id=sess_id,
+                tenant_id=tenant.id,
+                canal="web",
+                state="summary",
+                variables_json={"project_type": "kitchen", "budget": "8000", "urgency": "este_ano"},
+            )
+            lead = Lead(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                session_id=sess_id,
+                origen="demo",
+                status="hot",
+                score=85,
+                score_breakdown_json={"budget": {"score": 70, "weight": 40}},
+                meta_data={"contact_name": "Ana Demo", "contact_phone": "+34999000111"},
+            )
+            appt = Appointment(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                lead_id=lead.id,
+                slot_start=None,
+                slot_end=None,
+                estado="booked",
+                origen="demo",
+                notas="Cita de demo",
+            )
+            db.add_all([session, lead, appt])
 
         db.commit()
     except IntegrityError:

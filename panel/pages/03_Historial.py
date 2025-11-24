@@ -6,7 +6,7 @@ from utils import load_styles
 
 load_styles()
 if "token" not in st.session_state:
-    st.switch_page("auth.py")
+    st.switch_page("auth")
 ensure_login()
 
 st.title("Historial de Chat")
@@ -40,13 +40,16 @@ def extract_vars(history: list[dict]):
 col1, col2 = st.columns(2)
 if col1.button("Cargar historial") and session_id:
     st.session_state["session_id"] = session_id
-    hist = chat_history(session_id)
-    if hist:
+    with st.spinner("Cargando historial..."):
+        hist = chat_history(session_id)
+    if isinstance(hist, list) and hist:
         render_bubbles(hist)
         vars_found = extract_vars(hist)
         if vars_found:
             st.subheader("Variables recogidas")
             st.json(vars_found)
+    elif isinstance(hist, dict) and hist.get("detail"):
+        st.error(f"Error: {hist}")
     else:
         st.info("Sin historial para esta sesión.")
 
@@ -56,7 +59,8 @@ message = st.text_input("Mensaje", "hola")
 lang = st.selectbox("Idioma", ["es", "en"], index=0)
 
 if col2.button("Enviar mensaje"):
-    res = chat_send(message, session_id or None, lang)
+    with st.spinner("Enviando mensaje..."):
+        res = chat_send(message, session_id or None, lang)
     if res:
         st.json(res)
         st.session_state["session_id"] = res.get("session_id") or session_id

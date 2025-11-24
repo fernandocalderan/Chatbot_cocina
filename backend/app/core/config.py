@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     use_ia: bool = False
     ai_model: str = "gpt-4.1-mini"
+    openai_api_key: str | None = None
     panel_api_token: str | None = None
+    storage_dir: str = "/tmp/chatbot_uploads"
     cors_origins: str | None = None  # comma-separated
     rate_limit_per_min: int = 120
     jwt_secret: str | None = None

@@ -1,7 +1,7 @@
 import datetime
 
 import jwt
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from app.core.security import verify_password
 from app.models.users import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login", auto_error=False)
 
 
 class LoginInput(BaseModel):
@@ -21,8 +21,12 @@ class LoginInput(BaseModel):
 
 
 @router.post("/login")
-def login(payload: LoginInput, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+def login(payload: LoginInput, request: Request, db: Session = Depends(get_db)):
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="tenant_not_resolved")
+
+    user = db.query(User).filter(User.email == payload.email, User.tenant_id == tenant_id).first()
     if not user or not user.hashed_password or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
     settings = get_settings()

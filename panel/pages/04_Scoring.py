@@ -6,13 +6,19 @@ from utils import load_styles, render_json
 
 load_styles()
 if "token" not in st.session_state:
-    st.switch_page("auth.py")
+    st.switch_page("auth")
 ensure_login()
 
 st.title("Scoring")
 
 if "scoring_cfg" not in st.session_state:
-    st.session_state["scoring_cfg"] = get_scoring()
+    with st.spinner("Cargando scoring..."):
+        data = get_scoring()
+    if isinstance(data, dict):
+        st.session_state["scoring_cfg"] = data.get("scoring", data)  # admite ambos formatos
+    else:
+        st.error(f"No se pudo cargar scoring: {data}")
+        st.stop()
 
 scoring = st.session_state.get("scoring_cfg") or {}
 weights = scoring.get("weights", {}) or {}
@@ -28,8 +34,11 @@ scoring["weights"] = weights
 st.session_state["scoring_cfg"] = scoring
 
 if st.button("Guardar cambios"):
-    res = update_scoring(scoring)
-    if res:
+    with st.spinner("Guardando scoring..."):
+        res = update_scoring(scoring)
+    if isinstance(res, dict):
         st.success("Scoring actualizado")
+    else:
+        st.error(f"Error al guardar: {res}")
 
 render_json("Config actual", scoring)

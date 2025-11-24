@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy import or_
 
 from app.api.auth import oauth2_scheme, require_auth
-from app.api.deps import get_db
+from app.api.deps import get_db, get_tenant_id
 from app.models.leads import Lead
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -11,12 +11,13 @@ router = APIRouter(prefix="/leads", tags=["leads"])
 @router.get("/", dependencies=[Depends(require_auth)])
 def list_leads(
     db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=200),
     query: str | None = Query(default=None),
 ):
-    q = db.query(Lead)
+    q = db.query(Lead).filter(Lead.tenant_id == tenant_id)
     if query:
         like = f"%{query}%"
         q = q.filter(
@@ -45,10 +46,10 @@ def list_leads(
 
 
 @router.get("/{lead_id}", dependencies=[Depends(require_auth)])
-def get_lead(lead_id: str, db=Depends(get_db), token: str = Depends(oauth2_scheme)):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+def get_lead(lead_id: str, db=Depends(get_db), tenant_id: str = Depends(get_tenant_id), token: str = Depends(oauth2_scheme)):
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     if not lead:
-        return {}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead_not_found")
     return {
         "id": str(lead.id),
         "session_id": str(lead.session_id) if lead.session_id else None,
