@@ -49,7 +49,7 @@ class AgendaService:
         holidays = {date.fromisoformat(h) for h in rules.get("holidays", []) if h}
 
         slots: list[str] = []
-        now = datetime.utcnow().replace(second=0, microsecond=0)
+        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         for d in range(1, days_ahead + 1):
             day = now + timedelta(days=d)
             if day.weekday() not in workdays:

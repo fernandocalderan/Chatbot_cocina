@@ -6,7 +6,15 @@ class FlowEngine:
         return self.flow["blocks"].get(block_id)
 
     def next_block(self, current_block: dict, user_input: str):
-        # Stub determinista: prioriza ramas declaradas; si no, usa el campo next.
+        # Determinista: prioriza ramas declaradas; si no, usa el campo next/next_map.
+        next_map = current_block.get("next_map")
+        if isinstance(next_map, dict):
+            if user_input in next_map:
+                return next_map[user_input]
+            if "default" in next_map:
+                return next_map["default"]
+            # si no hay match, toma la primera
+            return next(iter(next_map.values()))
         branches = current_block.get("branches")
         if branches:
             if isinstance(branches, dict):

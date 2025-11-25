@@ -1,7 +1,7 @@
 import ChatContainer from "./ChatContainer";
 import "../styles/window.css";
 
-export default function ChatWindow({ apiUrl, apiKey, tenantId, tenantTheme, strings, onClose }) {
+export default function ChatWindow({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, logoUrl, strings, onClose }) {
   return (
     <div className="chat-window-wrapper">
       <div className="chat-window" data-theme={tenantTheme}>
@@ -13,7 +13,15 @@ export default function ChatWindow({ apiUrl, apiKey, tenantId, tenantTheme, stri
         >
           ✕
         </button>
-        <ChatContainer apiUrl={apiUrl} apiKey={apiKey} tenantId={tenantId} tenantTheme={tenantTheme} strings={strings} />
+        <ChatContainer
+          apiUrl={apiUrl}
+          apiKey={apiKey}
+          widgetToken={widgetToken}
+          tenantId={tenantId}
+          tenantTheme={tenantTheme}
+          logoUrl={logoUrl}
+          strings={strings}
+        />
       </div>
     </div>
   );

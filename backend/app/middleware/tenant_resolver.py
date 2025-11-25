@@ -11,6 +11,17 @@ from app.models.tenants import Tenant
 from app.models.users import User
 
 
+def _origin_allowed(origin: str, referer: str, allowed_origins: list[str] | None) -> bool:
+    if not allowed_origins:
+        return True
+    for allowed in allowed_origins:
+        if not allowed:
+            continue
+        if origin.startswith(allowed) or referer.startswith(allowed):
+            return True
+    return False
+
+
 async def resolve_tenant(request: Request, call_next: Callable):
     """
     Resuelve tenant_id a partir de:
@@ -29,20 +40,22 @@ async def resolve_tenant(request: Request, call_next: Callable):
     auth_header = request.headers.get("Authorization", "")
     token_bearer = auth_header.split(" ", 1)[1] if auth_header.lower().startswith("bearer ") else None
     tenant_id = None
+    tenant_obj = None
+    token_type = None
 
     db = SessionLocal()
     try:
         # Prioriza header explícito de tenant si llega
         if header_tenant:
-            tenant = db.query(Tenant).filter(Tenant.id == header_tenant).first()
-            if not tenant:
+            tenant_obj = db.query(Tenant).filter(Tenant.id == header_tenant).first()
+            if not tenant_obj:
                 return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
-            tenant_id = str(tenant.id)
+            tenant_id = str(tenant_obj.id)
         elif api_key and settings.panel_api_token and api_key == settings.panel_api_token:
-            tenant = db.query(Tenant).first()
-            if not tenant:
+            tenant_obj = db.query(Tenant).first()
+            if not tenant_obj:
                 return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
-            tenant_id = str(tenant.id)
+            tenant_id = str(tenant_obj.id)
         elif token_bearer and settings.jwt_secret:
             try:
                 payload = jwt.decode(token_bearer, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
@@ -70,9 +83,22 @@ async def resolve_tenant(request: Request, call_next: Callable):
                 if not user or not user.tenant_id:
                     return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
                 tenant_id = str(user.tenant_id)
+                tenant_obj = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
         if (api_key or token_bearer) and not tenant_id:
             return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
+
+        # Whitelist de origen por tenant (branding.allowed_origins)
+        if tenant_id and not tenant_obj:
+            tenant_obj = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        origin = request.headers.get("Origin") or request.headers.get("origin") or ""
+        referer = request.headers.get("Referer") or request.headers.get("referer") or ""
+        allowed_origins = []
+        if tenant_obj:
+            branding = getattr(tenant_obj, "branding", {}) or {}
+            allowed_origins = branding.get("allowed_origins") or branding.get("allowedOrigins") or []
+        if (origin or referer) and tenant_obj and not _origin_allowed(origin, referer, allowed_origins):
+            return JSONResponse({"detail": "origin_not_allowed"}, status_code=401)
 
         request.state.tenant_id = tenant_id
     finally:

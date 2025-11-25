@@ -2,7 +2,7 @@ import { useState } from "react";
 import ChatWindow from "./ChatWindow";
 import "../styles/floating.css";
 
-export default function FloatingButton({ apiUrl, apiKey, tenantId, tenantTheme, startOpen, strings }) {
+export default function FloatingButton({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, startOpen, logoUrl, strings }) {
   const [open, setOpen] = useState(Boolean(startOpen));
 
   return (
@@ -22,8 +22,10 @@ export default function FloatingButton({ apiUrl, apiKey, tenantId, tenantTheme, 
         <ChatWindow
           apiUrl={apiUrl}
           apiKey={apiKey}
+          widgetToken={widgetToken}
           tenantId={tenantId}
           tenantTheme={tenantTheme}
+          logoUrl={logoUrl}
           strings={strings}
           onClose={() => setOpen(false)}
         />

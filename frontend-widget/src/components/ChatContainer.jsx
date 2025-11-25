@@ -5,7 +5,7 @@ import ChatOptions from "./ChatOptions";
 import ChatInput from "./ChatInput";
 import TypingIndicator from "./TypingIndicator";
 
-export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, strings }) {
+export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, logoUrl, strings }) {
   const [messages, setMessages] = useState([]);
   const [options, setOptions] = useState([]);
   const [input, setInput] = useState("");
@@ -63,7 +63,8 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
       const data = await res.json();
 
       setTyping(false);
-      setMessages((prev) => [...prev, { role: "bot", text: data.text }]);
+      const botText = data.ai_reply || data.text || strings?.errorMessage || "No pude responder. Intenta de nuevo.";
+      setMessages((prev) => [...prev, { role: "bot", text: botText }]);
 
       if (data.session_id && data.session_id !== sessionIdRef.current) {
         sessionIdRef.current = data.session_id;
@@ -88,6 +89,7 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
         title={strings?.headerTitle || "Chat"}
         subtitle={strings?.headerSubtitle}
         status={strings?.status}
+        logoUrl={logoUrl}
       />
 
       <div className="chat-messages" ref={messagesRef}>

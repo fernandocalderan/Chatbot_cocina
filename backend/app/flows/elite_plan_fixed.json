@@ -1,0 +1,1273 @@
+{
+  "version": "3.0-elite",
+  "plan": "elite",
+  "start_block": "welcome_ia_elite",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 2,
+    "ia_adaptive": true,
+    "pdf_enabled": true
+  },
+  "blocks": {
+    "welcome_ia_elite": {
+      "id": "welcome_ia_elite",
+      "type": "ai_generate",
+      "prompt": "Actúa como un interiorista premium especializado en cocinas y baños de gama alta. Genera una bienvenida cálida, elegante y profesional explicando que realizarás una consultoría inicial guiada para preparar una propuesta conceptual premium. El tono debe transmitir exclusividad, calma y precisión técnica.",
+      "fallback_text": {
+        "es": "Hola, soy tu asistente premium. Haré una consultoría inicial para preparar una propuesta conceptual exclusiva adaptada a tu espacio y estilo. ¿Listo para comenzar?",
+        "ca": "Hola, sóc el teu assistent premium. Faré una consultoria inicial per preparar una proposta conceptual exclusiva adaptada al teu espai i estil. Llest per començar?",
+        "pt": "Olá, sou seu assistente premium. Farei uma consultoria inicial para preparar uma proposta conceitual exclusiva adaptada ao seu espaço e estilo. Pronto para começar?",
+        "en": "Hi, I'm your premium assistant. I'll run an initial consultation to prepare an exclusive conceptual proposal tailored to your space and style. Ready to begin?"
+      },
+      "next": "ready_check"
+    },
+    "ready_check": {
+      "id": "ready_check",
+      "type": "buttons",
+      "text": {
+        "es": "¿Deseas iniciar ahora la consultoría?",
+        "ca": "Vols iniciar ara la consultoria?",
+        "pt": "Deseja iniciar agora a consultoria?",
+        "en": "Would you like to start the consultation now?"
+      },
+      "options": [
+        {
+          "label": "Sí",
+          "value": "yes"
+        },
+        {
+          "label": "Más tarde",
+          "value": "no"
+        }
+      ],
+      "save_to": "ready",
+      "next_map": {
+        "yes": "project_type",
+        "no": "goodbye_not_ready"
+      }
+    },
+    "goodbye_not_ready": {
+      "id": "goodbye_not_ready",
+      "type": "message",
+      "text": {
+        "es": "Perfecto. Cuando quieras continuar con la consultoría premium, aquí estaré.",
+        "ca": "Perfecte. Quan vulguis continuar amb la consultoria premium, aquí seré.",
+        "pt": "Perfeito. Quando quiser continuar a consultoria premium, estarei aqui.",
+        "en": "Perfect. Whenever you want to continue the premium consultation, I'll be here."
+      },
+      "next": "end"
+    },
+    "project_type": {
+      "id": "project_type",
+      "type": "buttons",
+      "text": {
+        "es": "Empecemos por definir tu proyecto con precisión:",
+        "ca": "Comencem definint el teu projecte amb precisió:",
+        "pt": "Vamos começar definindo seu projeto com precisão:",
+        "en": "Let's start by defining your project precisely:"
+      },
+      "options": [
+        {
+          "label": "Cocina completa nueva",
+          "value": "cocina_nueva"
+        },
+        {
+          "label": "Reforma integral de cocina",
+          "value": "cocina_reforma"
+        },
+        {
+          "label": "Muebles de cocina a medida",
+          "value": "muebles_cocina"
+        },
+        {
+          "label": "Baño completo nuevo",
+          "value": "bano_nuevo"
+        },
+        {
+          "label": "Reforma de baño",
+          "value": "bano_reforma"
+        },
+        {
+          "label": "Mobiliario de baño a medida",
+          "value": "muebles_bano"
+        },
+        {
+          "label": "Lavadero / zona de aguas",
+          "value": "lavadero"
+        },
+        {
+          "label": "Otro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "tipo_proyecto",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": {
+        "es": "¿En qué ciudad y zona se encuentra la vivienda?",
+        "ca": "A quina ciutat i zona es troba l'habitatge?",
+        "pt": "Em que cidade e zona fica a residência?",
+        "en": "In which city and area is the property located?"
+      },
+      "save_to": "ubicacion",
+      "next": "space_status"
+    },
+    "space_status": {
+      "id": "space_status",
+      "type": "buttons",
+      "text": {
+        "es": "El espacio actualmente está:",
+        "ca": "L'espai actualment està:",
+        "pt": "O espaço atualmente está:",
+        "en": "The space is currently:"
+      },
+      "options": [
+        {
+          "label": "En uso",
+          "value": "uso"
+        },
+        {
+          "label": "Vacío",
+          "value": "vacio"
+        },
+        {
+          "label": "En obra",
+          "value": "en_obra"
+        },
+        {
+          "label": "Obra nueva sobre plano",
+          "value": "sobre_plano"
+        },
+        {
+          "label": "Solo mobiliario nuevo",
+          "value": "solo_mobiliario"
+        }
+      ],
+      "save_to": "estado_espacio",
+      "next": "area_range"
+    },
+    "area_range": {
+      "id": "area_range",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cuántos m² tiene el espacio aproximadamente?",
+        "ca": "Quants m² té l'espai aproximadament?",
+        "pt": "Quantos m² o espaço tem aproximadamente?",
+        "en": "How many m² does the space have approximately?"
+      },
+      "options": [
+        {
+          "label": "<5 m²",
+          "value": "<5"
+        },
+        {
+          "label": "5–8 m²",
+          "value": "5-8"
+        },
+        {
+          "label": "8–12 m²",
+          "value": "8-12"
+        },
+        {
+          "label": "12–18 m²",
+          "value": "12-18"
+        },
+        {
+          "label": ">18 m²",
+          "value": ">18"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "area_rango",
+      "next_map": {
+        "no_se": "area_free",
+        "default": "space_form"
+      }
+    },
+    "area_free": {
+      "id": "area_free",
+      "type": "input",
+      "text": {
+        "es": "Describe el espacio (por ejemplo largo x ancho). Haré una estimación exacta.",
+        "ca": "Descriu l'espai (per exemple llarg x ample). Faré una estimació exacta.",
+        "pt": "Descreva o espaço (por exemplo comprimento x largura). Farei uma estimativa exata.",
+        "en": "Describe the space (e.g. length x width). I will estimate accurately."
+      },
+      "save_to": "area_descripcion",
+      "next": "area_extract_ai"
+    },
+    "area_extract_ai": {
+      "id": "area_extract_ai",
+      "type": "ai_extract",
+      "field": "metros_estimados",
+      "prompt": "Extrae y estima los metros cuadrados del espacio según la descripción del usuario. Devuelve SOLO un número entero o decimal.",
+      "schema": {
+        "metros": "number"
+      },
+      "next": "space_form"
+    },
+    "space_form": {
+      "id": "space_form",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué forma tiene el espacio?",
+        "ca": "Quina forma té l'espai?",
+        "pt": "Qual é o formato do espaço?",
+        "en": "What is the shape of the space?"
+      },
+      "options": [
+        {
+          "label": "Rectangular",
+          "value": "rectangular"
+        },
+        {
+          "label": "Cuadrado",
+          "value": "cuadrado"
+        },
+        {
+          "label": "En L",
+          "value": "L"
+        },
+        {
+          "label": "En U",
+          "value": "U"
+        },
+        {
+          "label": "Pasillo / estrecho",
+          "value": "pasillo"
+        },
+        {
+          "label": "No lo sé",
+          "value": "desconocido"
+        }
+      ],
+      "save_to": "forma_espacio",
+      "next": "ceiling_height"
+    },
+    "ceiling_height": {
+      "id": "ceiling_height",
+      "type": "input",
+      "text": {
+        "es": "¿Cuál es la altura del techo? (si no estás seguro, escribe 'no sé')",
+        "ca": "Quina és l'alçada del sostre? (si no ho saps, escriu 'no ho sé')",
+        "pt": "Qual a altura do teto? (se não souber, escreva 'não sei')",
+        "en": "What is the ceiling height? (if unsure, write 'don't know')"
+      },
+      "save_to": "altura_techo",
+      "next": "plans_available"
+    },
+    "plans_available": {
+      "id": "plans_available",
+      "type": "buttons",
+      "text": {
+        "es": "¿Tienes planos o croquis?",
+        "ca": "Tens plànols o croquis?",
+        "pt": "Tem plantas ou esboços?",
+        "en": "Do you have plans or sketches?"
+      },
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Los puedo hacer",
+          "value": "hacer"
+        }
+      ],
+      "save_to": "planos",
+      "next": "installations_movable"
+    },
+    "installations_movable": {
+      "id": "installations_movable",
+      "type": "buttons",
+      "text": {
+        "es": "¿Se pueden mover agua, desagüe y electricidad?",
+        "ca": "Es poden moure aigua, desguàs i electricitat?",
+        "pt": "É possível mover água, esgoto e eletricidade?",
+        "en": "Can water, drain and electricity points be moved?"
+      },
+      "options": [
+        {
+          "label": "Sí, todo",
+          "value": "todo"
+        },
+        {
+          "label": "Solo algunos",
+          "value": "parcial"
+        },
+        {
+          "label": "Prefiero no moverlos",
+          "value": "no_mover"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "instalaciones_movibles",
+      "next": "ventilation"
+    },
+    "ventilation": {
+      "id": "ventilation",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cómo ventila el espacio?",
+        "ca": "Com ventila l'espai?",
+        "pt": "Como ventila o espaço?",
+        "en": "How does the space ventilate?"
+      },
+      "options": [
+        {
+          "label": "Ventana directa",
+          "value": "ventana"
+        },
+        {
+          "label": "Patio interior",
+          "value": "patio"
+        },
+        {
+          "label": "Extractor mecánico",
+          "value": "extractor"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "ventilacion",
+      "next": "limitations"
+    },
+    "limitations": {
+      "id": "limitations",
+      "type": "input",
+      "text": {
+        "es": "Indica cualquier limitación técnica (columna, bajante, viga, normas de comunidad, etc.):",
+        "ca": "Indica qualsevol limitació tècnica (columna, baixant, biga, normes de comunitat, etc.):",
+        "pt": "Indique qualquer limitação técnica (coluna, tubagem, viga, regras do condomínio etc.):",
+        "en": "Indicate any technical limitations (column, pipe, beam, community rules, etc.):"
+      },
+      "save_to": "limitaciones_tecnicas",
+      "next": "branch_kitchen_or_bath"
+    },
+    "branch_kitchen_or_bath": {
+      "id": "branch_kitchen_or_bath",
+      "type": "condition",
+      "conditions": [
+        {
+          "if": "tipo_proyecto in ['cocina_nueva','cocina_reforma','muebles_cocina','lavadero']",
+          "next": "kitchen_users"
+        },
+        {
+          "if": "tipo_proyecto in ['bano_nuevo','bano_reforma','muebles_bano']",
+          "next": "bath_users"
+        },
+        {
+          "if": "True",
+          "next": "style_global"
+        }
+      ]
+    },
+    "kitchen_users": {
+      "id": "kitchen_users",
+      "type": "input",
+      "text": {
+        "es": "¿Cuántas personas utilizan la cocina habitualmente?",
+        "ca": "Quantes persones utilitzen la cuina habitualment?",
+        "pt": "Quantas pessoas usam a cozinha habitualmente?",
+        "en": "How many people usually use the kitchen?"
+      },
+      "save_to": "kitchen_personas",
+      "next": "kitchen_frequency"
+    },
+    "kitchen_frequency": {
+      "id": "kitchen_frequency",
+      "type": "buttons",
+      "text": {
+        "es": "¿Con qué frecuencia cocináis en casa?",
+        "ca": "Amb quina freqüència cuineu a casa?",
+        "pt": "Com que frequência cozinham em casa?",
+        "en": "How often do you cook at home?"
+      },
+      "options": [
+        {
+          "label": "Casi todos los días",
+          "value": "diario"
+        },
+        {
+          "label": "3–4 veces por semana",
+          "value": "3-4"
+        },
+        {
+          "label": "Muy poco",
+          "value": "poco"
+        },
+        {
+          "label": "Casi nada (más imagen que uso)",
+          "value": "imagen"
+        }
+      ],
+      "save_to": "kitchen_frecuencia",
+      "next": "kitchen_main_use"
+    },
+    "kitchen_main_use": {
+      "id": "kitchen_main_use",
+      "type": "buttons",
+      "text": {
+        "es": "¿Para qué usáis principalmente la cocina?",
+        "ca": "Per a què utilitzeu principalment la cuina?",
+        "pt": "Para que usam principalmente a cozinha?",
+        "en": "What do you mainly use the kitchen for?"
+      },
+      "options": [
+        {
+          "label": "Cocinar a diario",
+          "value": "diario"
+        },
+        {
+          "label": "Reuniones / comidas sociales",
+          "value": "social"
+        },
+        {
+          "label": "Rápido y práctico",
+          "value": "rapido"
+        },
+        {
+          "label": "Gourmet / elaborada",
+          "value": "gourmet"
+        },
+        {
+          "label": "Meal prep / batch cooking",
+          "value": "mealprep"
+        }
+      ],
+      "save_to": "kitchen_uso_tipo",
+      "next": "kitchen_appliances"
+    },
+    "kitchen_appliances": {
+      "id": "kitchen_appliances",
+      "type": "multi_select",
+      "text": {
+        "es": "¿Qué electrodomésticos son imprescindibles para vosotros?",
+        "ca": "Quins electrodomèstics són imprescindibles per a vosaltres?",
+        "pt": "Quais eletrodomésticos são indispensáveis para vocês?",
+        "en": "Which appliances are essential for you?"
+      },
+      "options": [
+        {
+          "label": "Horno",
+          "value": "horno"
+        },
+        {
+          "label": "Microondas",
+          "value": "microondas"
+        },
+        {
+          "label": "Frigorífico grande",
+          "value": "frigo_grande"
+        },
+        {
+          "label": "Frigorífico americano",
+          "value": "frigo_americano"
+        },
+        {
+          "label": "Inducción",
+          "value": "induccion"
+        },
+        {
+          "label": "Gas",
+          "value": "gas"
+        },
+        {
+          "label": "Campana integrada",
+          "value": "campana"
+        },
+        {
+          "label": "Lavavajillas",
+          "value": "lavavajillas"
+        },
+        {
+          "label": "Vinoteca",
+          "value": "vinoteca"
+        },
+        {
+          "label": "Cafetera integrada",
+          "value": "cafetera_integrada"
+        },
+        {
+          "label": "Otros",
+          "value": "otros"
+        }
+      ],
+      "save_to": "kitchen_electrodomesticos",
+      "next": "kitchen_appliance_positions"
+    },
+    "kitchen_appliance_positions": {
+      "id": "kitchen_appliance_positions",
+      "type": "buttons",
+      "text": {
+        "es": "¿Quieres mantener la posición actual de los electrodomésticos?",
+        "ca": "Vols mantenir la posició actual dels electrodomèstics?",
+        "pt": "Deseja manter a posição atual dos eletrodomésticos?",
+        "en": "Would you like to keep the current appliance layout?"
+      },
+      "options": [
+        {
+          "label": "Sí, mantener",
+          "value": "mantener"
+        },
+        {
+          "label": "Podemos moverlos",
+          "value": "mover"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "kitchen_posicion_electros",
+      "next": "kitchen_island"
+    },
+    "kitchen_island": {
+      "id": "kitchen_island",
+      "type": "buttons",
+      "text": {
+        "es": "¿Te gustaría incluir isla o península?",
+        "ca": "T'agradaria incloure illa o península?",
+        "pt": "Gostaria de incluir ilha ou península?",
+        "en": "Would you like to include an island or peninsula?"
+      },
+      "options": [
+        {
+          "label": "Sí, isla",
+          "value": "isla"
+        },
+        {
+          "label": "Sí, península",
+          "value": "peninsula"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Depende de si es viable",
+          "value": "viabilidad"
+        }
+      ],
+      "save_to": "kitchen_isla_peninsula",
+      "next": "island_viability_ai"
+    },
+    "island_viability_ai": {
+      "id": "island_viability_ai",
+      "type": "ai_generate",
+      "prompt": "Como interiorista premium, evalúa SI ES VIABLE una isla o península basándote en: metros_rango, metros_estimados, forma_espacio, instalaciones_movibles, ventilacion, kitchen_electrodomesticos. Explica recomendaciones técnicas con precisión.",
+      "save_to": "viabilidad_isla",
+      "next": "kitchen_workflow_ai"
+    },
+    "kitchen_workflow_ai": {
+      "id": "kitchen_workflow_ai",
+      "type": "ai_generate",
+      "prompt": "Evalúa el triángulo de trabajo ideal (cocción–preparación–frío) basado en los hábitos del usuario y las características del espacio. Incluye recomendaciones premium sobre ergonomía, alturas, distancias y flujos.",
+      "save_to": "kitchen_flujo_trabajo",
+      "next": "kitchen_storage_needs"
+    },
+    "kitchen_storage_needs": {
+      "id": "kitchen_storage_needs",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué nivel de almacenaje necesitáis?",
+        "ca": "Quin nivell d'emmagatzematge necessiteu?",
+        "pt": "Que nível de armazenamento vocês precisam?",
+        "en": "What level of storage do you need?"
+      },
+      "options": [
+        {
+          "label": "Mucho almacenaje",
+          "value": "mucho"
+        },
+        {
+          "label": "Estándar",
+          "value": "estandar"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "kitchen_almacenaje",
+      "next": "style_global"
+    },
+    "bath_users": {
+      "id": "bath_users",
+      "type": "input",
+      "text": {
+        "es": "¿Cuántas personas usan este baño habitualmente?",
+        "ca": "Quantes persones utilitzen aquest bany habitualment?",
+        "pt": "Quantas pessoas utilizam este banheiro habitualmente?",
+        "en": "How many people usually use this bathroom?"
+      },
+      "save_to": "bath_personas",
+      "next": "bath_function"
+    },
+    "bath_function": {
+      "id": "bath_function",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué función principal debe cumplir este baño?",
+        "ca": "Quina funció principal ha de complir aquest bany?",
+        "pt": "Qual é a função principal deste banheiro?",
+        "en": "What is the main purpose of this bathroom?"
+      },
+      "options": [
+        {
+          "label": "Práctico y funcional",
+          "value": "practico"
+        },
+        {
+          "label": "Relajante / spa",
+          "value": "spa"
+        },
+        {
+          "label": "Premium / elegante",
+          "value": "premium"
+        },
+        {
+          "label": "Familiar",
+          "value": "familiar"
+        },
+        {
+          "label": "Adaptado / accesible",
+          "value": "adaptado"
+        },
+        {
+          "label": "De invitados",
+          "value": "invitados"
+        }
+      ],
+      "save_to": "bath_funcion",
+      "next": "bath_bath_or_shower"
+    },
+    "bath_bath_or_shower": {
+      "id": "bath_bath_or_shower",
+      "type": "buttons",
+      "text": {
+        "es": "En cuanto a bañera y ducha, ¿qué prefieres?",
+        "ca": "Pel que fa a banyera i dutxa, què prefereixes?",
+        "pt": "Em relação a banheira e ducha, o que prefere?",
+        "en": "Regarding bathtub and shower, what do you prefer?"
+      },
+      "options": [
+        {
+          "label": "Solo ducha",
+          "value": "ducha"
+        },
+        {
+          "label": "Solo bañera",
+          "value": "banera"
+        },
+        {
+          "label": "Ducha + bañera",
+          "value": "ducha_banera"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_ducha_banera",
+      "next": "bath_screen_type"
+    },
+    "bath_screen_type": {
+      "id": "bath_screen_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Tienes preferencia de mampara?",
+        "ca": "Tens preferència de mampara?",
+        "pt": "Tem preferência de box/mampara?",
+        "en": "Do you have a preference for the shower screen?"
+      },
+      "options": [
+        {
+          "label": "Corredera",
+          "value": "corredera"
+        },
+        {
+          "label": "Fijo",
+          "value": "fijo"
+        },
+        {
+          "label": "Abatible",
+          "value": "abatible"
+        },
+        {
+          "label": "Sin mampara (walk-in)",
+          "value": "walkin"
+        },
+        {
+          "label": "Aún no lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_mampara",
+      "next": "bath_storage"
+    },
+    "bath_storage": {
+      "id": "bath_storage",
+      "type": "buttons",
+      "text": {
+        "es": "En almacenaje, ¿qué necesitas en este baño?",
+        "ca": "Pel que fa a emmagatzematge, què necessites en aquest bany?",
+        "pt": "Em termos de armazenamento, o que precisa neste banheiro?",
+        "en": "Regarding storage, what do you need in this bathroom?"
+      },
+      "options": [
+        {
+          "label": "Mucho almacenaje",
+          "value": "mucho"
+        },
+        {
+          "label": "Almacenaje estándar",
+          "value": "estandar"
+        },
+        {
+          "label": "Solo lo básico",
+          "value": "poco"
+        },
+        {
+          "label": "Armarios altos",
+          "value": "armarios_altos"
+        },
+        {
+          "label": "Nichos de obra",
+          "value": "nichos"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_almacenaje",
+      "next": "bath_sink_type"
+    },
+    "bath_sink_type": {
+      "id": "bath_sink_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tipo de lavabo prefieres?",
+        "ca": "Quin tipus de lavabo prefereixes?",
+        "pt": "Que tipo de lavatório prefere?",
+        "en": "What type of washbasin do you prefer?"
+      },
+      "options": [
+        {
+          "label": "Encimera",
+          "value": "encimera"
+        },
+        {
+          "label": "Integrado",
+          "value": "integrado"
+        },
+        {
+          "label": "Doble lavabo",
+          "value": "doble"
+        },
+        {
+          "label": "Lavabo suspendido",
+          "value": "suspendido"
+        },
+        {
+          "label": "Sobre encimera",
+          "value": "sobre_encimera"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_lavabo",
+      "next": "bath_style"
+    },
+    "bath_style": {
+      "id": "bath_style",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué estilo te atrae más para este baño?",
+        "ca": "Quin estil t'atrau més per a aquest bany?",
+        "pt": "Que estilo mais te atrai para este banheiro?",
+        "en": "Which style attracts you the most for this bathroom?"
+      },
+      "options": [
+        {
+          "label": "Minimalista",
+          "value": "minimalista"
+        },
+        {
+          "label": "Mediterráneo / cálido",
+          "value": "mediterraneo"
+        },
+        {
+          "label": "Industrial",
+          "value": "industrial"
+        },
+        {
+          "label": "Mármol / piedra natural",
+          "value": "marmol_piedra"
+        },
+        {
+          "label": "Estilo hotel 5 estrellas",
+          "value": "hotel_5"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_estilo",
+      "next": "bath_revestimientos"
+    },
+    "bath_revestimientos": {
+      "id": "bath_revestimientos",
+      "type": "buttons",
+      "text": {
+        "es": "¿Preferencias de revestimientos?",
+        "ca": "Preferències de revestiments?",
+        "pt": "Preferências de revestimentos?",
+        "en": "Preferred wall and floor finishes?"
+      },
+      "options": [
+        {
+          "label": "Porcelánico",
+          "value": "porcelanico"
+        },
+        {
+          "label": "Microcemento",
+          "value": "microcemento"
+        },
+        {
+          "label": "Piedra natural",
+          "value": "piedra_natural"
+        },
+        {
+          "label": "Combinado con pintura",
+          "value": "mezcla_pintura"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "bath_revestimientos",
+      "next": "bath_notes"
+    },
+    "bath_notes": {
+      "id": "bath_notes",
+      "type": "input",
+      "text": {
+        "es": "¿Hay algún detalle importante sobre el baño que quieras añadir? (ducha a ras de suelo, nichos iluminados, etc.)",
+        "ca": "Hi ha algun detall important sobre el bany que vulguis afegir? (dutxa a peu pla, nínxols il·luminats, etc.)",
+        "pt": "Há algum detalhe importante sobre o banheiro que queira acrescentar? (ducha ao nível do chão, nichos iluminados, etc.)",
+        "en": "Any important detail about the bathroom you’d like to add? (walk-in shower, lit niches, etc.)"
+      },
+      "save_to": "bath_detalles_extra",
+      "next": "style_global"
+    },
+    "style_global": {
+      "id": "style_global",
+      "type": "buttons",
+      "text": {
+        "es": "Para terminar el análisis estético, ¿qué estilo general te atrae más?",
+        "ca": "Per acabar l'anàlisi estètic, quin estil general t'atrau més?",
+        "pt": "Para finalizar a análise estética, qual estilo geral mais te atrai?",
+        "en": "To finish the aesthetic analysis, which global style attracts you the most?"
+      },
+      "options": [
+        {
+          "label": "Moderno minimalista",
+          "value": "moderno"
+        },
+        {
+          "label": "Nórdico",
+          "value": "nordico"
+        },
+        {
+          "label": "Rústico / mediterráneo",
+          "value": "rustico"
+        },
+        {
+          "label": "Industrial",
+          "value": "industrial"
+        },
+        {
+          "label": "Elegante / premium",
+          "value": "premium"
+        },
+        {
+          "label": "Sin preferencia clara",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "estilo_global",
+      "next": "colors_like"
+    },
+    "colors_like": {
+      "id": "colors_like",
+      "type": "input",
+      "text": {
+        "es": "¿Qué colores te gustan especialmente?",
+        "ca": "Quins colors t'agraden especialment?",
+        "pt": "Quais cores você gosta especialmente?",
+        "en": "Which colors do you especially like?"
+      },
+      "save_to": "colores_gustan",
+      "next": "colors_avoid"
+    },
+    "colors_avoid": {
+      "id": "colors_avoid",
+      "type": "input",
+      "text": {
+        "es": "¿Hay colores que quieras evitar?",
+        "ca": "Hi ha colors que vulguis evitar?",
+        "pt": "Há cores que deseja evitar?",
+        "en": "Are there any colors you want to avoid?"
+      },
+      "save_to": "colores_evitar",
+      "next": "lighting_preferences"
+    },
+    "lighting_preferences": {
+      "id": "lighting_preferences",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tipo de iluminación prefieres?",
+        "ca": "Quin tipus d'il·luminació prefereixes?",
+        "pt": "Que tipo de iluminação prefere?",
+        "en": "What kind of lighting do you prefer?"
+      },
+      "options": [
+        {
+          "label": "Ambiental",
+          "value": "ambiental"
+        },
+        {
+          "label": "Técnica",
+          "value": "tecnica"
+        },
+        {
+          "label": "Mixta",
+          "value": "mixta"
+        }
+      ],
+      "save_to": "iluminacion",
+      "next": "budget_range"
+    },
+    "budget_range": {
+      "id": "budget_range",
+      "type": "buttons",
+      "text": {
+        "es": "¿En qué rango de inversión te sientes cómodo/a?",
+        "ca": "En quin rang d'inversió et sents còmode/a?",
+        "pt": "Em qual faixa de investimento você se sente confortável?",
+        "en": "What investment range feels comfortable for you?"
+      },
+      "options": [
+        {
+          "label": "2.000–5.000 €",
+          "value": "2-5"
+        },
+        {
+          "label": "5.000–9.000 €",
+          "value": "5-9"
+        },
+        {
+          "label": "9.000–15.000 €",
+          "value": "9-15"
+        },
+        {
+          "label": "15.000–25.000 €",
+          "value": "15-25"
+        },
+        {
+          "label": "25.000–40.000 €",
+          "value": "25-40"
+        },
+        {
+          "label": "Más de 40.000 €",
+          "value": "40+"
+        },
+        {
+          "label": "Prefiero que me orientéis",
+          "value": "orientar"
+        }
+      ],
+      "save_to": "presupuesto",
+      "next": "budget_flex"
+    },
+    "budget_flex": {
+      "id": "budget_flex",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tan flexible es el presupuesto?",
+        "ca": "Què tan flexible és el pressupost?",
+        "pt": "Quão flexível é o orçamento?",
+        "en": "How flexible is the budget?"
+      },
+      "options": [
+        {
+          "label": "Muy flexible",
+          "value": "alta"
+        },
+        {
+          "label": "Algo flexible",
+          "value": "media"
+        },
+        {
+          "label": "Poco flexible",
+          "value": "baja"
+        }
+      ],
+      "save_to": "presupuesto_flex",
+      "next": "timeline"
+    },
+    "timeline": {
+      "id": "timeline",
+      "type": "input",
+      "text": {
+        "es": "¿Para cuándo te gustaría que el proyecto estuviera terminado?",
+        "ca": "Per quan t'agradaria que el projecte estigués acabat?",
+        "pt": "Para quando você gostaria que o projeto estivesse pronto?",
+        "en": "When would you like the project to be ready?"
+      },
+      "save_to": "plazo_entrega",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": {
+        "es": "Del 1 al 5, ¿qué tan urgente es este proyecto para ti?",
+        "ca": "De l'1 al 5, com d'urgent és aquest projecte per a tu?",
+        "pt": "De 1 a 5, qual a urgência do projeto?",
+        "en": "From 1 to 5, how urgent is this project for you?"
+      },
+      "options": [
+        {
+          "label": "1",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5",
+          "value": "5"
+        }
+      ],
+      "save_to": "urgencia",
+      "next": "reason"
+    },
+    "reason": {
+      "id": "reason",
+      "type": "input",
+      "text": {
+        "es": "¿Hay algún motivo concreto por el que quieras hacerlo ahora?",
+        "ca": "Hi ha algun motiu concret pel qual el vulguis fer ara?",
+        "pt": "Há algum motivo específico para fazer isso agora?",
+        "en": "Is there a specific reason for doing this now?"
+      },
+      "save_to": "motivo",
+      "next": "photos"
+    },
+    "photos": {
+      "id": "photos",
+      "type": "buttons",
+      "text": {
+        "es": "¿Podrás enviarnos fotos del espacio más adelante?",
+        "ca": "Ens podràs enviar fotos de l'espai més endavant?",
+        "pt": "Você poderá nos enviar fotos do espaço mais tarde?",
+        "en": "Will you be able to send photos of the space later?"
+      },
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Aún no lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "fotos",
+      "next": "visit_pref"
+    },
+    "visit_pref": {
+      "id": "visit_pref",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cómo prefieres continuar?",
+        "ca": "Com prefereixes continuar?",
+        "pt": "Como prefere continuar?",
+        "en": "How would you like to continue?"
+      },
+      "options": [
+        {
+          "label": "Visita al domicilio",
+          "value": "visita"
+        },
+        {
+          "label": "Videollamada",
+          "value": "videollamada"
+        },
+        {
+          "label": "Aún no lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "siguiente_paso",
+      "next": "contact_name"
+    },
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": {
+        "es": "¿Cuál es tu nombre?",
+        "ca": "Quin és el teu nom?",
+        "pt": "Qual é o seu nome?",
+        "en": "What’s your name?"
+      },
+      "save_to": "nombre",
+      "next": "contact_email"
+    },
+    "contact_email": {
+      "id": "contact_email",
+      "type": "input",
+      "text": {
+        "es": "¿Cuál es tu correo electrónico?",
+        "ca": "Quin és el teu correu electrònic?",
+        "pt": "Qual é o seu e-mail?",
+        "en": "What is your email?"
+      },
+      "save_to": "email",
+      "next": "contact_phone"
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": {
+        "es": "¿Y tu teléfono o WhatsApp?",
+        "ca": "I el teu telèfon o WhatsApp?",
+        "pt": "E seu telefone ou WhatsApp?",
+        "en": "And your phone or WhatsApp?"
+      },
+      "save_to": "telefono",
+      "next": "contact_timeslot"
+    },
+    "contact_timeslot": {
+      "id": "contact_timeslot",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cuál es tu franja preferida de contacto?",
+        "ca": "Quina és la teva franja preferida de contacte?",
+        "pt": "Qual é o seu melhor horário para contato?",
+        "en": "What’s your preferred contact timeslot?"
+      },
+      "options": [
+        {
+          "label": "Mañanas",
+          "value": "mananas"
+        },
+        {
+          "label": "Tardes",
+          "value": "tardes"
+        },
+        {
+          "label": "Indiferente",
+          "value": "indiferente"
+        }
+      ],
+      "save_to": "contacto_franja",
+      "next": "extra_notes"
+    },
+    "extra_notes": {
+      "id": "extra_notes",
+      "type": "input",
+      "text": {
+        "es": "¿Quieres añadir algo más que creas importante?",
+        "ca": "Vols afegir alguna cosa més que sigui important?",
+        "pt": "Deseja acrescentar algo mais que considere importante?",
+        "en": "Would you like to add anything else important?"
+      },
+      "save_to": "comentarios_finales",
+      "next": "ai_concept_proposal"
+    },
+    "ai_concept_proposal": {
+      "id": "ai_concept_proposal",
+      "type": "ai_generate",
+      "prompt": "Genera una propuesta conceptual premium para un proyecto de cocina/baño. Incluye: análisis del espacio, viabilidad técnica, estilo, distribución sugerida, paleta de colores, materiales recomendados y puntos de valor. Tono elegante, profesional y claro.",
+      "save_to": "propuesta_conceptual",
+      "next": "pdf_generation"
+    },
+    "pdf_generation": {
+      "id": "pdf_generation",
+      "type": "action",
+      "action": "generate_pdf",
+      "params": {
+        "template": "elite_concept_proposal",
+        "fields": [
+          "tipo_proyecto",
+          "ubicacion",
+          "metros_estimados",
+          "forma_espacio",
+          "estilo_global",
+          "presupuesto",
+          "propuesta_conceptual"
+        ]
+      },
+      "save_to": "pdf_url",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": {
+        "es": "Perfecto, hemos completado tu estudio preliminar. Nuestro equipo revisará tu propuesta conceptual personalizada y te contactará para avanzar al siguiente paso. Gracias por confiar en nosotros.",
+        "ca": "Perfecte, hem completat el teu estudi preliminar. El nostre equip revisarà la teva proposta conceptual personalitzada i et contactarà per avançar en el següent pas. Gràcies per confiar en nosaltres.",
+        "pt": "Perfeito, concluímos seu estudo preliminar. Nossa equipa revisará sua proposta conceitual personalizada e entrará em contato para avançar para a próxima etapa. Obrigado pela confiança.",
+        "en": "Perfect, your preliminary study is complete. Our team will review your personalised conceptual proposal and contact you to move forward. Thank you for trusting us."
+      },
+      "next": "end"
+    }
+  }
+}

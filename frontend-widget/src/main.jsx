@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
   headerTitle: undefined,
   headerSubtitle: undefined,
   widgetToken: undefined,
+  logoUrl: undefined,
 };
 
 function normalizeConfig(options = {}) {
@@ -38,17 +39,25 @@ function normalizeConfig(options = {}) {
   } else {
     config.widgetToken = undefined;
   }
+  if (config.logoUrl && typeof config.logoUrl === "string") {
+    config.logoUrl = config.logoUrl.trim();
+  } else {
+    config.logoUrl = undefined;
+  }
   return config;
 }
 
-async function fetchTenantConfig(apiUrl, apiKey, tenantId) {
+async function fetchTenantConfig(apiUrl, { apiKey, widgetToken, tenantId }) {
   if (!tenantId) return null;
   try {
     const headers = {};
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;
       headers["x-api-key"] = apiKey;
+    } else if (widgetToken) {
+      headers["Authorization"] = `Bearer ${widgetToken}`;
     }
+    headers["X-Tenant-ID"] = tenantId;
     headers["Idempotency-Key"] = `${tenantId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const res = await fetch(`${apiUrl}/v1/tenant/config`, { headers });
     if (!res.ok) return null;
@@ -74,13 +83,18 @@ window.ChatWidget = {
       return;
     }
 
-    const tenantCfg = await fetchTenantConfig(config.apiUrl, config.apiKey, config.tenantId);
+    const tenantCfg = await fetchTenantConfig(config.apiUrl, {
+      apiKey: config.apiKey,
+      widgetToken: config.widgetToken,
+      tenantId: config.tenantId,
+    });
     if (tenantCfg) {
       if (!config.tenantTheme && tenantCfg.theme) config.tenantTheme = tenantCfg.theme;
       if (!options.language && tenantCfg.language) config.language = tenantCfg.language;
       if (!config.headerTitle && tenantCfg.texts?.header_title) config.headerTitle = tenantCfg.texts.header_title;
       if (!config.headerSubtitle && tenantCfg.texts?.header_subtitle)
         config.headerSubtitle = tenantCfg.texts.header_subtitle;
+      if (!config.logoUrl && tenantCfg.logo_url) config.logoUrl = tenantCfg.logo_url;
     }
 
     const strings = getStrings(config.language);
@@ -94,6 +108,7 @@ window.ChatWidget = {
           tenantId={config.tenantId}
           tenantTheme={config.tenantTheme}
           startOpen={config.startOpen}
+          logoUrl={config.logoUrl}
           strings={{ ...strings, headerTitle: config.headerTitle, headerSubtitle: config.headerSubtitle }}
         />
       </React.StrictMode>,

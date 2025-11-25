@@ -37,13 +37,31 @@ class WidgetTokenInput(BaseModel):
     ttl_minutes: int = 60
 
 
+@router.post("/widget/token", dependencies=[Depends(require_auth)])
+def issue_widget_token_short(payload: WidgetTokenInput, tenant_id: str = Depends(get_tenant_id), token: str = Depends(oauth2_scheme)):
+    settings = get_settings()
+    if not settings.jwt_secret:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="jwt_secret_not_configured")
+
+    ttl = min(max(payload.ttl_minutes, 5), 120)  # expiración corta para widget
+    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ttl)
+    data = {
+        "type": "widget",
+        "tenant_id": tenant_id,
+        "allowed_origin": payload.allowed_origin,
+        "exp": exp,
+    }
+    signed = jwt.encode(data, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return {"token": signed, "expires_at": exp.isoformat() + "Z", "ttl_minutes": ttl}
+
+
 @router.post("/widget-token", dependencies=[Depends(require_auth)])
 def issue_widget_token(payload: WidgetTokenInput, tenant_id: str = Depends(get_tenant_id), token: str = Depends(oauth2_scheme)):
     settings = get_settings()
     if not settings.jwt_secret:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="jwt_secret_not_configured")
 
-    exp = datetime.datetime.utcnow() + datetime.timedelta(minutes=min(max(payload.ttl_minutes, 5), 180))
+    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=min(max(payload.ttl_minutes, 5), 180))
     data = {
         "type": "widget",
         "tenant_id": tenant_id,

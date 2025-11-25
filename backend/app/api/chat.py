@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -24,6 +25,11 @@ from app.models.tenants import Tenant
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
 
+try:
+    from app.services.ai.ai_engine import ai_extract, ai_reply
+except Exception:
+    ai_extract = ai_reply = None
+
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
@@ -33,11 +39,18 @@ class ChatInput(BaseModel):
     lang: Optional[str] = None
 
 
-def load_base_flow() -> dict:
+def load_flow_for_plan(plan: str | None) -> dict:
     flow_dir = Path(__file__).resolve().parent.parent / "flows"
-    primary = flow_dir / "lead_intake_v1.json"
-    fallback = flow_dir / "base_flow.json"
-    flow_path = primary if primary.exists() else fallback
+    plan_norm = (plan or "base").lower()
+    filename = {
+        "base": "base_plan_fixed.json",
+        "pro": "pro_plan_fixed.json",
+        "elite": "elite_plan_fixed.json",
+    }.get(plan_norm, "base_plan_fixed.json")
+    flow_path = flow_dir / filename
+    if not flow_path.exists():
+        # fallback
+        flow_path = flow_dir / "base_plan_fixed.json"
     with flow_path.open() as f:
         return json.load(f)
 
@@ -108,6 +121,27 @@ def save_message(db, session_id: str, tenant_id, role: str, content: str, block_
     except SQLAlchemyError:
         db.rollback()
 
+def _hydrate_from_ai_extract(state: dict, ai_data: dict | None):
+    """Map AI extraction fields to flow variables to avoid repreguntas."""
+    if not isinstance(ai_data, dict):
+        return
+    vars_ref = state.setdefault("vars", {})
+    # Map posibles claves devueltas por prompts avanzados/genéricos
+    mapping = {
+        "metros": "measures",
+        "measures": "measures",
+        "estilo": "style",
+        "style": "style",
+        "presupuesto": "budget",
+        "budget": "budget",
+        "urgencia": "urgency",
+        "urgency": "urgency",
+        "project_type": "project_type",
+    }
+    for src, dest in mapping.items():
+        val = ai_data.get(src)
+        if val and dest not in vars_ref:
+            vars_ref[dest] = val
 
 def compute_score(vars_data: dict, scoring_cfg: dict) -> tuple[int, dict]:
     weights = scoring_cfg.get("weights", {})
@@ -173,7 +207,8 @@ def send_message(
 ):  # db kept for future use
     settings = get_settings()
     if not idempotency_key:
-        raise HTTPException(status_code=400, detail="missing_idempotency_key")
+        # Autogenera uno si el cliente no lo envía
+        idempotency_key = str(uuid4())
 
     idemp_store = IdempotencyStore(settings.redis_url)
     existing = idemp_store.get(idempotency_key)
@@ -181,14 +216,17 @@ def send_message(
         return existing
 
     session_mgr = SessionManager(settings.redis_url)
-    flow_data = load_base_flow()
-    engine = FlowEngine(flow_data)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    plan_value = tenant.plan if tenant else "base"
+    flow_data = load_flow_for_plan(plan_value)
+    engine = FlowEngine(flow_data)
     flags = tenant.flags_ia if tenant else {}
     use_ai_intent = bool(flags.get("intent_extraction_enabled") or settings.use_ia)
     ai_extractor = AIExtractor(settings.openai_api_key, settings.ai_model) if use_ai_intent else None
     intent = IntentClassifier(ai_extractor=ai_extractor)
     executor = ActionExecutor(settings)
+    ai_extract_meta = None
+    ai_reply_text = None
 
     session_id = payload.session_id or str(uuid4())
     state = session_mgr.load(session_id) or {}
@@ -225,19 +263,19 @@ def send_message(
     current_block = engine.get_block(current_block_id) or engine.get_block("start")
 
     # Validar input según bloque
-    if current_block.get("type") == "input":
+    block_type = current_block.get("type")
+    save_key = current_block.get("save_as") or current_block.get("save_to")
+    if block_type in ("input",):
         validate_input(current_block, payload.message)
-        save_as = current_block.get("save_as")
-        if save_as:
-            state.setdefault("vars", {})[save_as] = payload.message
-    elif current_block.get("type") == "options":
-        option_ids = {opt["id"] for opt in current_block.get("options", [])}
+        if save_key:
+            state.setdefault("vars", {})[save_key] = payload.message
+    elif block_type in ("options", "buttons"):
+        option_ids = {opt.get("id") or opt.get("value") or opt.get("label") for opt in current_block.get("options", [])}
         if payload.message not in option_ids:
             raise HTTPException(status_code=400, detail="invalid_option")
-        save_as = current_block.get("save_as")
-        if save_as:
-            state.setdefault("vars", {})[save_as] = payload.message
-    elif current_block.get("type") == "appointment":
+        if save_key:
+            state.setdefault("vars", {})[save_key] = payload.message
+    elif block_type == "appointment":
         try:
             slot_dt = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
         except ValueError:
@@ -247,12 +285,12 @@ def send_message(
         if slot_dt < now or slot_dt > future_limit:
             raise HTTPException(status_code=400, detail="invalid_appointment_slot")
         state.setdefault("vars", {})["appointment_slot"] = payload.message
-    elif current_block.get("type") == "attachment":
+    elif block_type == "attachment":
         # payload.message expected to be file_id or s3_key reference
         save_as = current_block.get("save_as") or "attachment"
         state.setdefault("vars", {}).setdefault("attachments", [])
         state["vars"]["attachments"].append({save_as: payload.message})
-    elif current_block.get("type") == "message":
+    elif block_type == "message":
         pass
 
     # Intent heuristic o IA (flag use_ia)
@@ -260,6 +298,22 @@ def send_message(
         inferred = intent.classify(payload.message, use_ai=use_ai_intent)
         for k, v in inferred.items():
             state.setdefault("vars", {})[k] = v
+    if ai_extract and use_ai_intent:
+        try:
+            ai_extract_meta = asyncio.run(
+                ai_extract(
+                    payload.message,
+                    purpose="extraction",
+                    tenant_id=tenant_id,
+                    language=payload.lang or state.get("lang"),
+                )
+            ) or None
+            if isinstance(ai_extract_meta, dict) and ai_extract_meta:
+                state.setdefault("vars", {})["ai_extract"] = ai_extract_meta
+                _hydrate_from_ai_extract(state, ai_extract_meta)
+        except Exception as exc:
+            logger.warning({"event": "ai_extract_failed", "error": str(exc)})
+            ai_extract_meta = None
 
     logger.info(
         {
@@ -271,7 +325,7 @@ def send_message(
         }
     )
     # Guardar mensaje del usuario
-    save_message(db, session_id, tenant_id, "user", payload.message, block_id=current_block_id)
+    save_message(db, session_id, tenant_id, "user", payload.message, block_id=current_block_id, ai_meta=ai_extract_meta)
 
     # Si bloque es appointment, guardar slot elegido y book en agenda
     if current_block.get("type") == "appointment":
@@ -291,6 +345,34 @@ def send_message(
         next_block = engine.get_block(next_block_id)
     else:
         next_block = current_block
+
+    # Si seguimos en el mismo bloque y ya hay valor guardado, avanzar forzando con ese valor
+    current_save_key = current_block.get("save_as") or current_block.get("save_to")
+    if next_block_id == current_block_id and current_save_key and state.get("vars", {}).get(current_save_key):
+        forced_val = state.get("vars", {}).get(current_save_key)
+        forced_next = engine.next_block(current_block, forced_val) or current_block.get("next")
+        if forced_next:
+            state["current_block"] = forced_next
+            session_mgr.save(session_id, state)
+            next_block = engine.get_block(forced_next) or next_block
+
+    # Si ya tenemos la variable de un bloque input/options, saltarlo para evitar repreguntas
+    def should_skip(block: dict) -> bool:
+        if not block:
+            return False
+        if block.get("type") not in ("input", "options", "buttons"):
+            return False
+        save_as = block.get("save_as") or block.get("save_to")
+        return bool(save_as and state.get("vars", {}).get(save_as))
+
+    while should_skip(next_block):
+        skip_val = state.get("vars", {}).get(next_block.get("save_as") or next_block.get("save_to"))
+        next_block_id = engine.next_block(next_block, skip_val) or next_block.get("next")
+        if not next_block_id:
+            break
+        state["current_block"] = next_block_id
+        session_mgr.save(session_id, state)
+        next_block = engine.get_block(next_block_id)
 
     lang = pick_lang(flow_data, payload.lang or state.get("lang"))
     state["lang"] = lang
@@ -364,7 +446,7 @@ def send_message(
         if data.get("type") == "appointment":
             from datetime import datetime, timedelta
 
-            now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+            now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
             slots = [
                 (now + timedelta(hours=2)).isoformat() + "Z",
                 (now + timedelta(hours=3)).isoformat() + "Z",
@@ -373,8 +455,61 @@ def send_message(
             data["slots"] = slots
         return {"id": block_id, **data}
 
-    bot_block_id = next_block_id or current_block_id
+    # Ejecutar bloques automáticos (ai_extract) antes de responder al usuario
+    def run_auto_blocks(block):
+        nonlocal state
+        current = block
+        while current and current.get("type") == "ai_extract":
+            source_text = payload.message or state.get("vars", {}).get("area_descripcion") or ""
+            field = current.get("field") or "ai_field"
+            try:
+                ai_data = asyncio.run(
+                    ai_extract(
+                        source_text,
+                        purpose="dimensions",
+                        tenant_id=tenant_id,
+                        language=lang,
+                    )
+                ) or {}
+                if isinstance(ai_data, dict):
+                    val = ai_data.get("metros") or ai_data.get(field) or ai_data.get("value")
+                    if val is not None:
+                        state.setdefault("vars", {})[field] = val
+            except Exception as exc:
+                logger.warning({"event": "ai_extract_autoblock_failed", "error": str(exc)})
+            next_id = current.get("next") or current.get("next_map", {}).get("default")
+            if not next_id:
+                return current
+            state["current_block"] = next_id
+            session_mgr.save(session_id, state)
+            current = engine.get_block(next_id)
+        return current
+
+    next_block = run_auto_blocks(next_block)
+
+    bot_block_id = state.get("current_block", next_block_id or current_block_id) or current_block_id
     bot_block = serialize_block(bot_block_id, next_block)
+    # Si el bloque es ai_generate, generar texto IA y usar fallback si falla
+    if bot_block.get("type") == "ai_generate" and ai_reply and use_ai_intent:
+        prompt_text = bot_block.get("prompt") or ""
+        fallback_text = bot_block.get("fallback_text")
+        try:
+            ai_text = asyncio.run(
+                ai_reply(
+                    prompt_text,
+                    {"prompt": prompt_text},
+                    purpose="custom_prompt",
+                    tenant_id=tenant_id,
+                    language=lang,
+                )
+            )
+            if ai_text:
+                bot_block["text"] = ai_text
+        except Exception as exc:
+            logger.warning({"event": "ai_generate_failed", "error": str(exc)})
+        if not bot_block.get("text") and isinstance(fallback_text, dict):
+            bot_block["text"] = fallback_text.get(lang) or fallback_text.get(flow_data.get("languages", ["es"])[0])
+        bot_block["type"] = "message"
     # Si el bloque es appointment, rellenar slots desde estado
     if bot_block.get("type") == "appointment":
         slots_state = state.get("vars", {}).get("available_slots")
@@ -388,9 +523,33 @@ def send_message(
             action["scoring_config"] = flow_data.get("scoring", {})
     state = executor.execute_actions(actions, session_id, state, db=db)
     session_mgr.save(session_id, state)
+    if ai_reply and use_ai_intent:
+        simple_context = {"vars": state.get("vars", {}), "bot_block": bot_block}
+        try:
+            ai_reply_text = asyncio.run(
+                ai_reply(
+                    payload.message,
+                    simple_context,
+                    purpose="reply_contextual",
+                    tenant_id=tenant_id,
+                    language=lang,
+                )
+            ) or None
+        except Exception as exc:
+            logger.warning({"event": "ai_reply_failed", "error": str(exc)})
+            ai_reply_text = None
 
     # Guardar mensaje del bot
-    save_message(db, session_id, tenant_id, "bot", bot_block.get("text") or bot_block["id"], block_id=bot_block["id"])
+    bot_ai_meta = {"ai_reply": ai_reply_text} if ai_reply_text else None
+    save_message(
+        db,
+        session_id,
+        tenant_id,
+        "bot",
+        bot_block.get("text") or bot_block["id"],
+        block_id=bot_block["id"],
+        ai_meta=bot_ai_meta,
+    )
     logger.info(
         {
             "event": "chat_send_output",
@@ -405,8 +564,9 @@ def send_message(
     # Construir opciones con label en idioma
     opts = []
     for opt in bot_block.get("options", []) or []:
-        label = opt.get(f"label_{lang}") or opt.get("label_es") or opt.get("id")
-        opts.append({"id": opt.get("id"), "label": label})
+        label = opt.get(f"label_{lang}") or opt.get("label_es") or opt.get("label") or opt.get("value") or opt.get("id")
+        opt_id = opt.get("id") or opt.get("value") or opt.get("label")
+        opts.append({"id": opt_id, "label": label})
 
     vars_data = state.get("vars", {})
     state_summary = {
@@ -424,5 +584,7 @@ def send_message(
         "options": opts,
         "state_summary": state_summary,
     }
+    if ai_reply_text:
+        response_data["ai_reply"] = ai_reply_text
     idemp_store.set(idempotency_key, response_data)
     return response_data

@@ -103,55 +103,28 @@ Panel profesional (Streamlit) consumiendo la API
 - Testing: unit (flows, scoring, agenda), contract tests de API, e2e de flujo base; fixtures de flows y seeds de tenants; cobertura mínima 70 % (FlowEngine 90 %+, agenda 85 %, IA extractor 70 %, API 60 %).
 - Alertas tiempo real: Slack #alerts-prod (formato JSON compacto + link a trace/log) para 5xx repetidos, fallos de citas, timeouts IA >3s, webhooks WhatsApp tras 3 reintentos, healthcheck fail; umbral de repetición en 5 min. Email como fallback (equipo y tenants). Teams opcional para Enterprise (webhook por tenant).
 
-## 12) Fases y entregables
-- Fase 1 Fundamentos
-  - Estructura repo: backend (FastAPI), frontend-widget, panel (Streamlit), infra (compose, scripts).
-  - Docker Compose con api+db+redis (+minio opcional). .env.example, Makefile (run, test, format, lint, migrate).
-  - CI básico (lint+tests).
-  - Entrega: entorno local levanta, healthcheck `/v1/health`.
-- Fase 2 Modelado de datos
-  - Tablas base alembic: tenants, users, flows, sessions, leads, appointments, configs, messages, files, audits.
-  - Seeds: tenant demo, flow base v1, usuario admin demo.
-  - Entrega: migraciones reproducibles; script `make seed`.
-- Fase 3 Motor del chat (core)
-  - FlowEngine y SessionManager funcionales; API `/v1/chat/send` que recibe message y devuelve siguiente bloque.
-  - LeadScoring stub (regla fija), IntentClassifier stub (sin IA, regex/reglas).
-  - Idempotency-Key obligatorio en `/v1/chat/send` para evitar duplicados.
-  - Formato sugerido de Idempotency-Key: `{session_id}-{timestamp_ms}`.
-  - Entrega: flujo determinista funciona sin IA; sesiones persistentes; versionado publish/unpublish.
-- Fase 4 Flujo conversacional base
-  - JSON del flujo completo (bienvenida → cierre) en 4 idiomas; validaciones; guardado de variables; soporte de imágenes.
-  - Endpoints para obtener flujo y estado; reanudación de conversación.
-  - Entrega: demo con flujo completo en web widget simple.
-- Fase 5 IA integrada
-  - Plugs IA para extracción y redacción con GPT-4.1/4.1-mini; prompts versionados; feature flags por tenant.
-  - Resumen comercial estructurado y texto + PDF WeasyPrint con branding.
-  - Límites de coste por plan; fallback determinista al superar tope; moderación activa.
-  - Entrega: toggle IA on/off por tenant; fallback seguro.
-- Fase 6 Agenda inteligente
-  - Motor de disponibilidad con reglas; slots generados 15/30/60; reservas con bloqueo de solapes.
-  - Recordatorios reales por WhatsApp y email; timezone por tenant y offset cliente.
-  - Idempotency-Key obligatorio en `/v1/appointments/book`; previene doble reserva.
-  - Reintentos de webhooks de agenda/WhatsApp con backoff 5s/20s/60s (3 intentos) y log para reingesta manual.
-  - Entrega: endpoint `/v1/appointments/slots` y `/v1/appointments/book`.
-- Fase 7 Widget del chat
-  - Burbuja JS embebible; states básicos; soporta botones/inputs; persistencia session_id en localStorage.
-  - Personalización por tenant (colores, logo, textos básicos); auto-detección de idioma.
-  - Entrega: script instalable con config mínima (tenant_id, endpoint).
-- Fase 8 Panel Streamlit
-  - Auth email+password; vistas de dashboard KPIs, leads, citas, configuración textual.
-  - Ver resumen IA por lead; editar/publish flows desde panel simplificado; rollback.
-  - Entrega: panel demo conectado a API demo.
-- Fase 9 CRM básico (opc)
-  - Kanban de leads, tareas, recordatorios; estados personalizables por tenant.
-- Fase 10 Integraciones externas
-  - WhatsApp Business API con Meta Cloud oficial; plantillas.
-  - Google Calendar y OAuth Google/Microsoft en versión 1.2 (no MVP).
-  - Facebook Leads, Zapier/Make, SES/Twilio.
-- Fase 11 Modelo de suscripción
-  - Planes y límites (Base/Pro/Elite); webhooks de Stripe; asignación de plan a tenant.
-- Fase 12 Despliegue y escalabilidad
-  - Infra AWS (ECS/EC2, RDS, Elasticache, S3, ALB, CloudFront); CI/CD GitHub Actions; backups y rotación de claves; VPC dedicada para Enterprise.
+## 12) Fases y entregables (estado)
+- Fase 1 Fundamentos (COMPLETADA)
+  - Repo backend (FastAPI), frontend-widget, panel (Streamlit), compose, scripts; health `/v1/health` OK.
+  - Entorno local levanta; .venv y deps dev instaladas.
+- Fase 2 Modelado de datos (COMPLETADA)
+  - Alembic tables: tenants, users, flows, sessions, leads, appointments, configs, messages, files, audits; seeds demo.
+- Fase 3 Motor del chat (core) (COMPLETADA)
+  - FlowEngine + SessionManager; `/v1/chat/send` con Idempotency-Key; versionado publish/unpublish de flujos.
+- Fase 4 Flujo conversacional base (COMPLETADA)
+  - Flujo base multi-idioma disponible; endpoints de estado y reanudación.
+- Fase 5 IA integrada (PARCIAL)
+  - Interfaces/flags IA listos; falta wiring de prompts/uso IA y control de costes.
+- Fase 6 Agenda inteligente (PARCIAL)
+  - Slots y reservas con idempotencia; pendiente recordatorios/webhooks de reintento y rate limits específicos.
+- Fase 7 Widget del chat (COMPLETADA)
+  - Burbuja JS, session_id en localStorage, personalización (colores/logo/textos), carga inicial `/v1/tenant/config` con auth y whitelisting de origen.
+- Fase 8 Panel Streamlit (COMPLETADA mínimamente)
+  - Login por tenant, vistas de leads/citas/historial/scoring/flujo, spinners y errores estandarizados; falta KPIs y rollback de flows desde UI.
+- Fase 9 CRM básico (opc) (PENDIENTE)
+- Fase 10 Integraciones externas (PENDIENTE)
+- Fase 11 Modelo de suscripción (PENDIENTE)
+- Fase 12 Despliegue y escalabilidad (PENDIENTE)
 
 ## 13) Hitos y timeline (sugerido)
 - Semana 1-2: Fases 1-2 (infra, DB, seeds).

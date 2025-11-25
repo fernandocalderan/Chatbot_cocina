@@ -32,7 +32,7 @@ def login(payload: LoginInput, request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
     if not settings.jwt_secret:
         raise HTTPException(status_code=500, detail="jwt_secret_not_configured")
-    exp = datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
     token = jwt.encode({"sub": str(user.id), "exp": exp}, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return {"access_token": token, "token_type": "bearer"}
 

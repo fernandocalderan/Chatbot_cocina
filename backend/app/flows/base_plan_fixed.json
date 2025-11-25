@@ -1,0 +1,394 @@
+{
+  "version": "1.0-base",
+  "plan": "base",
+  "start_block": "welcome",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": {
+        "es": "Hola, soy el asistente del estudio. Te ayudo a definir tu proyecto de cocina o baño a medida. ¿Listo para empezar?",
+        "ca": "Hola, sóc l'assistent de l'estudi. T'ajudo a definir el teu projecte de cuina o bany a mida. Llest per començar?",
+        "pt": "Olá, sou o assistente do estúdio. Ajudo você a definir seu projeto de cozinha ou banheiro sob medida. Pronto para começar?",
+        "en": "Hi, I'm the studio assistant. I help you define your custom kitchen/bathroom project. Ready to start?"
+      },
+      "next": "ready_check"
+    },
+    "ready_check": {
+      "id": "ready_check",
+      "type": "buttons",
+      "text": {
+        "es": "¿Empezamos ahora?",
+        "ca": "Comencem ara?",
+        "pt": "Começamos agora?",
+        "en": "Shall we start now?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Sí",
+            "ca": "Sí",
+            "pt": "Sim",
+            "en": "Yes"
+          },
+          "value": "yes"
+        },
+        {
+          "label": {
+            "es": "No ahora",
+            "ca": "Ara no",
+            "pt": "Agora não",
+            "en": "Not now"
+          },
+          "value": "no"
+        }
+      ],
+      "save_to": "ready",
+      "next_map": {
+        "yes": "project_type",
+        "no": "goodbye_not_ready"
+      }
+    },
+    "goodbye_not_ready": {
+      "id": "goodbye_not_ready",
+      "type": "message",
+      "text": {
+        "es": "Sin problema, cuando quieras volver estaré aquí para ayudarte.",
+        "ca": "Cap problema, quan vulguis tornar seré aquí per ajudar-te.",
+        "pt": "Sem problema, quando quiser voltar estarei aqui para ajudar.",
+        "en": "No problem, whenever you want to come back I’ll be here to help."
+      },
+      "next": "end"
+    },
+    "project_type": {
+      "id": "project_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tipo de proyecto quieres hacer exactamente?",
+        "ca": "Quin tipus de projecte vols fer exactament?",
+        "pt": "Que tipo de projeto deseja fazer exatamente?",
+        "en": "What type of project do you want to do exactly?"
+      },
+      "options": [
+        {
+          "label": "Cocina completa nueva",
+          "value": "cocina_nueva"
+        },
+        {
+          "label": "Reforma total de la cocina",
+          "value": "cocina_reforma"
+        },
+        {
+          "label": "Muebles de cocina sin reforma",
+          "value": "muebles_cocina"
+        },
+        {
+          "label": "Baño completo nuevo",
+          "value": "bano_nuevo"
+        },
+        {
+          "label": "Reforma de baño",
+          "value": "bano_reforma"
+        },
+        {
+          "label": "Mobiliario de baño a medida",
+          "value": "muebles_bano"
+        },
+        {
+          "label": "Lavadero / zona de aguas",
+          "value": "lavadero"
+        },
+        {
+          "label": "Otro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "tipo_proyecto",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": {
+        "es": "¿En qué ciudad y zona se encuentra la vivienda?",
+        "ca": "A quina ciutat i zona es troba l'habitatge?",
+        "pt": "Em que cidade e zona fica a residência?",
+        "en": "In which city and area is the property located?"
+      },
+      "save_to": "ubicacion",
+      "next": "space_status"
+    },
+    "space_status": {
+      "id": "space_status",
+      "type": "buttons",
+      "text": {
+        "es": "El espacio está…",
+        "ca": "L'espai està…",
+        "pt": "O espaço está…",
+        "en": "The space is…"
+      },
+      "options": [
+        {
+          "label": "Construido y en uso",
+          "value": "uso"
+        },
+        {
+          "label": "Construido pero vacío",
+          "value": "vacio"
+        },
+        {
+          "label": "En obra",
+          "value": "en_obra"
+        },
+        {
+          "label": "Obra nueva sobre plano",
+          "value": "sobre_plano"
+        },
+        {
+          "label": "Solo quiero mobiliario nuevo",
+          "value": "solo_mobiliario"
+        }
+      ],
+      "save_to": "estado_espacio",
+      "next": "area_range"
+    },
+    "area_range": {
+      "id": "area_range",
+      "type": "buttons",
+      "text": {
+        "es": "¿Sabes aproximadamente cuántos m² tiene el espacio?",
+        "ca": "Saps aproximadament quants m² té l'espai?",
+        "pt": "Sabe aproximadamente quantos m² tem o espaço?",
+        "en": "Do you know approximately how many m² the space has?"
+      },
+      "options": [
+        {
+          "label": "<5 m²",
+          "value": "<5"
+        },
+        {
+          "label": "5–8 m²",
+          "value": "5-8"
+        },
+        {
+          "label": "8–12 m²",
+          "value": "8-12"
+        },
+        {
+          "label": "12–18 m²",
+          "value": "12-18"
+        },
+        {
+          "label": ">18 m²",
+          "value": ">18"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "area_rango",
+      "next_map": {
+        "no_se": "area_free",
+        "default": "space_form"
+      }
+    },
+    "area_free": {
+      "id": "area_free",
+      "type": "input",
+      "text": {
+        "es": "Si quieres, describe el espacio (por ejemplo, largo x ancho) y lo estimamos.",
+        "ca": "Si vols, descriu l'espai (per exemple, llarg x ample) i ho estimem.",
+        "pt": "Se quiser, descreva o espaço (por exemplo, comprimento x largura) e estimamos.",
+        "en": "If you want, describe the space (e.g. length x width) and we’ll estimate it."
+      },
+      "save_to": "area_descripcion",
+      "next": "space_form"
+    },
+    "space_form": {
+      "id": "space_form",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cómo es la forma del espacio?",
+        "ca": "Com és la forma de l'espai?",
+        "pt": "Como é o formato do espaço?",
+        "en": "What is the shape of the space?"
+      },
+      "options": [
+        {
+          "label": "Rectangular",
+          "value": "rectangular"
+        },
+        {
+          "label": "Cuadrado",
+          "value": "cuadrado"
+        },
+        {
+          "label": "En L",
+          "value": "L"
+        },
+        {
+          "label": "En U",
+          "value": "U"
+        },
+        {
+          "label": "Pasillo / estrecha",
+          "value": "pasillo"
+        },
+        {
+          "label": "No lo sé",
+          "value": "desconocido"
+        }
+      ],
+      "save_to": "forma_espacio",
+      "next": "budget"
+    },
+    "budget": {
+      "id": "budget",
+      "type": "buttons",
+      "text": {
+        "es": "¿En qué rango de inversión te sientes cómodo/a (mobiliario + instalación + obra si aplica)?",
+        "ca": "En quin rang d'inversió et sents còmode/a (moble + instal·lació + obra si escau)?",
+        "pt": "Em que faixa de investimento se sente confortável (mobiliário + instalação + obra, se houver)?",
+        "en": "In what investment range do you feel comfortable (furniture + installation + works if needed)?"
+      },
+      "options": [
+        {
+          "label": "2.000–5.000 €",
+          "value": "2000-5000"
+        },
+        {
+          "label": "5.000–9.000 €",
+          "value": "5000-9000"
+        },
+        {
+          "label": "9.000–15.000 €",
+          "value": "9000-15000"
+        },
+        {
+          "label": "15.000–25.000 €",
+          "value": "15000-25000"
+        },
+        {
+          "label": "25.000–40.000 €",
+          "value": "25000-40000"
+        },
+        {
+          "label": "Más de 40.000 €",
+          "value": ">40000"
+        },
+        {
+          "label": "Prefiero que me orientéis",
+          "value": "orientacion"
+        }
+      ],
+      "save_to": "presupuesto_rango",
+      "next": "urgency_scale"
+    },
+    "urgency_scale": {
+      "id": "urgency_scale",
+      "type": "buttons",
+      "text": {
+        "es": "Del 1 al 5, ¿qué tan urgente es este proyecto para ti?",
+        "ca": "De l'1 al 5, com d'urgent és aquest projecte per a tu?",
+        "pt": "De 1 a 5, quão urgente é este projeto para você?",
+        "en": "From 1 to 5, how urgent is this project for you?"
+      },
+      "options": [
+        {
+          "label": "1 - Sin prisa",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5 - Muy urgente",
+          "value": "5"
+        }
+      ],
+      "save_to": "urgencia_escala",
+      "next": "contact_name"
+    },
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": {
+        "es": "Para terminar, ¿cómo te llamas?",
+        "ca": "Per acabar, com et dius?",
+        "pt": "Para terminar, qual é o seu nome?",
+        "en": "To finish, what is your name?"
+      },
+      "save_to": "nombre",
+      "next": "contact_phone"
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": {
+        "es": "¿Cuál es tu teléfono o WhatsApp?",
+        "ca": "Quin és el teu telèfon o WhatsApp?",
+        "pt": "Qual é o seu telefone ou WhatsApp?",
+        "en": "What is your phone or WhatsApp?"
+      },
+      "validation": {
+        "regex": "^[0-9+ ()-]{6,20}$"
+      },
+      "save_to": "telefono",
+      "next": "lead_scoring"
+    },
+    "lead_scoring": {
+      "id": "lead_scoring",
+      "type": "internal",
+      "action": "calculate_scoring",
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": {
+        "es": "Puedes elegir día y franja horaria para una visita o videollamada con nuestro equipo:",
+        "ca": "Pots triar dia i franja horària per a una visita o videotrucada amb el nostre equip:",
+        "pt": "Pode escolher dia e horário para uma visita ou videochamada com nossa equipa:",
+        "en": "You can choose a day and time slot for a visit or video call with our team:"
+      },
+      "save_to": "cita_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": {
+        "es": "Perfecto. Con esta información podemos preparar una propuesta ajustada a tu espacio y presupuesto. Nuestro equipo te contactará en breve.",
+        "ca": "Perfecte. Amb aquesta informació podem preparar una proposta ajustada al teu espai i pressupost. El nostre equip es posarà en contacte amb tu aviat.",
+        "pt": "Perfeito. Com estas informações podemos preparar uma proposta ajustada ao seu espaço e orçamento. Nossa equipa entrará em contato em breve.",
+        "en": "Perfect. With this information we can prepare a proposal tailored to your space and budget. Our team will contact you soon."
+      },
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}
