@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Resumen Comercial</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 16px; margin-top: 18px; margin-bottom: 6px; }
+    .card { border: 1px solid #ddd; padding: 14px; border-radius: 8px; margin-bottom: 10px; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Propuesta comercial - {{ tenant_name }}</h1>
+  <div class="card">
+    <div><span class="label">Cliente:</span> {{ cliente_nombre }}</div>
+    <div><span class="label">Fecha:</span> {{ fecha }}</div>
+  </div>
+  <div class="card">
+    <div><span class="label">Estilo:</span> {{ estilo }}</div>
+    <div><span class="label">Metros:</span> {{ metros }}</div>
+    <div><span class="label">Presupuesto:</span> {{ presupuesto }}</div>
+    <div><span class="label">Urgencia:</span> {{ urgencia }}</div>
+    <div><span class="label">Extras:</span> {{ extras }}</div>
+  </div>
+</body>
+</html>

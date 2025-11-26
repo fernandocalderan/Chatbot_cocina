@@ -9,9 +9,10 @@
 .chat-window {
   width: 380px;
   height: 600px;
-  background: #fff;
+  background: var(--panel-bg);
   border-radius: 18px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-soft);
   overflow: hidden;
   position: relative;
   animation: slideUp 0.25s ease;
@@ -22,14 +23,23 @@
   top: 8px;
   right: 8px;
   border: none;
-  background: rgba(0, 0, 0, 0.08);
-  color: #555;
+  background: var(--panel-bg);
+  color: var(--text-color);
   width: 32px;
   height: 32px;
   border-radius: 50%;
   cursor: pointer;
   font-size: 18px;
   z-index: 10;
+  border: 1px solid var(--accent-gold);
+  box-shadow: var(--shadow-softer);
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chat-close:hover {
+  background: var(--accent-gold-soft);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
 }
 
 @keyframes slideUp {
@@ -50,4 +60,23 @@
   to {
     opacity: 1;
   }
+}
+
+/* Text adaptability tweaks */
+.chat-window,
+.chat-window .chat-messages,
+.chat-window .chat-input,
+.chat-window .chat-input input,
+.chat-window .chat-input button,
+.chat-window .chat-header,
+.chat-window .chat-title,
+.chat-window .chat-subtitle,
+.chat-window .chat-status-label,
+.chat-window .chat-close {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.chat-window {
+  min-height: auto;
+  max-height: none;
 }

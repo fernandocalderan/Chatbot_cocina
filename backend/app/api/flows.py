@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.auth import oauth2_scheme, require_auth
+from app.middleware.authz import require_any_role
 from app.api.deps import get_db, get_tenant_id
 from app.models.flow import Scoring
 from app.models.flows import Flow as FlowVersioned
@@ -67,7 +68,7 @@ def get_scoring(
     return scoring.data or {}
 
 
-@router.post("/update", dependencies=[Depends(require_auth)])
+@router.post("/update", dependencies=[Depends(require_any_role("OWNER", "ADMIN"))])
 def update_flow(
     payload: dict,
     db: Session = Depends(get_db),

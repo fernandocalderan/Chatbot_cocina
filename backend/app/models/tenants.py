@@ -13,13 +13,37 @@ class Tenant(Base):
     name = sa.Column(sa.String(255), nullable=False, index=True)
     contact_email = sa.Column(sa.String(320), nullable=True)
     plan = sa.Column(sa.String(50), nullable=False, server_default="Base")
-    flags_ia = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
-    branding = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+    use_ia = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
+    ia_plan = sa.Column(sa.String(10), nullable=False, server_default="base")
+    flags_ia = sa.Column(
+        pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    branding = sa.Column(
+        pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    workdays = sa.Column(pg.ARRAY(sa.Integer), nullable=True)
+    opening_hours = sa.Column(pg.JSONB, nullable=True)
+    slot_duration = sa.Column(sa.Integer, nullable=True)
     idioma_default = sa.Column(sa.String(10), nullable=False, server_default="es")
     timezone = sa.Column(sa.String(64), nullable=False, server_default="Europe/Madrid")
+    google_calendar_connected = sa.Column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    google_refresh_token = sa.Column(sa.String(1024), nullable=True)
+    google_calendar_id = sa.Column(sa.String(255), nullable=True)
+    microsoft_calendar_connected = sa.Column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    microsoft_refresh_token = sa.Column(sa.String(1024), nullable=True)
+    microsoft_calendar_id = sa.Column(sa.String(255), nullable=True)
     ai_cost = sa.Column(sa.Float, nullable=False, server_default="0")
     ai_monthly_limit = sa.Column(sa.Float, nullable=False, server_default="100")
-    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    created_at = sa.Column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
     )

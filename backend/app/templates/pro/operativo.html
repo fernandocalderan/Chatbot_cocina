@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Ficha Operativa Pro</title>
+  <style>
+    body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 24px; color: #0f172a; }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    .section { border: 1px solid #d1d5db; padding: 12px; border-radius: 8px; margin-bottom: 12px; background: #f9fafb; }
+    .label { font-weight: 600; color: #111827; }
+    .list { margin-top: 8px; padding-left: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Operativo Pro - {{ tenant_name }}</h1>
+  <div class="section">
+    <div><span class="label">Cliente:</span> {{ cliente_nombre }}</div>
+    <div><span class="label">Fecha:</span> {{ fecha }}</div>
+    <div><span class="label">Estilo:</span> {{ estilo }}</div>
+    <div><span class="label">Metros:</span> {{ metros }}</div>
+    <div><span class="label">Urgencia:</span> {{ urgencia }}</div>
+  </div>
+  <div class="section">
+    <div><span class="label">Resumen IA:</span> {{ resumen_ia }}</div>
+    <div><span class="label">Extras:</span> {{ extras }}</div>
+    {% if images %}
+    <div class="label">Imágenes/refs:</div>
+    <ul class="list">
+      {% for img in images %}
+      <li>{{ img }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</body>
+</html>

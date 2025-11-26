@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -18,10 +19,13 @@ from app.core.intent_classifier import IntentClassifier
 from app.core.ai_extractor import AIExtractor
 from app.core.actions import ActionExecutor
 from app.core.idempotency import IdempotencyStore
+from app.observability import metrics
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
 from app.models.tenants import Tenant
+from app.services.pii_service import PIIService
+from app.observability.tracing import start_span, end_span, set_request_context
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
 
@@ -31,6 +35,8 @@ except Exception:
     ai_extract = ai_reply = None
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+pii_service = PIIService()
+PII_AUTO_UPGRADE = os.getenv("PII_AUTO_UPGRADE") == "1"
 
 
 class ChatInput(BaseModel):
@@ -74,7 +80,9 @@ def validate_input(block: dict, user_input: str):
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", user_input.strip()):
             raise HTTPException(status_code=400, detail="invalid_email")
     elif vtype == "area_m2":
-        nums = [float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)]
+        nums = [
+            float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)
+        ]
         if not nums:
             raise HTTPException(status_code=400, detail="invalid_area")
         area = nums[0]
@@ -85,7 +93,9 @@ def validate_input(block: dict, user_input: str):
         if not (min_m2 <= area <= max_m2):
             raise HTTPException(status_code=400, detail="invalid_area")
     elif vtype == "budget":
-        nums = [float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)]
+        nums = [
+            float(n.replace(",", ".")) for n in re.findall(r"\d+[.,]?\d*", user_input)
+        ]
         if not nums:
             raise HTTPException(status_code=400, detail="invalid_budget")
         min_budget = float(validation.get("min_budget", 500))
@@ -105,21 +115,39 @@ def pick_lang(flow: dict, requested: Optional[str]) -> str:
     return "es"
 
 
-def save_message(db, session_id: str, tenant_id, role: str, content: str, block_id: Optional[str] = None, ai_meta=None):
+def save_message(
+    db,
+    session_id: str,
+    tenant_id,
+    role: str,
+    content: str,
+    block_id: Optional[str] = None,
+    ai_meta=None,
+):
+    enc_content = content
+    pii_version = 1
+    if role == "user":
+        enc_content, changed = pii_service.encrypt_message_content(
+            content, str(tenant_id)
+        )
+        if not changed:
+            pii_version = 1
     try:
         msg = DBMessage(
             tenant_id=tenant_id,
             session_id=session_id,
             role=role,
-            content=content,
+            content=enc_content,
             block_id=block_id,
             ai_meta=ai_meta or {},
             attachments=[],
+            pii_version=pii_version,
         )
         db.add(msg)
         db.commit()
     except SQLAlchemyError:
         db.rollback()
+
 
 def _hydrate_from_ai_extract(state: dict, ai_data: dict | None):
     """Map AI extraction fields to flow variables to avoid repreguntas."""
@@ -142,6 +170,7 @@ def _hydrate_from_ai_extract(state: dict, ai_data: dict | None):
         val = ai_data.get(src)
         if val and dest not in vars_ref:
             vars_ref[dest] = val
+
 
 def compute_score(vars_data: dict, scoring_cfg: dict) -> tuple[int, dict]:
     weights = scoring_cfg.get("weights", {})
@@ -184,17 +213,43 @@ def map_score_to_status(score: int, thresholds: dict) -> str:
 
 
 @router.get("/history/{session_id}", dependencies=[Depends(require_auth)])
-def get_history(session_id: str, db=Depends(get_db), tenant_id: str = Depends(get_tenant_id), token: str = Depends(oauth2_scheme)):
+def get_history(
+    session_id: str,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
     msgs = (
         db.query(DBMessage)
         .filter(DBMessage.session_id == session_id, DBMessage.tenant_id == tenant_id)
         .order_by(DBMessage.id.asc())
         .all()
     )
-    return [
-        {"role": m.role, "content": m.content, "block_id": m.block_id, "created_at": m.created_at.isoformat() if m.created_at else None}
-        for m in msgs
-    ]
+    items = []
+    for m in msgs:
+        content = m.content
+        if pii_service.is_encrypted(content):
+            content = pii_service.decrypt_pii(content)
+        elif PII_AUTO_UPGRADE:
+            enc, changed = pii_service.encrypt_message_content(content, str(tenant_id))
+            if changed:
+                try:
+                    m.content = enc
+                    m.pii_version = 1
+                    db.add(m)
+                    db.commit()
+                    content = pii_service.decrypt_pii(enc)
+                except SQLAlchemyError:
+                    db.rollback()
+        items.append(
+            {
+                "role": m.role,
+                "content": content,
+                "block_id": m.block_id,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+        )
+    return items
 
 
 @router.post("/send", dependencies=[Depends(require_auth)])
@@ -219,29 +274,52 @@ def send_message(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     plan_value = tenant.plan if tenant else "base"
     flow_data = load_flow_for_plan(plan_value)
-    engine = FlowEngine(flow_data)
     flags = tenant.flags_ia if tenant else {}
-    use_ai_intent = bool(flags.get("intent_extraction_enabled") or settings.use_ia)
-    ai_extractor = AIExtractor(settings.openai_api_key, settings.ai_model) if use_ai_intent else None
+    tenant_use_ai = getattr(tenant, "use_ia", None)
+    if tenant_use_ai is None:
+        tenant_use_ai = True
+    flags_enabled = flags.get("intent_extraction_enabled") if tenant else True
+    use_ai_intent = bool(tenant_use_ai and (flags_enabled or settings.use_ia))
+    ai_extractor = (
+        AIExtractor(settings.openai_api_key, settings.ai_model)
+        if use_ai_intent
+        else None
+    )
     intent = IntentClassifier(ai_extractor=ai_extractor)
     executor = ActionExecutor(settings)
     ai_extract_meta = None
     ai_reply_text = None
 
     session_id = payload.session_id or str(uuid4())
+    set_request_context(
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    metrics.set_gauge("chat_sessions_active", 1, {"tenant_id": tenant_id})
     state = session_mgr.load(session_id) or {}
     if state and state.get("vars", {}).get("tenant_id") not in (None, tenant_id):
         raise HTTPException(status_code=403, detail="tenant_mismatch")
     if not state:
         # Intentar cargar desde DB si existe
-        db_state = db.query(DBSesion).filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id).first()
+        db_state = (
+            db.query(DBSesion)
+            .filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id)
+            .first()
+        )
         if db_state:
             vars_data = db_state.variables_json or {}
             vars_data.setdefault("tenant_id", tenant_id)
-            state = {"current_block": db_state.state or flow_data.get("start_block", "start"), "vars": vars_data}
+            state = {
+                "current_block": db_state.state
+                or flow_data.get("start_block", "start"),
+                "vars": vars_data,
+            }
             session_mgr.save(session_id, state)
         else:
-            state = {"current_block": flow_data.get("start_block", "start"), "vars": {"tenant_id": tenant_id}}
+            state = {
+                "current_block": flow_data.get("start_block", "start"),
+                "vars": {"tenant_id": tenant_id},
+            }
             session_mgr.save(session_id, state)
             try:
                 db_obj = DBSesion(
@@ -258,9 +336,20 @@ def send_message(
     else:
         state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
 
+    engine = FlowEngine(flow_data, context=state.get("vars", {}))
     start_block = flow_data.get("start_block", "start")
     current_block_id = state.get("current_block", start_block)
-    current_block = engine.get_block(current_block_id) or engine.get_block("start")
+    current_block = engine.get_block(current_block_id) or engine.get_block(start_block)
+    if not current_block:
+        # fallback duro al primer bloque disponible
+        first_block_id = next(iter(flow_data.get("blocks", {}) or {"start": {}}))
+        current_block = engine.get_block(first_block_id) or {
+            "id": first_block_id,
+            "type": "message",
+        }
+        state["current_block"] = first_block_id
+
+    span_id = start_span(f"chat_step_{current_block.get('id')}")
 
     # Validar input según bloque
     block_type = current_block.get("type")
@@ -270,11 +359,19 @@ def send_message(
         if save_key:
             state.setdefault("vars", {})[save_key] = payload.message
     elif block_type in ("options", "buttons"):
-        option_ids = {opt.get("id") or opt.get("value") or opt.get("label") for opt in current_block.get("options", [])}
-        if payload.message not in option_ids:
-            raise HTTPException(status_code=400, detail="invalid_option")
+        options_list = current_block.get("options", []) or []
+        option_ids = [
+            opt.get("id") or opt.get("value") or opt.get("label")
+            for opt in options_list
+        ]
+        chosen = (
+            payload.message
+            if payload.message in option_ids
+            else (option_ids[0] if option_ids else payload.message)
+        )
         if save_key:
-            state.setdefault("vars", {})[save_key] = payload.message
+            state.setdefault("vars", {})[save_key] = chosen
+        payload.message = chosen
     elif block_type == "appointment":
         try:
             slot_dt = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
@@ -300,14 +397,18 @@ def send_message(
             state.setdefault("vars", {})[k] = v
     if ai_extract and use_ai_intent:
         try:
-            ai_extract_meta = asyncio.run(
-                ai_extract(
-                    payload.message,
-                    purpose="extraction",
-                    tenant_id=tenant_id,
-                    language=payload.lang or state.get("lang"),
+            ai_extract_meta = (
+                asyncio.run(
+                    ai_extract(
+                        payload.message,
+                        purpose="extraction",
+                        tenant=tenant,
+                        tenant_id=tenant_id,
+                        language=payload.lang or state.get("lang"),
+                    )
                 )
-            ) or None
+                or None
+            )
             if isinstance(ai_extract_meta, dict) and ai_extract_meta:
                 state.setdefault("vars", {})["ai_extract"] = ai_extract_meta
                 _hydrate_from_ai_extract(state, ai_extract_meta)
@@ -325,7 +426,15 @@ def send_message(
         }
     )
     # Guardar mensaje del usuario
-    save_message(db, session_id, tenant_id, "user", payload.message, block_id=current_block_id, ai_meta=ai_extract_meta)
+    save_message(
+        db,
+        session_id,
+        tenant_id,
+        "user",
+        payload.message,
+        block_id=current_block_id,
+        ai_meta=ai_extract_meta,
+    )
 
     # Si bloque es appointment, guardar slot elegido y book en agenda
     if current_block.get("type") == "appointment":
@@ -333,10 +442,16 @@ def send_message(
         visit_type = state.get("vars", {}).get("visit_type")
         slot_start = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
         slot_end = slot_start + timedelta(minutes=30)
-        lead = db.query(DBLead).filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id).first()
+        lead = (
+            db.query(DBLead)
+            .filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id)
+            .first()
+        )
         lead_id = lead.id if lead else None
         lead_tenant = lead.tenant_id if lead else tenant_id
-        executor.agenda_service.book(db, lead_id, lead_tenant, slot_start, slot_end, visit_type)
+        executor.agenda_service.book(
+            db, lead_id, lead_tenant, slot_start, slot_end, visit_type
+        )
 
     next_block_id = engine.next_block(current_block, payload.message)
     if next_block_id:
@@ -348,9 +463,15 @@ def send_message(
 
     # Si seguimos en el mismo bloque y ya hay valor guardado, avanzar forzando con ese valor
     current_save_key = current_block.get("save_as") or current_block.get("save_to")
-    if next_block_id == current_block_id and current_save_key and state.get("vars", {}).get(current_save_key):
+    if (
+        next_block_id == current_block_id
+        and current_save_key
+        and state.get("vars", {}).get(current_save_key)
+    ):
         forced_val = state.get("vars", {}).get(current_save_key)
-        forced_next = engine.next_block(current_block, forced_val) or current_block.get("next")
+        forced_next = engine.next_block(current_block, forced_val) or current_block.get(
+            "next"
+        )
         if forced_next:
             state["current_block"] = forced_next
             session_mgr.save(session_id, state)
@@ -366,8 +487,12 @@ def send_message(
         return bool(save_as and state.get("vars", {}).get(save_as))
 
     while should_skip(next_block):
-        skip_val = state.get("vars", {}).get(next_block.get("save_as") or next_block.get("save_to"))
-        next_block_id = engine.next_block(next_block, skip_val) or next_block.get("next")
+        skip_val = state.get("vars", {}).get(
+            next_block.get("save_as") or next_block.get("save_to")
+        )
+        next_block_id = engine.next_block(next_block, skip_val) or next_block.get(
+            "next"
+        )
         if not next_block_id:
             break
         state["current_block"] = next_block_id
@@ -380,7 +505,11 @@ def send_message(
 
     # Persist session to DB
     try:
-        db_state = db.query(DBSesion).filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id).first()
+        db_state = (
+            db.query(DBSesion)
+            .filter(DBSesion.id == session_id, DBSesion.tenant_id == tenant_id)
+            .first()
+        )
         if db_state:
             db_state.state = state.get("current_block")
             db_state.variables_json = state.get("vars", {})
@@ -402,6 +531,7 @@ def send_message(
     # Crear/actualizar lead en bloque de decisión
     if (next_block_id or current_block_id) == "compute_score_and_decide":
         vars_data = state.get("vars", {})
+        encrypted_meta, _ = pii_service.encrypt_meta(vars_data, tenant_id)
         scoring_cfg = flow_data.get("scoring", {})
         score, breakdown = compute_score(vars_data, scoring_cfg)
         thresholds = scoring_cfg.get("thresholds", {})
@@ -416,11 +546,16 @@ def send_message(
             }
         )
         try:
-            lead = db.query(DBLead).filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id).first()
+            lead = (
+                db.query(DBLead)
+                .filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id)
+                .first()
+            )
             if lead:
                 lead.score = score
                 lead.score_breakdown_json = breakdown
-                lead.meta_data = vars_data
+                lead.meta_data = encrypted_meta
+                lead.pii_version = 1
                 lead.status = lead_status
             else:
                 lead = DBLead(
@@ -429,10 +564,37 @@ def send_message(
                     status=lead_status,
                     score=score,
                     score_breakdown_json=breakdown,
-                    meta_data=vars_data,
+                    meta_data=encrypted_meta,
+                    pii_version=1,
                 )
                 db.add(lead)
+                metrics.inc_counter(
+                    "leads_created_total",
+                    {"tenant_id": tenant_id, "source": "chat"},
+                )
             db.commit()
+            try:
+                from app.services.pdf_service import PDFService
+
+                pdf_service = PDFService()
+                extracted_data = vars_data or {}
+                ia_output = state.get("vars", {}).get("ai_summary") or {}
+                pdf_service.generate_commercial_pdf(
+                    lead,
+                    tenant,
+                    extracted_data,
+                    ia_output if isinstance(ia_output, dict) else {},
+                )
+                pdf_service.generate_operational_pdf(
+                    lead,
+                    tenant,
+                    extracted_data,
+                    ia_output if isinstance(ia_output, dict) else {},
+                )
+            except Exception as pdf_exc:
+                logger.warning(
+                    {"event": "pdf_generation_failed", "error": str(pdf_exc)}
+                )
         except SQLAlchemyError:
             db.rollback()
 
@@ -442,7 +604,9 @@ def send_message(
         data = dict(block)
         # Seleccionar texto por idioma si es dict
         if "text" in data:
-            data["text"] = engine.choose_text(block, lang, flow_data.get("languages", ["es"])[0])
+            data["text"] = engine.choose_text(
+                block, lang, flow_data.get("languages", ["es"])[0]
+            )
         if data.get("type") == "appointment":
             from datetime import datetime, timedelta
 
@@ -460,23 +624,37 @@ def send_message(
         nonlocal state
         current = block
         while current and current.get("type") == "ai_extract":
-            source_text = payload.message or state.get("vars", {}).get("area_descripcion") or ""
+            if not ai_extract or not use_ai_intent:
+                break
+            source_text = (
+                payload.message or state.get("vars", {}).get("area_descripcion") or ""
+            )
             field = current.get("field") or "ai_field"
             try:
-                ai_data = asyncio.run(
-                    ai_extract(
-                        source_text,
-                        purpose="dimensions",
-                        tenant_id=tenant_id,
-                        language=lang,
+                ai_data = (
+                    asyncio.run(
+                        ai_extract(
+                            source_text,
+                            purpose="dimensions",
+                            tenant=tenant,
+                            tenant_id=tenant_id,
+                            language=lang,
+                        )
                     )
-                ) or {}
+                    or {}
+                )
                 if isinstance(ai_data, dict):
-                    val = ai_data.get("metros") or ai_data.get(field) or ai_data.get("value")
+                    val = (
+                        ai_data.get("metros")
+                        or ai_data.get(field)
+                        or ai_data.get("value")
+                    )
                     if val is not None:
                         state.setdefault("vars", {})[field] = val
             except Exception as exc:
-                logger.warning({"event": "ai_extract_autoblock_failed", "error": str(exc)})
+                logger.warning(
+                    {"event": "ai_extract_autoblock_failed", "error": str(exc)}
+                )
             next_id = current.get("next") or current.get("next_map", {}).get("default")
             if not next_id:
                 return current
@@ -487,28 +665,39 @@ def send_message(
 
     next_block = run_auto_blocks(next_block)
 
-    bot_block_id = state.get("current_block", next_block_id or current_block_id) or current_block_id
+    bot_block_id = (
+        state.get("current_block", next_block_id or current_block_id)
+        or current_block_id
+    )
     bot_block = serialize_block(bot_block_id, next_block)
     # Si el bloque es ai_generate, generar texto IA y usar fallback si falla
-    if bot_block.get("type") == "ai_generate" and ai_reply and use_ai_intent:
-        prompt_text = bot_block.get("prompt") or ""
-        fallback_text = bot_block.get("fallback_text")
-        try:
-            ai_text = asyncio.run(
-                ai_reply(
-                    prompt_text,
-                    {"prompt": prompt_text},
-                    purpose="custom_prompt",
-                    tenant_id=tenant_id,
-                    language=lang,
+    if bot_block.get("type") == "ai_generate":
+        if ai_reply and use_ai_intent:
+            prompt_text = bot_block.get("prompt") or ""
+            fallback_text = bot_block.get("fallback_text")
+            try:
+                ai_text = asyncio.run(
+                    ai_reply(
+                        prompt_text,
+                        {"prompt": prompt_text},
+                        purpose="custom_prompt",
+                        tenant=tenant,
+                        tenant_id=tenant_id,
+                        language=lang,
+                    )
                 )
+                if ai_text:
+                    bot_block["text"] = ai_text
+            except Exception as exc:
+                logger.warning({"event": "ai_generate_failed", "error": str(exc)})
+            if not bot_block.get("text") and isinstance(fallback_text, dict):
+                bot_block["text"] = fallback_text.get(lang) or fallback_text.get(
+                    flow_data.get("languages", ["es"])[0]
+                )
+        if not bot_block.get("text"):
+            bot_block["text"] = (
+                bot_block.get("fallback_text") or bot_block.get("text") or ""
             )
-            if ai_text:
-                bot_block["text"] = ai_text
-        except Exception as exc:
-            logger.warning({"event": "ai_generate_failed", "error": str(exc)})
-        if not bot_block.get("text") and isinstance(fallback_text, dict):
-            bot_block["text"] = fallback_text.get(lang) or fallback_text.get(flow_data.get("languages", ["es"])[0])
         bot_block["type"] = "message"
     # Si el bloque es appointment, rellenar slots desde estado
     if bot_block.get("type") == "appointment":
@@ -522,19 +711,27 @@ def send_message(
         if action.get("type") == "compute_lead_score":
             action["scoring_config"] = flow_data.get("scoring", {})
     state = executor.execute_actions(actions, session_id, state, db=db)
+    if state.get("ended"):
+        metrics.inc_counter(
+            "flow_conversations_completed_total", {"tenant_id": tenant_id}
+        )
     session_mgr.save(session_id, state)
     if ai_reply and use_ai_intent:
         simple_context = {"vars": state.get("vars", {}), "bot_block": bot_block}
         try:
-            ai_reply_text = asyncio.run(
-                ai_reply(
-                    payload.message,
-                    simple_context,
-                    purpose="reply_contextual",
-                    tenant_id=tenant_id,
-                    language=lang,
+            ai_reply_text = (
+                asyncio.run(
+                    ai_reply(
+                        payload.message,
+                        simple_context,
+                        purpose="reply_contextual",
+                        tenant=tenant,
+                        tenant_id=tenant_id,
+                        language=lang,
+                    )
                 )
-            ) or None
+                or None
+            )
         except Exception as exc:
             logger.warning({"event": "ai_reply_failed", "error": str(exc)})
             ai_reply_text = None
@@ -564,7 +761,13 @@ def send_message(
     # Construir opciones con label en idioma
     opts = []
     for opt in bot_block.get("options", []) or []:
-        label = opt.get(f"label_{lang}") or opt.get("label_es") or opt.get("label") or opt.get("value") or opt.get("id")
+        label = (
+            opt.get(f"label_{lang}")
+            or opt.get("label_es")
+            or opt.get("label")
+            or opt.get("value")
+            or opt.get("id")
+        )
         opt_id = opt.get("id") or opt.get("value") or opt.get("label")
         opts.append({"id": opt_id, "label": label})
 
@@ -587,4 +790,5 @@ def send_message(
     if ai_reply_text:
         response_data["ai_reply"] = ai_reply_text
     idemp_store.set(idempotency_key, response_data)
+    end_span()
     return response_data

@@ -1,15 +1,17 @@
-import os
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
+from loguru import logger
 
 from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db, get_tenant_id
 from app.core.config import get_settings
 from app.models.files import FileAsset
 from app.models.leads import Lead
+from app.services.file_service import FileService
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -27,7 +29,9 @@ async def upload_file(
     token: str = Depends(oauth2_scheme),
 ):
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_file_type")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_file_type"
+        )
 
     settings = get_settings()
     base_dir = Path(settings.storage_dir)
@@ -36,12 +40,22 @@ async def upload_file(
     # Resolver lead_id por session_id si no llega explícito
     resolved_lead_id: Optional[str] = None
     if lead_id:
-        lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+        lead = (
+            db.query(Lead)
+            .filter(Lead.id == lead_id, Lead.tenant_id == tenant_id)
+            .first()
+        )
         if not lead:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead_not_found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="lead_not_found"
+            )
         resolved_lead_id = str(lead.id)
     elif session_id:
-        lead = db.query(Lead).filter(Lead.session_id == session_id, Lead.tenant_id == tenant_id).first()
+        lead = (
+            db.query(Lead)
+            .filter(Lead.session_id == session_id, Lead.tenant_id == tenant_id)
+            .first()
+        )
         if lead:
             resolved_lead_id = str(lead.id)
 
@@ -90,3 +104,58 @@ async def upload_file(
         "content_type": file.content_type,
         "size_bytes": len(content),
     }
+
+
+@router.get("/{lead_id}/comercial.pdf", dependencies=[Depends(require_auth)])
+def download_comercial_pdf(
+    lead_id: str,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    return _download_pdf(lead_id, "comercial", db, tenant_id)
+
+
+@router.get("/{lead_id}/operativo.pdf", dependencies=[Depends(require_auth)])
+def download_operativo_pdf(
+    lead_id: str,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    return _download_pdf(lead_id, "operativo", db, tenant_id)
+
+
+def _download_pdf(lead_id: str, tipo: str, db, tenant_id: str):
+    lead = (
+        db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+    )
+    if not lead:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="lead_not_found"
+        )
+    fs = FileService()
+    key = f"tenants/{tenant_id}/leads/{lead_id}/{tipo}.pdf"
+    content = fs.download_pdf(key)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="file_not_found"
+        )
+    logger.info(
+        {
+            "tenant_id": tenant_id,
+            "lead_id": lead_id,
+            "tipo_pdf": tipo,
+            "plan": getattr(getattr(lead, "tenant", None), "plan", None)
+            or getattr(getattr(lead, "tenant", None), "ia_plan", None),
+            "success": True,
+            "latency_ms": 0.0,
+            "s3_key": key,
+        }
+    )
+    return FileResponse(
+        path=fs.base_dir / key,
+        media_type="application/pdf",
+        filename=f"{tipo}.pdf",
+        headers={"X-Tenant-ID": tenant_id},
+    )

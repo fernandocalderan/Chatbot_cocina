@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Operativo Elite</title>
+  <style>
+    body { font-family: "Georgia", serif; margin: 26px; color: #0b0f19; background: #fdfbf7; }
+    h1 { font-size: 22px; margin-bottom: 10px; }
+    .panel { border: 1px solid #d6c7a1; padding: 14px; border-radius: 12px; background: #fffdf8; }
+    .section { margin-top: 10px; padding: 10px; border: 1px dashed #d6c7a1; border-radius: 8px; }
+    .label { font-weight: 700; }
+    ul { margin: 8px 0 0 16px; }
+  </style>
+</head>
+<body>
+  <h1>Ficha Operativa Elite - {{ tenant_name }}</h1>
+  <div class="panel">
+    <div><span class="label">Cliente:</span> {{ cliente_nombre }}</div>
+    <div><span class="label">Fecha:</span> {{ fecha }}</div>
+    <div><span class="label">Estilo:</span> {{ estilo }}</div>
+    <div><span class="label">Metros:</span> {{ metros }}</div>
+    <div><span class="label">Urgencia:</span> {{ urgencia }}</div>
+    <div><span class="label">Extras:</span> {{ extras }}</div>
+  </div>
+  <div class="section">
+    <div class="label">Resumen IA Operativo:</div>
+    <div>{{ resumen_ia }}</div>
+  </div>
+  <div class="section">
+    <div class="label">Checklist Premium:</div>
+    <ul>
+      <li>Coordinación con proveedores clave</li>
+      <li>Validación de medidas en sitio</li>
+      <li>Entrega de moodboard y renders</li>
+    </ul>
+  </div>
+</body>
+</html>

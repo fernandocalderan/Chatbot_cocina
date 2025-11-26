@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Resumen Operativo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    h2 { font-size: 15px; margin-top: 16px; margin-bottom: 6px; }
+    .card { border: 1px solid #ccc; padding: 12px; border-radius: 6px; margin-bottom: 10px; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Ficha Operativa - {{ tenant_name }}</h1>
+  <div class="card">
+    <div><span class="label">Cliente:</span> {{ cliente_nombre }}</div>
+    <div><span class="label">Fecha:</span> {{ fecha }}</div>
+    <div><span class="label">Estilo:</span> {{ estilo }}</div>
+    <div><span class="label">Metros:</span> {{ metros }}</div>
+    <div><span class="label">Urgencia:</span> {{ urgencia }}</div>
+  </div>
+  <div class="card">
+    <div><span class="label">Resumen:</span> {{ resumen_ia }}</div>
+    <div><span class="label">Extras:</span> {{ extras }}</div>
+  </div>
+</body>
+</html>

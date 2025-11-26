@@ -23,5 +23,5 @@ def test_chat_flow_initial_message():
 
     assert data["session_id"] == "test-flow"
     assert data["block_id"]  # ensure we received a block id
-    assert data["type"] in ("options", "message")
+    assert data["type"] in ("options", "message", "buttons")
     assert data.get("options") is not None

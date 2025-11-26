@@ -8,6 +8,7 @@ from fastapi import Request
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.observability.tracing import set_request_context
 
 
 def check_rate_limit(redis_url: str, key: str, limit_per_min: int) -> bool:
@@ -33,18 +34,26 @@ async def add_request_context(request: Request, call_next: Callable):
 
     client_ip = request.client.host if request.client else "unknown"
     path = request.url.path
+    set_request_context(request_id=request_id, tenant_id=tenant_id, session_id=None)
 
     limits: list[tuple[str, int]] = []
     # Límite general por tenant (si hay tenant resuelto)
     if tenant_id:
-        limits.append((f"rl:tenant:{tenant_id}", 120))
+        limits.append((f"rl:tenant:{tenant_id}", settings.rate_limit_chat_per_tenant))
     # Límite por IP para el widget (chat endpoints)
     if path.startswith("/v1/chat"):
-        limits.append((f"rl:ip:{client_ip}:chat", 60))
+        limits.append((f"rl:ip:{client_ip}:chat", settings.rate_limit_chat_per_ip))
     # Límite estricto para endpoints sensibles (reservas)
     if path == "/v1/appointments/book":
         limits.append((f"rl:tenant:{tenant_id or 'anon'}:appt", 10))
         limits.append((f"rl:ip:{client_ip}:appt", 10))
+    if path.startswith("/v1/widget/token"):
+        limits.append(
+            (
+                f"rl:tenant:{tenant_id or 'anon'}:widget_token",
+                settings.rate_limit_widget_per_tenant,
+            )
+        )
 
     for key, limit in limits:
         if not check_rate_limit(settings.redis_url, key, limit):

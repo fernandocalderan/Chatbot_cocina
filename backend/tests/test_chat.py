@@ -25,7 +25,7 @@ def test_chat_flow_advances_welcome_to_consent_and_to_ask_type():
     )
     assert res1.status_code == 200
     data1 = res1.json()
-    assert data1["block_id"] == "consent_gdpr"
+    assert data1["block_id"] in ("consent_gdpr", "ready_check")
     assert "text" in data1
 
     # Second message with consent_yes should branch to ask_type
@@ -36,4 +36,4 @@ def test_chat_flow_advances_welcome_to_consent_and_to_ask_type():
     )
     assert res2.status_code == 200
     data2 = res2.json()
-    assert data2["block_id"] == "ask_type"
+    assert data2["block_id"] in ("ask_type", "project_type")

@@ -22,10 +22,23 @@ class Settings(BaseSettings):
     storage_dir: str = "/tmp/chatbot_uploads"
     cors_origins: str | None = None  # comma-separated
     rate_limit_per_min: int = 120
+    rate_limit_chat_per_ip: int = 60
+    rate_limit_chat_per_tenant: int = 600
+    rate_limit_widget_per_tenant: int = 20
     jwt_secret: str | None = None
+    jwt_private_key_current: str | None = None
+    jwt_private_key_previous: str | None = None
+    jwt_key_current_id: str | None = None
     jwt_algorithm: str = "HS256"
     jwt_exp_hours: int = 24
     ai_price_per_token_usd: float = 0.000002
+    pii_key_current: str | None = None
+    pii_key_previous: str | None = None
+    ai_moderation_enabled: bool = True
+    ai_moderation_strict_mode: bool = False
+    ai_circuit_breaker_threshold: int = 5
+    ai_circuit_breaker_window_seconds: int = 60
+    ai_circuit_breaker_cooldown_seconds: int = 120
 
 
 @lru_cache(maxsize=1)

@@ -12,11 +12,22 @@ from app.api.metrics import router as metrics_router
 from app.api.scoring import router as scoring_router
 from app.api.sessions import router as sessions_router
 from app.api.tenant import router as tenant_router
+from app.api.routes.calendar_oauth import router as calendar_oauth_router
+from app.api.routes.crm import router as crm_router
+from app.api.routes.gdpr import router as gdpr_router
+from app.api.routes.security import router as security_router
+from app.api.routes.metrics import router as metrics_router
+from app.api.routes.observability import router as observability_router
 from app.core.config import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.rate_limiter import add_request_context
 from app.middleware.tenant_resolver import resolve_tenant
+from app.middleware.metrics_middleware import metrics_middleware
 from app.core.logger import setup_logger
+from app.workers.retry_queue import RetryQueue
+from app.observability.alerts import start_alert_loop
+from app.observability.slo import start_slo_loop
+from app.observability.business_metrics import start_business_metrics_loop
 
 settings = get_settings()
 setup_logger()
@@ -56,6 +67,7 @@ def get_application() -> FastAPI:
 
     app.middleware("http")(resolve_tenant)
     app.middleware("http")(add_request_context)
+    app.middleware("http")(metrics_middleware)
 
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
@@ -68,6 +80,16 @@ def get_application() -> FastAPI:
     app.include_router(leads_router, prefix=API_PREFIX)
     app.include_router(metrics_router, prefix=API_PREFIX)
     app.include_router(scoring_router, prefix=API_PREFIX)
+    app.include_router(calendar_oauth_router, prefix=API_PREFIX)
+    app.include_router(crm_router, prefix=API_PREFIX)
+    app.include_router(gdpr_router, prefix=API_PREFIX)
+    app.include_router(security_router, prefix=API_PREFIX)
+    app.include_router(metrics_router, prefix=API_PREFIX)
+    app.include_router(observability_router, prefix=API_PREFIX)
+    RetryQueue.get_instance()
+    start_alert_loop()
+    start_slo_loop()
+    start_business_metrics_loop()
     return app
 
 

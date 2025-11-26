@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Propuesta Comercial Pro</title>
+  <style>
+    body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 26px; color: #0f172a; }
+    h1 { font-size: 22px; margin-bottom: 10px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .card { border: 1px solid #d7dce3; padding: 14px; border-radius: 10px; background: #f8fafc; }
+    .label { font-weight: 600; color: #1f2937; }
+    .images { margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .pill { display: inline-block; padding: 4px 8px; background: #eef2ff; border-radius: 999px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>{{ tenant_name }} · Propuesta Pro</h1>
+  <div class="grid">
+    <div class="card">
+      <div><span class="label">Cliente:</span> {{ cliente_nombre }}</div>
+      <div><span class="label">Fecha:</span> {{ fecha }}</div>
+      <div><span class="label">Estilo:</span> {{ estilo }}</div>
+      <div><span class="label">Metros:</span> {{ metros }}</div>
+      <div><span class="label">Presupuesto:</span> {{ presupuesto }}</div>
+      <div><span class="label">Urgencia:</span> {{ urgencia }}</div>
+    </div>
+    <div class="card">
+      <div><span class="label">Resumen IA:</span> {{ resumen_ia }}</div>
+      <div><span class="label">Extras:</span> {{ extras }}</div>
+      <div><span class="label">Highlights:</span> <span class="pill">Diseño</span> <span class="pill">Plazos</span></div>
+    </div>
+  </div>
+  {% if images %}
+  <div class="card">
+    <div class="label">Referencias visuales</div>
+    <div class="images">
+      {% for img in images %}
+      <div style="height:120px; border:1px solid #e5e7eb; background:#fff; text-align:center; font-size:12px;">{{ img }}</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</body>
+</html>
