@@ -139,6 +139,12 @@ async def resolve_tenant(request: Request, call_next: Callable):
             allowed_origins = (
                 branding.get("allowed_origins") or branding.get("allowedOrigins") or []
             )
+            maintenance_flag = (
+                branding.get("maintenance_mode")
+                or branding.get("maintenance")
+                or False
+            )
+            request.state.tenant_maintenance = bool(maintenance_flag)
         if (
             (origin or referer)
             and tenant_obj
@@ -147,6 +153,8 @@ async def resolve_tenant(request: Request, call_next: Callable):
             return JSONResponse({"detail": "origin_not_allowed"}, status_code=401)
 
         request.state.tenant_id = tenant_id
+        if tenant_obj:
+            request.state.tenant_obj = tenant_obj
     finally:
         db.close()
 

@@ -1,0 +1,39 @@
+services:
+  - name: chatbot-api
+    type: web
+    runtime: docker
+    plan: standard
+    dockerfilePath: backend/Dockerfile
+    dockerContext: .
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthCheckPath: /v1/health
+    envVars:
+      # Configure real values in Render dashboard, not in repo
+      - key: DATABASE_URL
+        value: "set-in-render"
+      - key: REDIS_URL
+        value: "set-in-render"
+      - key: OPENAI_API_KEY
+        value: "set-in-render"
+      - key: JWT_SECRET
+        value: "set-in-render"
+      - key: PANEL_API_TOKEN
+        value: "set-in-render"
+      - key: CORS_ORIGINS
+        value: "set-in-render"
+    autoDeploy: false
+
+  - name: chatbot-widget
+    type: web
+    runtime: docker
+    plan: standard
+    dockerfilePath: frontend-widget/Dockerfile
+    dockerContext: .
+    startCommand: "serve -s dist -l 4173"
+    envVars:
+      # Configure real values in Render dashboard, not in repo
+      - key: VITE_API_URL
+        value: "set-in-render"
+    autoDeploy: false
+
+# Note: Credentials and secrets must be injected via Render dashboard, not committed.

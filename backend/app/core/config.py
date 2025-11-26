@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     use_ia: bool = False
     ai_model: str = "gpt-4.1-mini"
     openai_api_key: str | None = None
+    maintenance_mode: bool = False
+    maintenance_message: str = "Estamos en mantenimiento. Volvemos enseguida."
     panel_api_token: str | None = None
     storage_dir: str = "/tmp/chatbot_uploads"
     cors_origins: str | None = None  # comma-separated
@@ -39,6 +41,11 @@ class Settings(BaseSettings):
     ai_circuit_breaker_threshold: int = 5
     ai_circuit_breaker_window_seconds: int = 60
     ai_circuit_breaker_cooldown_seconds: int = 120
+    log_exporter: str | None = None  # "loki", "cloudwatch", None
+    loki_endpoint: str | None = None
+    loki_basic_auth: str | None = None  # user:pass
+    cloudwatch_log_group: str | None = None
+    cloudwatch_log_stream: str | None = None
 
 
 @lru_cache(maxsize=1)

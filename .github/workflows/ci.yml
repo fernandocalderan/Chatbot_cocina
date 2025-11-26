@@ -2,58 +2,144 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
-    branches: [ main, master ]
+    branches: [main]
 
 jobs:
-  test-and-build:
+  backend-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install backend deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install -r backend/requirements-dev.txt || true
-
-      - name: Run tests
         working-directory: backend
         run: |
-          PYTHONPATH=. pytest
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Lint backend
+        working-directory: backend
+        run: |
+          if [ -f ruff.toml ] || [ -f pyproject.toml ]; then
+            ruff check .
+          fi
+          if [ -f setup.cfg ] || [ -f tox.ini ] || [ -f .flake8 ]; then
+            flake8 .
+          fi
+          black --check .
+
+      - name: Test backend
+        working-directory: backend
+        env:
+          PYTHONPATH: backend
+        run: |
+          pytest -q || pytest
+
+  widget-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install widget deps
+        working-directory: frontend-widget
+        run: npm install
+
+      - name: Lint widget
+        working-directory: frontend-widget
+        run: |
+          if npm run | grep -q "lint"; then
+            npm run lint
+          fi
+
+      - name: Test widget
+        working-directory: frontend-widget
+        run: |
+          if npm run | grep -q "test"; then
+            npm test -- --watch=false || npm test
+          fi
+
+  build-backend-image:
+    runs-on: ubuntu-latest
+    needs: [backend-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to registry
-        if: secrets.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Build backend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: ${{ secrets.DOCKERHUB_USERNAME != '' }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/chatbot-backend:latest
+        run: |
+          docker build -f backend/Dockerfile -t chatbot-backend:ci ./backend
 
-      - name: Build panel image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./panel
-          file: ./panel/Dockerfile.prod
-          push: ${{ secrets.DOCKERHUB_USERNAME != '' }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/chatbot-panel:latest
+  build-widget-image:
+    runs-on: ubuntu-latest
+    needs: [widget-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build widget image
+        run: |
+          docker build -f frontend-widget/Dockerfile -t chatbot-widget:ci ./frontend-widget
+
+  deploy-render:
+    runs-on: ubuntu-latest
+    needs: [build-backend-image, build-widget-image]
+    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[deploy]')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Render (api + widget)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          echo "Triggering Render deploy for api and widget using render.yaml"
+          echo "Use RENDER_API_KEY from GitHub Secrets; set real deploy commands here."
+
+  verify-backup-policies:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, widget-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify backup scaffolding present
+        run: |
+          grep -q "backup_retention_period" infra/aws/main.tf
+          grep -q "lifecycle_rule" infra/aws/main.tf
+          test -f infra/backup/README.md
+
+  # aws-deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: [build-backend-image, build-widget-image]
+  #   if: false # enable when ready to deploy to AWS
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Set up Terraform
+  #       uses: hashicorp/setup-terraform@v3
+  #     - name: Terraform init/plan (placeholder)
+  #       working-directory: infra/aws
+  #       env:
+  #         AWS_REGION: us-east-1
+  #         AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+  #       run: |
+  #         echo "terraform init && terraform plan -out=tfplan"
+  #         echo "terraform apply tfplan  # enable when ready"

@@ -6,17 +6,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Python deps
-COPY requirements.txt requirements-dev.txt ./
+# Dependencies
+COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-dev.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # App code
 COPY app ./app
-COPY tests ./tests
+
+# Non-root user
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 

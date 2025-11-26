@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.rate_limiter import add_request_context
 from app.middleware.tenant_resolver import resolve_tenant
 from app.middleware.metrics_middleware import metrics_middleware
+from app.middleware.maintenance import maintenance_guard
 from app.core.logger import setup_logger
 from app.workers.retry_queue import RetryQueue
 from app.observability.alerts import start_alert_loop
@@ -66,8 +67,21 @@ def get_application() -> FastAPI:
         )
 
     app.middleware("http")(resolve_tenant)
+    app.middleware("http")(maintenance_guard)
     app.middleware("http")(add_request_context)
     app.middleware("http")(metrics_middleware)
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        if settings.environment != "local":
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
 
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
