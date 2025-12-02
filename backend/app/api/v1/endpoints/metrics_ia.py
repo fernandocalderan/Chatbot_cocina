@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.middleware.authz import require_any_role
+from app.api.deps import get_tenant_id
 from app.services.ia_usage_service import IAUsageService
 from app.models.ia_usage import IAUsage
 
@@ -43,6 +44,40 @@ def get_ia_metrics_for_tenant(
     - últimos N registros IAUsage (orden desc por created_at)
     """
 
+    if limit <= 0:
+        limit = 1
+    if limit > 500:
+        limit = 500
+
+    total_cost = IAUsageService.monthly_cost(db, tenant_id)
+    token_stats = IAUsageService.monthly_token_count(db, tenant_id)
+    latest_rows: List[IAUsage] = IAUsageService.latest_usage(db, tenant_id, limit=limit)
+
+    return {
+        "tenant_id": tenant_id,
+        "period": "current_month",
+        "monthly": {
+            "total_cost_eur": float(total_cost),
+            "tokens_in": token_stats["tokens_in"],
+            "tokens_out": token_stats["tokens_out"],
+        },
+        "latest": [_serialize_usage_row(row) for row in latest_rows],
+    }
+
+
+@router.get(
+    "/ia/self",
+    summary="IA usage metrics for current tenant (admin scope)",
+)
+def get_ia_metrics_self(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    _: Any = Depends(require_any_role("OWNER", "ADMIN")),
+) -> Dict[str, Any]:
+    """
+    Métricas de IA para el tenant del usuario autenticado (rol admin/owner).
+    """
     if limit <= 0:
         limit = 1
     if limit > 500:

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ia_usage import IAUsage
 from app.models.tenants import Tenant
+from app.services.alert_service import AlertService
 
 
 class IAQuotaExceeded(Exception):
@@ -48,6 +49,18 @@ class IAUsageService:
             return float(tenant.ai_monthly_limit)
         plan = (getattr(tenant, "plan", None) or "base").lower()
         return PLAN_LIMITS.get(plan, PLAN_LIMITS["base"])
+
+    @staticmethod
+    def _resolve_limit_eur(tenant: Tenant) -> float:
+        """
+        Determina el límite mensual del tenant:
+        1) Si existe ia_monthly_limit_eur -> usarlo.
+        2) Si no -> usar límite por plan.
+        """
+        if tenant and getattr(tenant, "ia_monthly_limit_eur", None) is not None:
+            return float(getattr(tenant, "ia_monthly_limit_eur"))
+        plan = (getattr(tenant, "plan", None) or "BASE").upper()
+        return PLAN_LIMITS_EUR.get(plan, PLAN_LIMITS_EUR["BASE"])
 
     @staticmethod
     def record_usage(
@@ -186,24 +199,11 @@ class IAUsageService:
     @staticmethod
     def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
         """
-        Estima el coste en EUR para una llamada, en función del modelo y los tokens.
-        Precios aproximados; ajustar en producción según tarifas oficiales.
+        Estima el coste en EUR usando la tabla oficial de pricing.
         """
-        total_tokens = tokens_in + tokens_out
-        price_per_million = {
-            "gpt-4.1": 5.0,
-            "gpt-4.1-mini": 1.5,
-            "gpt-4.1-preview": 4.0,
-        }
-        normalized = (model or "").lower()
-        if "gpt-4.1-mini" in normalized:
-            key = "gpt-4.1-mini"
-        elif "gpt-4.1-preview" in normalized:
-            key = "gpt-4.1-preview"
-        else:
-            key = "gpt-4.1"
-        per_million = price_per_million.get(key, 5.0)
-        return float(per_million * (total_tokens / 1_000_000))
+        from app.services.pricing import estimate_cost_eur
+
+        return estimate_cost_eur(model, tokens_in, tokens_out)
 
     # ========================
     #  Cuotas y enforcamiento
@@ -211,8 +211,7 @@ class IAUsageService:
 
     @staticmethod
     def remaining_quota_eur(db: Session, tenant: Tenant) -> float:
-        plan = (tenant.plan or "BASE").upper()
-        limit = PLAN_LIMITS_EUR.get(plan, PLAN_LIMITS_EUR["BASE"])
+        limit = IAUsageService._resolve_limit_eur(tenant)
         spent = IAUsageService.monthly_cost(db, tenant.id)
         return float(max(limit - spent, 0.0))
 
@@ -228,21 +227,14 @@ class IAUsageService:
         """
         if tenant is None or db is None:
             return
-        plan = (tenant.plan or "BASE").upper()
-        limit = PLAN_LIMITS_EUR.get(plan, PLAN_LIMITS_EUR["BASE"])
+        limit = IAUsageService._resolve_limit_eur(tenant)
         spent = IAUsageService.monthly_cost(db, tenant.id)
         projected = spent + estimated_cost_next_call
         if projected >= limit:
+            AlertService.notify_hard_limit(tenant, spent, limit)
+            AlertService.notify_post_limit_use(tenant, spent, limit)
             raise IAQuotaExceeded(
-                f"ia_monthly_quota_exceeded: tenant={tenant.id} plan={plan} spent={spent:.4f} limit={limit:.4f}"
+                f"ia_monthly_quota_exceeded: tenant={tenant.id} spent={spent:.4f} limit={limit:.4f}"
             )
         if projected >= limit * 0.8:
-            logger.warning(
-                {
-                    "event": "ia_quota_warning",
-                    "tenant_id": str(tenant.id),
-                    "spent": spent,
-                    "limit": limit,
-                    "projected": projected,
-                }
-            )
+            AlertService.notify_soft_limit(tenant, spent, limit)

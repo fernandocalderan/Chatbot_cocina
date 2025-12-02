@@ -15,6 +15,7 @@ class Tenant(Base):
     plan = sa.Column(sa.String(50), nullable=False, server_default="Base")
     use_ia = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     ia_plan = sa.Column(sa.String(10), nullable=False, server_default="base")
+    ia_monthly_limit_eur = sa.Column(sa.Numeric(precision=12, scale=2), nullable=True)
     flags_ia = sa.Column(
         pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
     )

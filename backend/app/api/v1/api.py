@@ -5,6 +5,9 @@ from app.api.files import router as files_router
 from app.api.flows import router as flows_router
 from app.api.leads import router as leads_router
 from app.api.v1.endpoints.metrics_ia import router as metrics_ia_router
+from app.api.v1.endpoints.tenant_ia_settings import (
+    router as tenant_ia_settings_router,
+)
 
 api_router = APIRouter()
 
@@ -18,4 +21,11 @@ api_router.include_router(
     metrics_ia_router,
     prefix="",
     tags=["metrics", "ia"],
+)
+
+# === IA SETTINGS POR TENANT (SOLO SUPER_ADMIN) ===
+api_router.include_router(
+    tenant_ia_settings_router,
+    prefix="",
+    tags=["tenant", "ia", "settings"],
 )
