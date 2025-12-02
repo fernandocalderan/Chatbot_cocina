@@ -61,6 +61,47 @@ col4.metric("📈 Uso del límite (%)", f"{percentage:.2f} %")
 st.subheader("Consumo respecto al límite mensual")
 st.progress(percentage / 100.0 if limit_eur else 0.0)
 
+# ===========================
+# Serie temporal de consumo IA
+# ===========================
+st.subheader("Evolución temporal del consumo IA")
+
+if latest:
+    df_ts = pd.DataFrame(latest)
+    if "date" in df_ts.columns:
+        df_ts["date"] = pd.to_datetime(df_ts["date"]).dt.date
+
+    group_cols = ["date"]
+    agg_map = {
+        "cost_eur": "sum",
+        "tokens_in": "sum",
+        "tokens_out": "sum",
+    }
+    agg_map = {k: v for k, v in agg_map.items() if k in df_ts.columns}
+
+    if agg_map:
+        daily = (
+            df_ts.groupby(group_cols)
+            .agg(agg_map)
+            .reset_index()
+            .sort_values("date")
+        )
+        daily.set_index("date", inplace=True)
+
+        col_left, col_right = st.columns(2)
+        if "cost_eur" in daily.columns:
+            col_left.markdown("**Coste diario (€)**")
+            col_left.line_chart(daily[["cost_eur"]])
+
+        token_cols = [c for c in ["tokens_in", "tokens_out"] if c in daily.columns]
+        if token_cols:
+            col_right.markdown("**Tokens diarios (IN / OUT)**")
+            col_right.line_chart(daily[token_cols])
+    else:
+        st.info("No hay datos suficientes para construir la serie temporal de consumo.")
+else:
+    st.info("No se encontraron registros para generar series temporales.")
+
 # --- Tabla de registros ---
 st.subheader("Registros detallados")
 if latest:
