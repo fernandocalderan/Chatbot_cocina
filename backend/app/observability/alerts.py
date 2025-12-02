@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import defaultdict
 from typing import Dict
 
 from loguru import logger
@@ -91,4 +92,7 @@ def start_alert_loop():
 
 # Test helper
 def run_alert_check_once():
+    # Reset IA counters to avoid cross-test leakage (api counters keep latest writes)
+    registry = get_registry()
+    registry.counters.pop("ia_requests_total", None)
     _check_once({})

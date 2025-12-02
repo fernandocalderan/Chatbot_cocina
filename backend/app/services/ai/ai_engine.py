@@ -9,7 +9,8 @@ async def ai_extract(
     purpose: str = "extraction",
     tenant=None,
     tenant_id=None,
-    language=None
+    language=None,
+    db=None,
 ):
     return await ai.extract_fields(
         user_message,
@@ -17,12 +18,15 @@ async def ai_extract(
         tenant=tenant,
         tenant_id=tenant_id,
         language=language,
+        db=db,
     )
 
 
-async def ai_summary(lead_data: dict, *, tenant=None, tenant_id=None, language=None):
+async def ai_summary(
+    lead_data: dict, *, tenant=None, tenant_id=None, language=None, db=None
+):
     return await ai.generate_summary(
-        lead_data, tenant=tenant, tenant_id=tenant_id, language=language
+        lead_data, tenant=tenant, tenant_id=tenant_id, language=language, db=db
     )
 
 
@@ -33,7 +37,8 @@ async def ai_reply(
     purpose: str = "reply_contextual",
     tenant=None,
     tenant_id=None,
-    language=None
+    language=None,
+    db=None,
 ):
     return await ai.generate_reply(
         message,
@@ -42,4 +47,5 @@ async def ai_reply(
         tenant=tenant,
         tenant_id=tenant_id,
         language=language,
+        db=db,
     )

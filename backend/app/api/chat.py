@@ -405,6 +405,7 @@ def send_message(
                         tenant=tenant,
                         tenant_id=tenant_id,
                         language=payload.lang or state.get("lang"),
+                        db=db,
                     )
                 )
                 or None
@@ -633,16 +634,17 @@ def send_message(
             try:
                 ai_data = (
                     asyncio.run(
-                        ai_extract(
-                            source_text,
-                            purpose="dimensions",
-                            tenant=tenant,
-                            tenant_id=tenant_id,
-                            language=lang,
+                            ai_extract(
+                                source_text,
+                                purpose="dimensions",
+                                tenant=tenant,
+                                tenant_id=tenant_id,
+                                language=lang,
+                                db=db,
+                            )
                         )
+                        or {}
                     )
-                    or {}
-                )
                 if isinstance(ai_data, dict):
                     val = (
                         ai_data.get("metros")
@@ -684,6 +686,7 @@ def send_message(
                         tenant=tenant,
                         tenant_id=tenant_id,
                         language=lang,
+                        db=db,
                     )
                 )
                 if ai_text:
@@ -728,6 +731,7 @@ def send_message(
                         tenant=tenant,
                         tenant_id=tenant_id,
                         language=lang,
+                        db=db,
                     )
                 )
                 or None

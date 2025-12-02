@@ -47,3 +47,9 @@ class Tenant(Base):
         server_default=sa.func.now(),
         onupdate=sa.func.now(),
     )
+    ia_usages = sa.orm.relationship(
+        "IAUsage",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 from openai import OpenAI
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.interfaces.ai_provider import AiProvider
@@ -13,6 +14,7 @@ from app.services.ai.ai_audit_service import AIAuditService
 from app.services.ai.ai_budget import BudgetManager
 from app.services.ai.ai_moderation import AIModeration
 from app.services.ai.circuit_breaker import AICircuitBreaker
+from app.services.ia_usage_service import IAQuotaExceeded, IAUsageService
 from app.services.config.tenant_prompt_config import get_tenant_prompt_config
 from app.services.prompts.router.prompt_router import PromptRouter
 from app.utils.masking import mask_payload
@@ -143,6 +145,41 @@ class OpenAIService(AiProvider):
             tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
         return tokens_in, tokens_out
 
+    def _enforce_quota(self, db: Session | None, tenant: Any, model: str):
+        if db is None or tenant is None:
+            return
+        try:
+            IAUsageService.enforce_quota(db, tenant, estimated_cost_next_call=0.0)
+        except IAQuotaExceeded as exc:
+            logger.warning({"event": "ia_quota_blocked", "tenant_id": getattr(tenant, "id", None), "error": str(exc)})
+            raise
+
+    def _record_usage(
+        self,
+        db: Session | None,
+        tenant_id: Optional[str],
+        model: str,
+        tokens_in: int,
+        tokens_out: int,
+        cost: Optional[float],
+    ):
+        if db is None or tenant_id is None:
+            return
+        if cost is None:
+            cost = IAUsageService.estimate_cost(model, tokens_in, tokens_out)
+        try:
+            IAUsageService.record_usage(
+                db, str(tenant_id), model, tokens_in, tokens_out, cost
+            )
+        except Exception as exc:
+            logger.warning(
+                {
+                    "event": "ia_usage_record_failed",
+                    "tenant_id": str(tenant_id),
+                    "error": str(exc),
+                }
+            )
+
     def _guardrail_prompt(self) -> str:
         return (
             "Eres un asistente de proyectos de cocina. Sigue estas reglas estrictas: "
@@ -210,6 +247,7 @@ class OpenAIService(AiProvider):
         tenant: Any = None,
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
+        db: Session | None = None,
     ) -> Dict[str, Any]:
         """
         Extrae campos estructurados según el propósito.
@@ -253,6 +291,21 @@ class OpenAIService(AiProvider):
                     else "missing_api_key"
                 ),
                 latency_ms=0.0,
+            )
+            return {}
+
+        try:
+            self._enforce_quota(db, tenant, model)
+        except Exception as exc:
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=str(exc) or "quota_blocked",
+                latency_ms=0.0,
+                outcome="quota_blocked",
             )
             return {}
 
@@ -332,6 +385,14 @@ class OpenAIService(AiProvider):
                 fallback=None,
                 latency_ms=latency_ms,
             )
+            self._record_usage(
+                db,
+                tenant_identifier,
+                model,
+                tokens_in,
+                tokens_out,
+                cost_data["cost"],
+            )
             output_moderation = self.moderation.check_output(content)
             moderated_output = False
             if not output_moderation.allowed:
@@ -382,6 +443,7 @@ class OpenAIService(AiProvider):
         tenant: Any = None,
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
+        db: Session | None = None,
     ) -> str:
         """
         Genera un resumen comercial corto para un lead.
@@ -419,6 +481,21 @@ class OpenAIService(AiProvider):
                     else "missing_api_key"
                 ),
                 latency_ms=0.0,
+            )
+            return self._deterministic_text("summary")
+
+        try:
+            self._enforce_quota(db, tenant, model)
+        except Exception as exc:
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=str(exc) or "quota_blocked",
+                latency_ms=0.0,
+                outcome="quota_blocked",
             )
             return self._deterministic_text("summary")
 
@@ -487,6 +564,14 @@ class OpenAIService(AiProvider):
                 fallback=None,
                 latency_ms=latency_ms,
             )
+            self._record_usage(
+                db,
+                tenant_identifier,
+                model,
+                tokens_in,
+                tokens_out,
+                cost_data["cost"],
+            )
             output = completion.choices[0].message.content
             output_moderation = self.moderation.check_output(output)
             moderated_output = False
@@ -534,6 +619,7 @@ class OpenAIService(AiProvider):
         tenant: Any = None,
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
+        db: Session | None = None,
     ) -> str:
         """
         Genera una respuesta conversacional:
@@ -574,6 +660,21 @@ class OpenAIService(AiProvider):
                     else "missing_api_key"
                 ),
                 latency_ms=0.0,
+            )
+            return self._deterministic_text(purpose)
+
+        try:
+            self._enforce_quota(db, tenant, model)
+        except Exception as exc:
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=str(exc) or "quota_blocked",
+                latency_ms=0.0,
+                outcome="quota_blocked",
             )
             return self._deterministic_text(purpose)
 
@@ -645,6 +746,14 @@ class OpenAIService(AiProvider):
                 cost=cost_data["cost"],
                 fallback=None,
                 latency_ms=latency_ms,
+            )
+            self._record_usage(
+                db,
+                tenant_identifier,
+                model,
+                tokens_in,
+                tokens_out,
+                cost_data["cost"],
             )
             output = completion.choices[0].message.content
             output_moderation = self.moderation.check_output(output)
