@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     use_ia: bool = False
     ai_model: str = "gpt-4.1-mini"
     openai_api_key: str | None = None
+    stripe_api_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_price_base: str | None = None
+    stripe_price_pro: str | None = None
+    stripe_price_elite: str | None = None
     maintenance_mode: bool = False
     maintenance_message: str = "Estamos en mantenimiento. Volvemos enseguida."
     panel_api_token: str | None = None
