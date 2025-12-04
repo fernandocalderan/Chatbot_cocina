@@ -8,6 +8,8 @@ from app.api.v1.endpoints.metrics_ia import router as metrics_ia_router
 from app.api.v1.endpoints.tenant_ia_settings import (
     router as tenant_ia_settings_router,
 )
+from app.api.v1.endpoints.billing import router as billing_router
+from app.api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
 
 api_router = APIRouter()
 
@@ -28,4 +30,14 @@ api_router.include_router(
     tenant_ia_settings_router,
     prefix="",
     tags=["tenant", "ia", "settings"],
+)
+api_router.include_router(
+    billing_router,
+    prefix="",
+    tags=["billing"],
+)
+api_router.include_router(
+    stripe_webhook_router,
+    prefix="",
+    tags=["billing"],
 )

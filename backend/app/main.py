@@ -18,6 +18,8 @@ from app.api.routes.gdpr import router as gdpr_router
 from app.api.routes.security import router as security_router
 from app.api.routes.metrics import router as metrics_router
 from app.api.v1.endpoints.metrics_ia import router as metrics_ia_router
+from app.api.v1.endpoints.billing import router as billing_router
+from app.api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
 from app.api.routes.observability import router as observability_router
 from app.core.config import get_settings
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,6 +104,8 @@ def get_application() -> FastAPI:
     app.include_router(metrics_router, prefix=API_PREFIX)
     app.include_router(observability_router, prefix=API_PREFIX)
     app.include_router(metrics_ia_router, prefix=API_PREFIX)
+    app.include_router(billing_router, prefix=API_PREFIX)
+    app.include_router(stripe_webhook_router, prefix=API_PREFIX)
     RetryQueue.get_instance()
     start_alert_loop()
     start_slo_loop()

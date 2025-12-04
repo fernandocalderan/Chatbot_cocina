@@ -1,9 +1,23 @@
 import uuid
+from enum import Enum
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
 from app.db.base import Base
+
+
+class BillingStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+    INCOMPLETE = "INCOMPLETE"
+
+
+class PlanEnum(str, Enum):
+    BASE = "BASE"
+    PRO = "PRO"
+    ELITE = "ELITE"
 
 
 class Tenant(Base):
@@ -16,6 +30,11 @@ class Tenant(Base):
     use_ia = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     ia_plan = sa.Column(sa.String(10), nullable=False, server_default="base")
     ia_monthly_limit_eur = sa.Column(sa.Numeric(precision=12, scale=2), nullable=True)
+    billing_status = sa.Column(
+        sa.Enum(BillingStatus, name="billing_status"), nullable=True, server_default=BillingStatus.ACTIVE.value
+    )
+    stripe_customer_id = sa.Column(sa.String(255), nullable=True)
+    stripe_subscription_id = sa.Column(sa.String(255), nullable=True)
     flags_ia = sa.Column(
         pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
     )

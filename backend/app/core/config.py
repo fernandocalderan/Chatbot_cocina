@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     stripe_price_base: str | None = None
     stripe_price_pro: str | None = None
     stripe_price_elite: str | None = None
+    panel_url: str | None = None
     maintenance_mode: bool = False
     maintenance_message: str = "Estamos en mantenimiento. Volvemos enseguida."
     panel_api_token: str | None = None
