@@ -15,7 +15,9 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# App code
+# App code y migraciones
+COPY alembic.ini .
+COPY alembic ./alembic
 COPY app ./app
 
 # Non-root user

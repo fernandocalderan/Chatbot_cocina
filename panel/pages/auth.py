@@ -29,5 +29,7 @@ if st.button("Login"):
             st.session_state["token"] = token
             st.session_state["access_token"] = token  # compat con cliente existente
             st.session_state["tenant_id"] = tenant_input
+            # Concede acceso completo en el panel al propietario
+            st.session_state["role"] = "SUPER_ADMIN"
             st.success("Autenticación correcta")
             st.switch_page("app.py")
