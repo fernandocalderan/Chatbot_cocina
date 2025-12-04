@@ -10,6 +10,7 @@ from app.api.v1.endpoints.tenant_ia_settings import (
 )
 from app.api.v1.endpoints.billing import router as billing_router
 from app.api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
+from app.api.v1.endpoints.tenants_admin import router as tenants_admin_router
 
 api_router = APIRouter()
 
@@ -40,4 +41,9 @@ api_router.include_router(
     stripe_webhook_router,
     prefix="",
     tags=["billing"],
+)
+api_router.include_router(
+    tenants_admin_router,
+    prefix="",
+    tags=["tenants"],
 )
