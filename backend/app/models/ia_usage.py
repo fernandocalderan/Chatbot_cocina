@@ -47,6 +47,10 @@ class IAUsage(Base):
     # Tokens de salida (completion)
     tokens_out = sa.Column(sa.Integer(), nullable=False, server_default="0")
 
+    # Contexto adicional para trazabilidad
+    session_id = sa.Column(sa.String(128), nullable=True, index=True)
+    call_type = sa.Column(sa.String(32), nullable=True)
+
     # Coste imputado en EUR (aprox, según pricing table de modelos)
     # precision=12, scale=6 -> hasta 999.999,999999 €
     cost_eur = sa.Column(

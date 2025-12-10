@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
   language: "es",
   startOpen: false,
   apiKey: undefined,
+  apiUrl: undefined,
   tenantId: undefined,
   headerTitle: undefined,
   headerSubtitle: undefined,
@@ -28,6 +29,11 @@ function normalizeConfig(options = {}) {
     config.apiKey = config.apiKey.trim();
   } else {
     config.apiKey = undefined;
+  }
+  if (config.apiUrl && typeof config.apiUrl === "string") {
+    config.apiUrl = config.apiUrl.trim().replace(/\/+$/, "");
+  } else {
+    config.apiUrl = undefined;
   }
   if (config.tenantId && typeof config.tenantId === "string") {
     config.tenantId = config.tenantId.trim();
@@ -77,10 +83,11 @@ window.ChatWidget = {
       return;
     }
 
-    const root = document.getElementById("widget-root");
+    let root = document.getElementById("widget-root");
     if (!root) {
-      console.error("ChatWidget: no se encontró el elemento #widget-root");
-      return;
+      root = document.createElement("div");
+      root.id = "widget-root";
+      document.body.appendChild(root);
     }
 
     const tenantCfg = await fetchTenantConfig(config.apiUrl, {
@@ -115,6 +122,28 @@ window.ChatWidget = {
     );
   },
 };
+
+function bootstrapFromScriptTag() {
+  if (window.__chatWidgetBooted) return;
+  const scriptEl = document.currentScript || document.querySelector('script[data-tenant][data-token]');
+  if (!scriptEl) return;
+  const dataset = scriptEl.dataset || {};
+  const apiUrl = dataset.api || dataset.apiUrl;
+  const tenantId = dataset.tenant;
+  const widgetToken = dataset.token || localStorage.getItem("widget_token");
+  if (!apiUrl || !tenantId || !widgetToken) return;
+  window.__chatWidgetBooted = true;
+  const startOpen = (dataset.startOpen || "").toString().toLowerCase() === "true";
+  window.ChatWidget.init({
+    apiUrl,
+    tenantId,
+    widgetToken,
+    language: dataset.lang || dataset.language,
+    startOpen,
+  });
+}
+
+bootstrapFromScriptTag();
 
 // Auto-init en entorno local si no se invoca explícitamente
 if (import.meta.env.DEV) {

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from app.core.config import get_settings
+from app.services.pricing import get_plan_limits
 
 
 @dataclass
@@ -59,7 +60,14 @@ class BudgetManager:
         return usage
 
     def get_limit(self, plan: str) -> float:
+        limits = get_plan_limits(plan)
+        max_cost = limits.get("max_ia_cost")
+        if max_cost is not None:
+            return float(max_cost)
         return self.LIMITS_EUR.get(plan, self.LIMITS_EUR["base"])
+
+    def estimate_cost(self, tokens_in: int, tokens_out: int) -> float:
+        return (tokens_in + tokens_out) * self.price_per_token
 
     def is_allowed(
         self,

@@ -8,6 +8,7 @@ const locales = {
     messagePlaceholder: "Escribe un mensaje...",
     sendLabel: "Enviar",
     errorMessage: "No pude responder. Intenta de nuevo.",
+    offlineMessage: "Nuestro asistente no está disponible. Déjanos tus datos y te contactamos.",
   },
   en: {
     headerTitle: "Virtual assistant",
@@ -18,6 +19,7 @@ const locales = {
     messagePlaceholder: "Type a message...",
     sendLabel: "Send",
     errorMessage: "I could not reply. Please try again.",
+    offlineMessage: "Our assistant is unavailable. Share your details and we’ll contact you.",
   },
 };
 

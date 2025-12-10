@@ -39,6 +39,50 @@ setup_logger()
 API_PREFIX = "/v1"
 
 
+def _load_allowed_origins() -> list[str]:
+    origins: list[str] = []
+    env_origins = os.getenv("CORS_ORIGINS")
+    cors_raw = env_origins if env_origins is not None else settings.cors_origins
+    if cors_raw:
+        origins.extend([o.strip() for o in cors_raw.split(",") if o.strip()])
+    if not origins and os.getenv("DISABLE_DB") != "1":
+        try:
+            from app.db.session import SessionLocal
+            from app.models.tenants import Tenant
+
+            db = SessionLocal()
+            tenants = db.query(Tenant).all()
+            for t in tenants:
+                branding = getattr(t, "branding", {}) or {}
+                allowed = (
+                    branding.get("allowed_widget_origins")
+                    or branding.get("allowed_origins")
+                    or branding.get("allowedOrigins")
+                    or []
+                )
+                origins.extend([o for o in allowed if o])
+            db.close()
+        except Exception:
+            pass
+    if settings.environment == "local":
+        origins.extend(
+            [
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+            ]
+        )
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for o in origins:
+        if o and o not in seen:
+            seen.add(o)
+            unique.append(o)
+    return unique
+
+
 def get_application() -> FastAPI:
     app = FastAPI(
         title=f"{settings.app_name} - API v1",
@@ -48,19 +92,7 @@ def get_application() -> FastAPI:
         redoc_url="/redoc",
     )
     # CORS
-    origins = []
-    env_origins = os.getenv("CORS_ORIGINS")
-    cors_raw = env_origins if env_origins is not None else settings.cors_origins
-    if cors_raw:
-        origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
-    elif settings.environment == "local":
-        # Permitir CORS en local para el widget (Vite suele usar 5173/5174)
-        origins = [
-            "http://localhost:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:5174",
-        ]
+    origins = _load_allowed_origins()
     if origins:
         app.add_middleware(
             CORSMiddleware,

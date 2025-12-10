@@ -27,6 +27,7 @@ class Tenant(Base):
     name = sa.Column(sa.String(255), nullable=False, index=True)
     contact_email = sa.Column(sa.String(320), nullable=True)
     plan = sa.Column(sa.String(50), nullable=False, server_default="Base")
+    ia_enabled = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("true"))
     use_ia = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     ia_plan = sa.Column(sa.String(10), nullable=False, server_default="base")
     ia_monthly_limit_eur = sa.Column(sa.Numeric(precision=12, scale=2), nullable=True)

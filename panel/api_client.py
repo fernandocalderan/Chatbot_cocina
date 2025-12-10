@@ -164,3 +164,11 @@ def load_scoring_from_flow():
     if flow and "flow" in flow:
         return flow["flow"].get("scoring", {})
     return {}
+
+
+def get_billing():
+    return api_get("/tenant/me/billing") or {}
+
+
+def issue_widget_token(allowed_origin: str, ttl_minutes: int = 30):
+    return api_post("/tenant/widget/token", {"allowed_origin": allowed_origin, "ttl_minutes": ttl_minutes})

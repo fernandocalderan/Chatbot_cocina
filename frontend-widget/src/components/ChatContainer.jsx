@@ -10,9 +10,11 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
   const [options, setOptions] = useState([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
+  const [token, setToken] = useState(widgetToken || localStorage.getItem("widget_token") || "");
 
   const messagesRef = useRef(null);
   const sessionIdRef = useRef(null);
+  const refreshTimerRef = useRef(null);
 
   useEffect(() => {
     let sid = localStorage.getItem("session_id");
@@ -33,6 +35,55 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
     }
   }, [messages, typing]);
 
+  function decodeExp(jwt) {
+    if (!jwt) return null;
+    try {
+      const payload = JSON.parse(atob(jwt.split(".")[1] || ""));
+      if (!payload.exp) return null;
+      return Number(payload.exp) * 1000;
+    } catch (err) {
+      console.warn("ChatWidget: no se pudo decodificar el token", err);
+      return null;
+    }
+  }
+
+  async function refreshToken() {
+    if (!token || !tenantId) return;
+    try {
+      const res = await fetch(`${apiUrl}/v1/tenant/widget/token/renew`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "X-Tenant-ID": tenantId,
+        },
+        body: JSON.stringify({ ttl_minutes: 30 }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.token) {
+        setToken(data.token);
+        localStorage.setItem("widget_token", data.token);
+      }
+    } catch (err) {
+      console.warn("ChatWidget: no se pudo renovar el token", err);
+    }
+  }
+
+  useEffect(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    const expMs = decodeExp(token);
+    if (!expMs) return;
+    const now = Date.now();
+    const leadMs = Math.max(expMs - now - 5 * 60 * 1000, 10_000);
+    refreshTimerRef.current = setTimeout(refreshToken, leadMs);
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, [token, tenantId, apiUrl]);
+
   async function sendMessage(text) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
@@ -45,8 +96,8 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
       if (apiKey) {
         headers["x-api-key"] = apiKey;
         headers["Authorization"] = `Bearer ${apiKey}`;
-      } else if (widgetToken) {
-        headers["Authorization"] = `Bearer ${widgetToken}`;
+      } else if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
       if (tenantId) {
         headers["X-Tenant-ID"] = tenantId;
@@ -59,6 +110,14 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
         headers,
         body: JSON.stringify({ message: trimmed, session_id: sessionIdRef.current }),
       });
+
+      if (!res.ok) {
+        const offlineText = strings?.offlineMessage || strings?.errorMessage || "Nuestro asistente no está disponible.";
+        setTyping(false);
+        setMessages((prev) => [...prev, { role: "bot", text: offlineText }]);
+        setOptions([]);
+        return;
+      }
 
       const data = await res.json();
 
@@ -77,7 +136,10 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
       setTyping(false);
       setMessages((prev) => [
         ...prev,
-        { role: "bot", text: strings?.errorMessage || "No pude responder. Intenta de nuevo." },
+        {
+          role: "bot",
+          text: strings?.offlineMessage || strings?.errorMessage || "Nuestro asistente no está disponible.",
+        },
       ]);
       setOptions([]);
     }

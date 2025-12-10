@@ -5,17 +5,20 @@ from openai import OpenAI
 
 
 class AIClient:
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(self, api_key: str | None = None, model: str | None = None, use_ai: bool = True):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("AI_MODEL", "gpt-4.1-mini")
-        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
+        self.use_ai = bool(use_ai)
+        self.client = (
+            OpenAI(api_key=self.api_key) if self.api_key and self.use_ai else None
+        )
 
     def generate_commercial_brief(self, lead_data: Dict, prompt_text: Optional[str] = None) -> Tuple[str, int, int]:
         """
         Llama a OpenAI para generar un breve resumen comercial.
         Devuelve texto, tokens_in, tokens_out.
         """
-        if not self.client or not self.api_key:
+        if not self.client or not self.api_key or not self.use_ai:
             brief = self._deterministic_brief(lead_data)
             return brief, 0, 0
 
@@ -78,7 +81,7 @@ class AIClient:
         Genera textos cortos (welcome, closing, micro_proposal) con OpenAI.
         Devuelve texto, tokens_in, tokens_out. Fallback determinista si no hay API.
         """
-        if not self.client or not self.api_key:
+        if not self.client or not self.api_key or not self.use_ai:
             return self._deterministic_snippet(kind, vars_data), 0, 0
 
         system_prompts = {

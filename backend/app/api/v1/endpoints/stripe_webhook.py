@@ -28,58 +28,87 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # 🔥 Conexión DB
     session = SessionLocal()
+    try:
+        event_type = event["type"]
 
-    # ----------- MANEJO DE SUBSCRIPCIONES -----------
-    if event["type"] in (
-        "customer.subscription.created",
-        "customer.subscription.updated",
-    ):
-        sub = event["data"]["object"]
-        tenant_id = sub.get("metadata", {}).get("tenant_id")
-        tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if event_type == "checkout.session.completed":
+            checkout = event["data"]["object"]
+            tenant_id = checkout.get("metadata", {}).get("tenant_id")
+            price_id = checkout.get("metadata", {}).get("price_id")
+            subscription_id = checkout.get("subscription")
+            customer_id = checkout.get("customer")
+            if not price_id and subscription_id:
+                try:
+                    sub = stripe.Subscription.retrieve(subscription_id)
+                    items = sub.get("items", {}).get("data") or []
+                    if items:
+                        price_id = items[0].get("price", {}).get("id")
+                except Exception:
+                    price_id = None
+            tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
+            if tenant:
+                plan = map_price_to_plan(price_id)
+                if plan:
+                    tenant.plan = plan.value if hasattr(plan, "value") else plan
+                if subscription_id:
+                    tenant.stripe_subscription_id = subscription_id
+                if customer_id:
+                    tenant.stripe_customer_id = customer_id
+                tenant.billing_status = BillingStatus.ACTIVE
+                session.commit()
 
-        if tenant:
-            price_id = sub["items"]["data"][0]["price"]["id"]
-            plan = map_price_to_plan(price_id)
+        # ----------- MANEJO DE SUBSCRIPCIONES -----------
+        if event_type in (
+            "customer.subscription.created",
+            "customer.subscription.updated",
+        ):
+            sub = event["data"]["object"]
+            tenant_id = sub.get("metadata", {}).get("tenant_id")
+            tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
 
-            if plan:
-                tenant.plan = plan.value if hasattr(plan, "value") else plan
+            if tenant:
+                price_id = sub["items"]["data"][0]["price"]["id"]
+                plan = map_price_to_plan(price_id)
 
-            tenant.stripe_subscription_id = sub.get("id")
-            tenant.billing_status = BillingStatus.ACTIVE
-            session.commit()
+                if plan:
+                    tenant.plan = plan.value if hasattr(plan, "value") else plan
 
-    if event["type"] == "customer.subscription.deleted":
-        sub = event["data"]["object"]
-        tenant_id = sub.get("metadata", {}).get("tenant_id")
-        tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
+                tenant.stripe_subscription_id = sub.get("id")
+                tenant.billing_status = BillingStatus.ACTIVE
+                session.commit()
 
-        if tenant:
-            tenant.billing_status = BillingStatus.CANCELED
-            session.commit()
+        if event_type == "customer.subscription.deleted":
+            sub = event["data"]["object"]
+            tenant_id = sub.get("metadata", {}).get("tenant_id")
+            tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
 
-    if event["type"] == "invoice.payment_failed":
-        sub_id = event["data"]["object"].get("subscription")
-        tenant = (
-            session.query(Tenant)
-            .filter(Tenant.stripe_subscription_id == sub_id)
-            .first()
-        )
-        if tenant:
-            tenant.billing_status = BillingStatus.PAST_DUE
-            session.commit()
+            if tenant:
+                tenant.billing_status = BillingStatus.CANCELED
+                session.commit()
 
-    if event["type"] == "invoice.paid":
-        sub_id = event["data"]["object"].get("subscription")
-        tenant = (
-            session.query(Tenant)
-            .filter(Tenant.stripe_subscription_id == sub_id)
-            .first()
-        )
-        if tenant:
-            tenant.billing_status = BillingStatus.ACTIVE
-            session.commit()
+        if event_type == "invoice.payment_failed":
+            sub_id = event["data"]["object"].get("subscription")
+            tenant = (
+                session.query(Tenant)
+                .filter(Tenant.stripe_subscription_id == sub_id)
+                .first()
+            )
+            if tenant:
+                tenant.billing_status = BillingStatus.PAST_DUE
+                session.commit()
 
-    return {"status": "ok"}
+        if event_type == "invoice.paid":
+            sub_id = event["data"]["object"].get("subscription")
+            tenant = (
+                session.query(Tenant)
+                .filter(Tenant.stripe_subscription_id == sub_id)
+                .first()
+            )
+            if tenant:
+                tenant.billing_status = BillingStatus.ACTIVE
+                session.commit()
+
+        return {"status": "ok"}
+    finally:
+        session.close()

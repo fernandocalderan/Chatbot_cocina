@@ -47,7 +47,7 @@ async def add_request_context(request: Request, call_next: Callable):
     if path == "/v1/appointments/book":
         limits.append((f"rl:tenant:{tenant_id or 'anon'}:appt", 10))
         limits.append((f"rl:ip:{client_ip}:appt", 10))
-    if path.startswith("/v1/widget/token"):
+    if path.startswith("/v1/widget/token") or path.startswith("/v1/tenant/widget/token"):
         limits.append(
             (
                 f"rl:tenant:{tenant_id or 'anon'}:widget_token",

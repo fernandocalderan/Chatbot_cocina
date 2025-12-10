@@ -4,6 +4,7 @@ from typing import Any
 from app.services.ai_client import AIClient
 from app.services.scoring_service import compute_score
 from app.services.agenda_service import AgendaService
+from app.services.pricing import get_plan_limits
 
 logger = logging.getLogger(__name__)
 
@@ -11,11 +12,23 @@ logger = logging.getLogger(__name__)
 class ActionExecutor:
     def __init__(self, settings):
         self.settings = settings
-        self.ai_client = AIClient(model=settings.ai_model, api_key=settings.openai_api_key)
+        self.ai_client = AIClient(
+            model=settings.ai_model,
+            api_key=settings.openai_api_key,
+            use_ai=settings.use_ia,
+        )
         self.agenda_service = AgendaService()
 
     def _can_use_ai(self, tenant):
         if not tenant:
+            return False
+        plan_limits = get_plan_limits(getattr(tenant, "plan", None))
+        plan_ai_enabled = (plan_limits.get("features") or {}).get("ia_enabled", True)
+        if getattr(tenant, "ia_enabled", None) is False:
+            return False
+        if getattr(tenant, "use_ia", None) is False:
+            return False
+        if not plan_ai_enabled:
             return False
         return (tenant.ai_cost or 0) < (tenant.ai_monthly_limit or 0)
 

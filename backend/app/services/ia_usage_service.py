@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.models.ia_usage import IAUsage
 from app.models.tenants import Tenant
 from app.services.alert_service import AlertService
+from app.services.pricing import get_plan_limits
 
 
 class IAQuotaExceeded(Exception):
@@ -29,14 +30,14 @@ class IAQuotaExceeded(Exception):
 
 
 PLAN_LIMITS = {
-    "base": 10.0,
+    "base": 0.0,
     "pro": 25.0,
     "elite": 100.0,
 }
 
 # Límites mensuales por plan en EUR (aprox, versión upper-case para compatibilidad)
 PLAN_LIMITS_EUR: dict[str, float] = {
-    "BASE": 10.0,
+    "BASE": 0.0,
     "PRO": 25.0,
     "ELITE": 100.0,
 }
@@ -47,8 +48,11 @@ class IAUsageService:
     def _plan_limit(tenant: Tenant) -> float:
         if tenant and getattr(tenant, "ai_monthly_limit", None) is not None:
             return float(tenant.ai_monthly_limit)
-        plan = (getattr(tenant, "plan", None) or "base").lower()
-        return PLAN_LIMITS.get(plan, PLAN_LIMITS["base"])
+        limits = get_plan_limits(getattr(tenant, "plan", None))
+        max_cost = limits.get("max_ia_cost")
+        if max_cost is None:
+            return float("inf")
+        return float(max_cost)
 
     @staticmethod
     def _resolve_limit_eur(tenant: Tenant) -> float:
@@ -59,8 +63,11 @@ class IAUsageService:
         """
         if tenant and getattr(tenant, "ia_monthly_limit_eur", None) is not None:
             return float(getattr(tenant, "ia_monthly_limit_eur"))
-        plan = (getattr(tenant, "plan", None) or "BASE").upper()
-        return PLAN_LIMITS_EUR.get(plan, PLAN_LIMITS_EUR["BASE"])
+        limits = get_plan_limits(getattr(tenant, "plan", None))
+        max_cost = limits.get("max_ia_cost")
+        if max_cost is None:
+            return float("inf")
+        return float(max_cost)
 
     @staticmethod
     def record_usage(
@@ -70,6 +77,9 @@ class IAUsageService:
         tokens_in: int,
         tokens_out: int,
         cost_eur: float,
+        *,
+        session_id: str | None = None,
+        call_type: str | None = None,
         usage_date: date | None = None,
     ) -> Optional[IAUsage]:
         """Inserta un registro de consumo IA."""
@@ -81,6 +91,8 @@ class IAUsageService:
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             cost_eur=cost_eur,
+            session_id=session_id,
+            call_type=call_type,
             date=usage_date or date.today(),
             created_at=datetime.utcnow(),
         )
@@ -178,6 +190,10 @@ class IAUsageService:
     def enforce_limits(db: Session, tenant: Tenant):
         if tenant is None or db is None:
             return
+        limits = get_plan_limits(getattr(tenant, "plan", None))
+        ia_enabled = (limits.get("features") or {}).get("ia_enabled", True)
+        if not ia_enabled:
+            raise IAQuotaExceeded("ia_not_in_plan")
         limit = IAUsageService._plan_limit(tenant)
         spent = IAUsageService.total_monthly_cost(db, str(tenant.id))
         if spent >= limit:
@@ -227,6 +243,12 @@ class IAUsageService:
         """
         if tenant is None or db is None:
             return
+        ia_enabled_flag = getattr(tenant, "ia_enabled", None)
+        if ia_enabled_flag is False:
+            raise IAQuotaExceeded("ia_disabled_for_tenant")
+        tenant_use_ia = getattr(tenant, "use_ia", None)
+        if tenant_use_ia is False:
+            raise IAQuotaExceeded("ia_disabled_for_tenant")
         limit = IAUsageService._resolve_limit_eur(tenant)
         spent = IAUsageService.monthly_cost(db, tenant.id)
         projected = spent + estimated_cost_next_call

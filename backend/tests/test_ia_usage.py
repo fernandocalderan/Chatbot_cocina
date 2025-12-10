@@ -122,6 +122,16 @@ def tenant_base():
     )
 
 
+@pytest.fixture
+def tenant_pro():
+    return Tenant(
+        id="tenant-pro",
+        name="Test Pro",
+        plan="PRO",
+        timezone="UTC",
+    )
+
+
 def test_estimate_cost_basic():
     cost = IAUsageService.estimate_cost(
         model="gpt-4.1",
@@ -167,15 +177,15 @@ def test_monthly_token_count(db, tenant_base):
     assert stats["tokens_out"] == 150
 
 
-def test_enforce_quota_allows_under_limit(db, tenant_base):
-    IAUsageService.enforce_quota(db, tenant_base, estimated_cost_next_call=0.1)
+def test_enforce_quota_allows_under_limit(db, tenant_pro):
+    IAUsageService.enforce_quota(db, tenant_pro, estimated_cost_next_call=0.1)
 
 
-def test_enforce_quota_hard_limit(db, tenant_base):
-    limit = PLAN_LIMITS_EUR["BASE"]
+def test_enforce_quota_hard_limit(db, tenant_pro):
+    limit = PLAN_LIMITS_EUR["PRO"]
     IAUsageService.record_usage(
         db,
-        tenant_id=tenant_base.id,
+        tenant_id=tenant_pro.id,
         model="gpt-4.1",
         tokens_in=10,
         tokens_out=10,
@@ -184,6 +194,6 @@ def test_enforce_quota_hard_limit(db, tenant_base):
     with pytest.raises(IAQuotaExceeded):
         IAUsageService.enforce_quota(
             db,
-            tenant=tenant_base,
+            tenant=tenant_pro,
             estimated_cost_next_call=limit * 0.1,
         )

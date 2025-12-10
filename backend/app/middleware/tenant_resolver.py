@@ -50,6 +50,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
     tenant_id = None
     tenant_obj = None
     token_type = None
+    allowed_origin_claim = None
 
     db = SessionLocal()
     try:
@@ -93,6 +94,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
                 return JSONResponse({"detail": "invalid_token"}, status_code=401)
             token_type = payload.get("type")
             if token_type == "widget":
+                allowed_origin_claim = payload.get("allowed_origin")
                 allowed = payload.get("allowed_origin")
                 origin = (
                     request.headers.get("Origin") or request.headers.get("origin") or ""
@@ -137,8 +139,13 @@ async def resolve_tenant(request: Request, call_next: Callable):
         if tenant_obj:
             branding = getattr(tenant_obj, "branding", {}) or {}
             allowed_origins = (
-                branding.get("allowed_origins") or branding.get("allowedOrigins") or []
+                branding.get("allowed_widget_origins")
+                or branding.get("allowed_origins")
+                or branding.get("allowedOrigins")
+                or []
             )
+            if allowed_origin_claim and allowed_origin_claim not in allowed_origins:
+                allowed_origins.append(allowed_origin_claim)
             maintenance_flag = (
                 branding.get("maintenance_mode")
                 or branding.get("maintenance")
@@ -153,6 +160,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
             return JSONResponse({"detail": "origin_not_allowed"}, status_code=401)
 
         request.state.tenant_id = tenant_id
+        request.state.token_type = token_type
         if tenant_obj:
             request.state.tenant_obj = tenant_obj
     finally:

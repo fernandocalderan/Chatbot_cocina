@@ -18,6 +18,8 @@ from app.services.ia_usage_service import IAQuotaExceeded, IAUsageService
 from app.services.config.tenant_prompt_config import get_tenant_prompt_config
 from app.services.prompts.router.prompt_router import PromptRouter
 from app.utils.masking import mask_payload
+from app.services.pricing import get_plan_limits
+from app.models.tenants import BillingStatus
 
 
 class OpenAIService(AiProvider):
@@ -32,16 +34,24 @@ class OpenAIService(AiProvider):
     def __init__(self):
         self.settings = get_settings()
         self.api_key = os.getenv("OPENAI_API_KEY")
-        self.base_enabled = bool(self.api_key)
+        self.use_ai_env = bool(self.settings.use_ia)
+        self.base_enabled = bool(self.api_key and self.use_ai_env)
         self.is_enabled = self.base_enabled
         self.model = "gpt-4.1-mini"
         self.budget = BudgetManager()
-        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
+        self.client = OpenAI(api_key=self.api_key) if self.base_enabled else None
         self.moderation = AIModeration()
         self.audit = AIAuditService()
         self.circuit_breaker = AICircuitBreaker()
+        self.last_fallback_reason: str | None = None
 
     # ---------- Helpers internos ----------
+
+    def _reset_fallback(self):
+        self.last_fallback_reason = None
+
+    def _flag_fallback(self, reason: str | None):
+        self.last_fallback_reason = reason
 
     def _tenant_plan(self, tenant: Any) -> str:
         if tenant and getattr(tenant, "ia_plan", None):
@@ -49,6 +59,15 @@ class OpenAIService(AiProvider):
         if tenant and getattr(tenant, "plan", None):
             return str(getattr(tenant, "plan")).lower()
         return "base"
+
+    def _tenant_toggle(self, tenant: Any) -> bool:
+        if tenant is None:
+            return True
+        for attr in ("ia_enabled", "use_ia"):
+            val = getattr(tenant, attr, None)
+            if val is not None:
+                return bool(val)
+        return True
 
     def _tenant_ai_enabled(self, tenant_id: Optional[str]) -> bool:
         try:
@@ -58,17 +77,32 @@ class OpenAIService(AiProvider):
         except Exception:
             return True
 
-    def _tenant_use_ai(self, tenant: Any) -> bool:
-        if tenant is None:
-            return True
-        return bool(getattr(tenant, "use_ia", False))
-
     def _is_enabled_for(self, tenant: Any, tenant_id: Optional[str]) -> bool:
-        return bool(
-            self.base_enabled
-            and self._tenant_use_ai(tenant)
-            and self._tenant_ai_enabled(tenant_id)
+        plan_limits = get_plan_limits(self._tenant_plan(tenant))
+        ia_enabled_in_plan = (plan_limits.get("features") or {}).get(
+            "ia_enabled", True
         )
+        billing_status = getattr(tenant, "billing_status", None)
+        billing_ok = not billing_status or billing_status == BillingStatus.ACTIVE
+        enabled = bool(
+            self.base_enabled
+            and self._tenant_toggle(tenant)
+            and self._tenant_ai_enabled(tenant_id)
+            and ia_enabled_in_plan
+            and billing_ok
+        )
+        if not enabled:
+            if not self.use_ai_env:
+                self._flag_fallback("env_disabled")
+            elif not self._tenant_toggle(tenant):
+                self._flag_fallback("tenant_disabled")
+            elif not ia_enabled_in_plan:
+                self._flag_fallback("plan_without_ai")
+            elif not billing_ok:
+                self._flag_fallback("billing_inactive")
+            else:
+                self._flag_fallback("ai_disabled")
+        return enabled
 
     def is_enabled_for(
         self, tenant: Any = None, tenant_id: Optional[str] = None
@@ -88,6 +122,14 @@ class OpenAIService(AiProvider):
         if purpose in {"welcome", "closing"}:
             return "Seguimos en línea. Podemos continuar cuando quieras."
         return "Gracias por la información. Continua y te ayudo con tu proyecto."
+
+    def _estimate_cost(self, model: str, prompt: str, extra_text: str = "", expected_output_tokens: int = 200) -> tuple[int, int, float]:
+        tokens_in = max(int(len(prompt or "") / 4), 1)
+        if extra_text:
+            tokens_in += max(int(len(extra_text) / 4), 1)
+        tokens_out = expected_output_tokens
+        cost = IAUsageService.estimate_cost(model, tokens_in, tokens_out)
+        return tokens_in, tokens_out, cost
 
     def _log_event(
         self,
@@ -145,11 +187,13 @@ class OpenAIService(AiProvider):
             tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
         return tokens_in, tokens_out
 
-    def _enforce_quota(self, db: Session | None, tenant: Any, model: str):
+    def _enforce_quota(self, db: Session | None, tenant: Any, model: str, estimated_cost: float = 0.0):
         if db is None or tenant is None:
             return
         try:
-            IAUsageService.enforce_quota(db, tenant, estimated_cost_next_call=0.0)
+            IAUsageService.enforce_quota(
+                db, tenant, estimated_cost_next_call=max(estimated_cost, 0.0)
+            )
         except IAQuotaExceeded as exc:
             logger.warning({"event": "ia_quota_blocked", "tenant_id": getattr(tenant, "id", None), "error": str(exc)})
             raise
@@ -162,6 +206,9 @@ class OpenAIService(AiProvider):
         tokens_in: int,
         tokens_out: int,
         cost: Optional[float],
+        *,
+        session_id: str | None = None,
+        call_type: str | None = None,
     ):
         if db is None or tenant_id is None:
             return
@@ -169,7 +216,14 @@ class OpenAIService(AiProvider):
             cost = IAUsageService.estimate_cost(model, tokens_in, tokens_out)
         try:
             IAUsageService.record_usage(
-                db, str(tenant_id), model, tokens_in, tokens_out, cost
+                db,
+                str(tenant_id),
+                model,
+                tokens_in,
+                tokens_out,
+                cost,
+                session_id=session_id,
+                call_type=call_type,
             )
         except Exception as exc:
             logger.warning(
@@ -248,6 +302,7 @@ class OpenAIService(AiProvider):
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
         db: Session | None = None,
+        session_id: str | None = None,
     ) -> Dict[str, Any]:
         """
         Extrae campos estructurados según el propósito.
@@ -259,6 +314,7 @@ class OpenAIService(AiProvider):
         - urgency
         - extraction (multi-campo genérico)
         """
+        self._reset_fallback()
         plan = self._tenant_plan(tenant)
         model = self._select_model(plan)
         self.model = model
@@ -266,52 +322,36 @@ class OpenAIService(AiProvider):
         tenant_key = str(tenant_identifier or "unknown")
 
         if not self._is_enabled_for(tenant, tenant_identifier):
+            fallback_reason = self.last_fallback_reason or "disabled"
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback="disabled",
+                fallback=fallback_reason,
                 latency_ms=0.0,
             )
+            self._flag_fallback(fallback_reason)
             return {}
 
-        budget_state = self.budget.is_allowed(tenant_key, plan)
-        if not budget_state["allowed"] or not self.client:
+        if not self.client:
+            self._flag_fallback(self.last_fallback_reason or "missing_api_key")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback=(
-                    "budget_exceeded"
-                    if not budget_state["allowed"]
-                    else "missing_api_key"
-                ),
+                fallback=self.last_fallback_reason,
                 latency_ms=0.0,
-            )
-            return {}
-
-        try:
-            self._enforce_quota(db, tenant, model)
-        except Exception as exc:
-            self._log_event(
-                tenant_id=tenant_identifier,
-                model=model,
-                tokens_in=0,
-                tokens_out=0,
-                cost=0.0,
-                fallback=str(exc) or "quota_blocked",
-                latency_ms=0.0,
-                outcome="quota_blocked",
             )
             return {}
 
         # Moderación previa
         moderation_input = self.moderation.check_input(text)
         if not moderation_input.allowed:
+            self._flag_fallback("moderation_blocked")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
@@ -333,6 +373,7 @@ class OpenAIService(AiProvider):
             return {}
 
         if self._circuit_blocked(tenant_key):
+            self._flag_fallback("circuit_open")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
@@ -363,6 +404,41 @@ class OpenAIService(AiProvider):
             language=language,
             tenant_config=tenant_config,
         )
+        estimated_tokens_in, estimated_tokens_out, estimated_cost = self._estimate_cost(
+            model, prompt, text or "", expected_output_tokens=160
+        )
+        budget_state = self.budget.is_allowed(
+            tenant_key, plan, projected_cost=estimated_cost
+        )
+        if not budget_state["allowed"]:
+            self._flag_fallback("budget_exceeded")
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback="budget_exceeded",
+                latency_ms=0.0,
+            )
+            return {}
+
+        try:
+            self._enforce_quota(db, tenant, model, estimated_cost)
+        except Exception as exc:
+            fallback_reason = str(exc) or "quota_blocked"
+            self._flag_fallback(fallback_reason)
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=fallback_reason,
+                latency_ms=0.0,
+                outcome="quota_blocked",
+            )
+            return {}
 
         content = ""
         start = time.perf_counter()
@@ -392,6 +468,8 @@ class OpenAIService(AiProvider):
                 tokens_in,
                 tokens_out,
                 cost_data["cost"],
+                session_id=session_id,
+                call_type="extraction",
             )
             output_moderation = self.moderation.check_output(content)
             moderated_output = False
@@ -431,6 +509,8 @@ class OpenAIService(AiProvider):
                 outcome="error",
             )
             self.circuit_breaker.record_failure(tenant_key)
+            if not self.last_fallback_reason:
+                self._flag_fallback(str(exc) or "fallback")
             try:
                 parsed = json.loads(content) if content else {}
                 return parsed if isinstance(parsed, dict) else {}
@@ -444,11 +524,13 @@ class OpenAIService(AiProvider):
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
         db: Session | None = None,
+        session_id: str | None = None,
     ) -> str:
         """
         Genera un resumen comercial corto para un lead.
         Usa prompt de tipo 'summary' vía PromptRouter.
         """
+        self._reset_fallback()
         plan = self._tenant_plan(tenant)
         model = self._select_model(plan)
         self.model = model
@@ -462,40 +544,22 @@ class OpenAIService(AiProvider):
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback="disabled",
+                fallback=self.last_fallback_reason or "disabled",
                 latency_ms=0.0,
             )
+            self._flag_fallback(self.last_fallback_reason or "disabled")
             return self._deterministic_text("summary")
 
-        budget_state = self.budget.is_allowed(tenant_key, plan)
-        if not budget_state["allowed"] or not self.client:
+        if not self.client:
+            self._flag_fallback(self.last_fallback_reason or "missing_api_key")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback=(
-                    "budget_exceeded"
-                    if not budget_state["allowed"]
-                    else "missing_api_key"
-                ),
+                fallback=self.last_fallback_reason,
                 latency_ms=0.0,
-            )
-            return self._deterministic_text("summary")
-
-        try:
-            self._enforce_quota(db, tenant, model)
-        except Exception as exc:
-            self._log_event(
-                tenant_id=tenant_identifier,
-                model=model,
-                tokens_in=0,
-                tokens_out=0,
-                cost=0.0,
-                fallback=str(exc) or "quota_blocked",
-                latency_ms=0.0,
-                outcome="quota_blocked",
             )
             return self._deterministic_text("summary")
 
@@ -509,10 +573,55 @@ class OpenAIService(AiProvider):
             language=language,
             tenant_config=tenant_config,
         )
+        estimated_tokens_in, estimated_tokens_out, estimated_cost = self._estimate_cost(
+            model, prompt, json.dumps(lead_data, ensure_ascii=False), expected_output_tokens=220
+        )
+        budget_state = self.budget.is_allowed(
+            tenant_key, plan, projected_cost=estimated_cost
+        )
+        if not budget_state["allowed"]:
+            self._flag_fallback("budget_exceeded")
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback="budget_exceeded",
+                latency_ms=0.0,
+            )
+            return self._deterministic_text("summary")
+
+        try:
+            self._enforce_quota(db, tenant, model, estimated_cost)
+        except Exception as exc:
+            fallback_reason = str(exc) or "quota_blocked"
+            self._flag_fallback(fallback_reason)
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=fallback_reason,
+                latency_ms=0.0,
+                outcome="quota_blocked",
+            )
+            return self._deterministic_text("summary")
 
         tenant_safe_text = json.dumps(lead_data, ensure_ascii=False)
         moderation_input = self.moderation.check_input(tenant_safe_text)
         if not moderation_input.allowed:
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback="moderation_blocked",
+                latency_ms=0.0,
+            )
+            self._flag_fallback("moderation_blocked")
             self._audit_interaction(
                 tenant_id=tenant_identifier,
                 flow="summary",
@@ -525,6 +634,7 @@ class OpenAIService(AiProvider):
             return self._deterministic_text("summary")
 
         if self._circuit_blocked(tenant_key):
+            self._flag_fallback("circuit_open")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
@@ -571,6 +681,8 @@ class OpenAIService(AiProvider):
                 tokens_in,
                 tokens_out,
                 cost_data["cost"],
+                session_id=session_id,
+                call_type="summary",
             )
             output = completion.choices[0].message.content
             output_moderation = self.moderation.check_output(output)
@@ -609,6 +721,8 @@ class OpenAIService(AiProvider):
                 outcome="error",
             )
             self.circuit_breaker.record_failure(tenant_key)
+            if not self.last_fallback_reason:
+                self._flag_fallback(str(exc) or "fallback")
             return self._deterministic_text("summary")
 
     async def generate_reply(
@@ -620,6 +734,7 @@ class OpenAIService(AiProvider):
         tenant_id: Optional[str] = None,
         language: Optional[str] = None,
         db: Session | None = None,
+        session_id: str | None = None,
     ) -> str:
         """
         Genera una respuesta conversacional:
@@ -628,6 +743,7 @@ class OpenAIService(AiProvider):
         - closing
         - microproposal
         """
+        self._reset_fallback()
         plan = self._tenant_plan(tenant)
         model = self._select_model(plan)
         self.model = model
@@ -641,40 +757,22 @@ class OpenAIService(AiProvider):
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback="disabled",
+                fallback=self.last_fallback_reason or "disabled",
                 latency_ms=0.0,
             )
+            self._flag_fallback(self.last_fallback_reason or "disabled")
             return self._deterministic_text(purpose)
 
-        budget_state = self.budget.is_allowed(tenant_key, plan)
-        if not budget_state["allowed"] or not self.client:
+        if not self.client:
+            self._flag_fallback(self.last_fallback_reason or "missing_api_key")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
                 tokens_in=0,
                 tokens_out=0,
                 cost=0.0,
-                fallback=(
-                    "budget_exceeded"
-                    if not budget_state["allowed"]
-                    else "missing_api_key"
-                ),
+                fallback=self.last_fallback_reason,
                 latency_ms=0.0,
-            )
-            return self._deterministic_text(purpose)
-
-        try:
-            self._enforce_quota(db, tenant, model)
-        except Exception as exc:
-            self._log_event(
-                tenant_id=tenant_identifier,
-                model=model,
-                tokens_in=0,
-                tokens_out=0,
-                cost=0.0,
-                fallback=str(exc) or "quota_blocked",
-                latency_ms=0.0,
-                outcome="quota_blocked",
             )
             return self._deterministic_text(purpose)
 
@@ -693,9 +791,54 @@ class OpenAIService(AiProvider):
             language=language,
             tenant_config=tenant_config,
         )
+        estimated_tokens_in, estimated_tokens_out, estimated_cost = self._estimate_cost(
+            model, prompt, message or "", expected_output_tokens=240
+        )
+        budget_state = self.budget.is_allowed(
+            tenant_key, plan, projected_cost=estimated_cost
+        )
+        if not budget_state["allowed"]:
+            self._flag_fallback("budget_exceeded")
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback="budget_exceeded",
+                latency_ms=0.0,
+            )
+            return self._deterministic_text(purpose)
+
+        try:
+            self._enforce_quota(db, tenant, model, estimated_cost)
+        except Exception as exc:
+            fallback_reason = str(exc) or "quota_blocked"
+            self._flag_fallback(fallback_reason)
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback=fallback_reason,
+                latency_ms=0.0,
+                outcome="quota_blocked",
+            )
+            return self._deterministic_text(purpose)
 
         moderation_input = self.moderation.check_input(message)
         if not moderation_input.allowed:
+            self._log_event(
+                tenant_id=tenant_identifier,
+                model=model,
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+                fallback="moderation_blocked",
+                latency_ms=0.0,
+            )
+            self._flag_fallback("moderation_blocked")
             self._audit_interaction(
                 tenant_id=tenant_identifier,
                 flow="reply",
@@ -708,6 +851,7 @@ class OpenAIService(AiProvider):
             return self._deterministic_text(purpose)
 
         if self._circuit_blocked(tenant_key):
+            self._flag_fallback("circuit_open")
             self._log_event(
                 tenant_id=tenant_identifier,
                 model=model,
@@ -754,6 +898,8 @@ class OpenAIService(AiProvider):
                 tokens_in,
                 tokens_out,
                 cost_data["cost"],
+                session_id=session_id,
+                call_type="generation",
             )
             output = completion.choices[0].message.content
             output_moderation = self.moderation.check_output(output)
@@ -792,6 +938,8 @@ class OpenAIService(AiProvider):
                 outcome="error",
             )
             self.circuit_breaker.record_failure(tenant_key)
+            if not self.last_fallback_reason:
+                self._flag_fallback(str(exc) or "fallback")
             return self._deterministic_text(purpose)
 
     def rewrite_for_pdf(

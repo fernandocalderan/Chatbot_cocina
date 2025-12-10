@@ -24,15 +24,18 @@ from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
 from app.models.tenants import Tenant
+from app.services.ia_usage_service import IAQuotaExceeded
 from app.services.pii_service import PIIService
 from app.observability.tracing import start_span, end_span, set_request_context
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
+from app.services.plan_limits import require_active_subscription
+from app.services.pricing import get_plan_limits
 
 try:
-    from app.services.ai.ai_engine import ai_extract, ai_reply
+    from app.services.ai.ai_engine import ai_extract, ai_reply, last_ai_fallback
 except Exception:
-    ai_extract = ai_reply = None
+    ai_extract = ai_reply = last_ai_fallback = None
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 pii_service = PIIService()
@@ -43,6 +46,22 @@ class ChatInput(BaseModel):
     message: str
     session_id: Optional[str] = None
     lang: Optional[str] = None
+
+
+def _register_ai_fallback(state: dict, reason: str | None, session_id: str | None, tenant_id: str | None):
+    if not reason:
+        return
+    if state.get("ai_fallback_reason"):
+        return
+    state["ai_fallback_reason"] = reason
+    logger.warning(
+        {
+            "event": "ai_fallback",
+            "session_id": session_id,
+            "tenant_id": tenant_id,
+            "reason": reason,
+        }
+    )
 
 
 def load_flow_for_plan(plan: str | None) -> dict:
@@ -212,7 +231,10 @@ def map_score_to_status(score: int, thresholds: dict) -> str:
     return "cold"
 
 
-@router.get("/history/{session_id}", dependencies=[Depends(require_auth)])
+@router.get(
+    "/history/{session_id}",
+    dependencies=[Depends(require_auth), Depends(require_active_subscription)],
+)
 def get_history(
     session_id: str,
     db=Depends(get_db),
@@ -252,7 +274,10 @@ def get_history(
     return items
 
 
-@router.post("/send", dependencies=[Depends(require_auth)])
+@router.post(
+    "/send",
+    dependencies=[Depends(require_auth), Depends(require_active_subscription)],
+)
 def send_message(
     payload: ChatInput,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -275,11 +300,17 @@ def send_message(
     plan_value = tenant.plan if tenant else "base"
     flow_data = load_flow_for_plan(plan_value)
     flags = tenant.flags_ia if tenant else {}
-    tenant_use_ai = getattr(tenant, "use_ia", None)
-    if tenant_use_ai is None:
-        tenant_use_ai = True
-    flags_enabled = flags.get("intent_extraction_enabled") if tenant else True
-    use_ai_intent = bool(tenant_use_ai and (flags_enabled or settings.use_ia))
+    plan_limits = get_plan_limits(plan_value)
+    plan_ai_enabled = (plan_limits.get("features") or {}).get("ia_enabled", True)
+    tenant_ai_enabled = getattr(tenant, "ia_enabled", None)
+    if tenant_ai_enabled is None:
+        tenant_ai_enabled = getattr(tenant, "use_ia", None)
+    if tenant_ai_enabled is None:
+        tenant_ai_enabled = True
+    flags_enabled = flags.get("intent_extraction_enabled", True) if tenant else True
+    use_ai_intent = bool(
+        settings.use_ia and plan_ai_enabled and tenant_ai_enabled and flags_enabled
+    )
     ai_extractor = (
         AIExtractor(settings.openai_api_key, settings.ai_model)
         if use_ai_intent
@@ -335,6 +366,9 @@ def send_message(
                 db.rollback()
     else:
         state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
+
+    if not use_ai_intent:
+        _register_ai_fallback(state, "ai_disabled", session_id, tenant_id)
 
     engine = FlowEngine(flow_data, context=state.get("vars", {}))
     start_block = flow_data.get("start_block", "start")
@@ -406,6 +440,7 @@ def send_message(
                         tenant_id=tenant_id,
                         language=payload.lang or state.get("lang"),
                         db=db,
+                        session_id=session_id,
                     )
                 )
                 or None
@@ -413,8 +448,17 @@ def send_message(
             if isinstance(ai_extract_meta, dict) and ai_extract_meta:
                 state.setdefault("vars", {})["ai_extract"] = ai_extract_meta
                 _hydrate_from_ai_extract(state, ai_extract_meta)
+            if last_ai_fallback:
+                _register_ai_fallback(
+                    state, last_ai_fallback(), session_id, tenant_id
+                )
+        except IAQuotaExceeded as exc:
+            _register_ai_fallback(state, "ia_quota_exceeded", session_id, tenant_id)
+            logger.warning({"event": "ai_extract_quota_blocked", "error": str(exc)})
+            ai_extract_meta = None
         except Exception as exc:
             logger.warning({"event": "ai_extract_failed", "error": str(exc)})
+            _register_ai_fallback(state, "ai_extract_error", session_id, tenant_id)
             ai_extract_meta = None
 
     logger.info(
@@ -674,9 +718,9 @@ def send_message(
     bot_block = serialize_block(bot_block_id, next_block)
     # Si el bloque es ai_generate, generar texto IA y usar fallback si falla
     if bot_block.get("type") == "ai_generate":
+        fallback_text = bot_block.get("fallback_text")
         if ai_reply and use_ai_intent:
             prompt_text = bot_block.get("prompt") or ""
-            fallback_text = bot_block.get("fallback_text")
             try:
                 ai_text = asyncio.run(
                     ai_reply(
@@ -687,16 +731,26 @@ def send_message(
                         tenant_id=tenant_id,
                         language=lang,
                         db=db,
+                        session_id=session_id,
                     )
                 )
                 if ai_text:
                     bot_block["text"] = ai_text
+                if last_ai_fallback:
+                    _register_ai_fallback(
+                        state, last_ai_fallback(), session_id, tenant_id
+                    )
+            except IAQuotaExceeded as exc:
+                _register_ai_fallback(
+                    state, "ia_quota_exceeded", session_id, tenant_id
+                )
+                logger.warning({"event": "ai_generate_quota_blocked", "error": str(exc)})
             except Exception as exc:
                 logger.warning({"event": "ai_generate_failed", "error": str(exc)})
-            if not bot_block.get("text") and isinstance(fallback_text, dict):
-                bot_block["text"] = fallback_text.get(lang) or fallback_text.get(
-                    flow_data.get("languages", ["es"])[0]
-                )
+        if not bot_block.get("text") and isinstance(fallback_text, dict):
+            bot_block["text"] = fallback_text.get(lang) or fallback_text.get(
+                flow_data.get("languages", ["es"])[0]
+            )
         if not bot_block.get("text"):
             bot_block["text"] = (
                 bot_block.get("fallback_text") or bot_block.get("text") or ""
@@ -732,13 +786,23 @@ def send_message(
                         tenant_id=tenant_id,
                         language=lang,
                         db=db,
+                        session_id=session_id,
                     )
                 )
                 or None
             )
+            if last_ai_fallback:
+                _register_ai_fallback(
+                    state, last_ai_fallback(), session_id, tenant_id
+                )
+        except IAQuotaExceeded as exc:
+            _register_ai_fallback(state, "ia_quota_exceeded", session_id, tenant_id)
+            logger.warning({"event": "ai_reply_quota_blocked", "error": str(exc)})
+            ai_reply_text = None
         except Exception as exc:
             logger.warning({"event": "ai_reply_failed", "error": str(exc)})
             ai_reply_text = None
+            _register_ai_fallback(state, "ai_reply_error", session_id, tenant_id)
 
     # Guardar mensaje del bot
     bot_ai_meta = {"ai_reply": ai_reply_text} if ai_reply_text else None
