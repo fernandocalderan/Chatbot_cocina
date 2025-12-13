@@ -162,3 +162,81 @@ Panel profesional (Streamlit) consumiendo la API
 - RDS PostgreSQL: snapshots automáticos cada 24h, retención 7 días; PITR habilitado.
 - Redis: AOF cada 60s; backup diario a S3 en entornos staging/prod.
 - SLO de recuperación: RPO <10 min para Redis, <24h para RDS; RTO <15 min para API+DB+Redis.
+
+## 18) Relatorio situacional (estado real)
+### 18.1 Lo que ya tienes funcionando
+- Infra base: API FastAPI en contenedores estables; NGINX + SSL operativo.
+- Panel Streamlit de tenant funcionando (login, leads/citas básicas).
+- Widget listo a nivel de código (JWT corto renovable, allowed origins, session manager).
+- Multitenant implementado: tablas, auth, middleware, límites IA; seeds de flows/leads/ia_usage listos.
+- Traducción: motor y carrocería listos; falta el salpicadero profesional.
+
+### 18.2 Gaps obligatorios (no opcionales)
+- SuperAdmin Dashboard (separado de los tenants): crear/pausar/activar tenants, ver consumo IA global, errores, rotar tokens de widget, dominios autorizados, planes Base/Pro/Elite, mantenimiento por tenant, health global, impersonar tenant, gestionar usuarios internos. No visible para tenants.
+- Panel de tenants real (no demo): leads con filtros, agenda/calendario, uso IA y límites, editor de textos/branding/widget, transcripts, logs de widget, versionado de flujo (publicar/rollback), snippet copy-paste del widget.
+- Widget en producción: pruebas en dominio real para validar carga, CORS, validación de tenant_id/token, sesión persistente, latencia y flujo end-to-end.
+
+### 18.3 Respuesta a “¿1 dashboard o 2?”
+- Recomendado: dos paneles.
+  - Dashboard 1 (SuperAdmin, solo tú): control total de plataforma, KPIs globales, límites IA, gestión de planes, rotación de tokens, dominios, impersonar, auditoría.
+  - Dashboard 2 (Panel de tenant): solo sus datos (leads, citas, widget/branding, flujo, métricas, tokens y dominios autorizados, consumo IA).
+- Unificar roles en un único panel es posible, pero no recomendable por riesgo de filtrado y UI/propósito distintos.
+
+### 18.4 Plan ejecutivo (3 semanas de sprint)
+- Semana 1: Construir SuperAdmin Dashboard (Streamlit separado o vista protegida). Endpoints GET/POST/PATCH /v1/tenants, PUT /v1/tenant/{id}/maintenance. UI: listado y creación de tenants (branding/plan/límites IA), estado, snippet autogenerado, métricas globales (leads totales, IA usage, error rate, últimos 50 errores).
+- Semana 2: Mejorar Panel de tenants: navegación clara; leads con filtros; agenda visual; editor/publicación/rollback de flujo; consumo IA y límites; configuración del widget (colores/textos/allowed origins/token); transcripts/logs.
+- Semana 3: Pruebas del widget en web real (opunnence.com/demo y dominio externo): CORS, expiración de token, recuperación de estado, callbacks al API, embudo widget→API→lead→panel; ajustes finales.
+
+### 18.5 Indicadores de éxito
+- Para ops: crear tenant en <20s; health global p95 <1s; IA cost por tenant preciso; cero cross-tenant; logs por tenant + global.
+- Para tenants: instalar widget en <1 min; leads en tiempo real; branding editable sin soporte; métricas comprensibles.
+
+### 18.6 Supuestos y confianza
+- Confiabilidad del plan: 95 %.
+- Supuestos: API estable (sí), widget funciona local (sí), Streamlit con roles (sí, con JWT/scopes), disponibilidad de tiempo para UI/UX paneles.
+
+## 19) Decisión de arquitectura de paneles (ejecutada)
+- Modelo elegido: **dos paneles separados**.
+  - **SuperAdmin Dashboard** (dominio dedicado, p.ej. `admin.opunnence.com`): rol SUPER_ADMIN, controla tenants, planes, dominios, tokens de widget, mantenimiento, impersonación, métricas globales, alertas y auditoría. No accesible a tenants.
+  - **Panel de Tenant** (actual Streamlit, dominio `panel.opunnence.com`): roles tenant (OWNER/ADMIN/AGENT), solo sus datos: leads, citas, flujo, branding/widget, métricas propias, tokens y allowed origins, consumo IA y límites.
+- Justificación: menor riesgo de fuga cross-tenant, UI y propósito distintos, seguridad reforzada (2FA/allowlist opcional en SuperAdmin), mantenimiento independiente.
+
+## 20) Autonomía técnica y pasos ejecutables inmediatos
+1) **RBAC sólido y dominios**  
+   - Migrar `users.role` a enum con SUPER_ADMIN/OWNER/ADMIN/AGENT/INTERNAL.  
+   - Middleware de scopes: `/v1/admin/*` solo SUPER_ADMIN; impersonación emite JWT corto con claim `impersonate_tenant_id`.  
+   - CORS/Origin estrictos por panel (admin y tenant), con allowlist separada.
+
+2) **Endpoints SuperAdmin**  
+   - CRUD tenants (plan, límites IA, allowed origins, maintenance flag).  
+   - Rotar/regenerar tokens de widget + allowed_origins.  
+   - Overview global: leads totales, IA usage global, error rate, health por servicio.  
+   - Listado de errores/logs recientes con filtro por tenant.  
+   - Impersonar tenant: POST `/v1/admin/impersonate/{tenant_id}` → JWT corto firmado.  
+   - Auditoría: registrar acciones admin (create/update tenant, token, plan, maintenance, impersonar).
+
+3) **UI SuperAdmin (Streamlit separada)**  
+   - Secciones: Tenants (listado, crear/editar, maintenance), Tokens/Allowed Origins, Métricas globales, Errores, Impersonar.  
+   - Requiere 2FA opcional y IP allowlist (NGINX) para SUPER_ADMIN.
+
+4) **Refuerzo Panel de Tenant**  
+   - Leads/citas con filtros avanzados; agenda visual.  
+   - Consumo IA + límites y alertas; versionado flujo (publish/rollback) desde UI.  
+   - Configurador de widget (branding, textos, allowed origins, token regen) y snippet copy-paste.  
+   - Transcripts y logs de widget por tenant; exportación.  
+   - Hardening CORS/Origin alineado con allowed origins por tenant.
+
+5) **Pruebas del widget en dominio real**  
+   - Checklist: CORS OK, token expira/renueva, estado persiste, latencia p95 <1.2s, embudo widget→API→lead→panel.  
+   - Smoke E2E automatizados (Playwright/Vitest) apuntando a `opunnence.com/demo` y dominio externo de prueba.
+
+## 21) Checklist de ejecución (runbook resumido)
+- **Infra/seguridad**: SG 22/80/443, NGINX con HTTPS, CORS per-tenant, headers seguros, rate limit `/v1/chat`, systemd para compose.  
+- **RBAC y datos**: migración enum roles, seeds usuario SUPER_ADMIN, scopes en middleware, auditoría de acciones admin.  
+- **Endpoints admin**: CRUD tenants, toggle maintenance, rotar tokens widget, allowed origins, overview global, impersonate, errores recientes.  
+- **Panel SuperAdmin (Streamlit separado)**: login con SUPER_ADMIN, listado/edición de tenants, mantenimiento, snippet widget, métricas globales, visor de errores, botón de impersonación.  
+- **Panel tenant (refuerzo)**: filtros leads/citas, agenda, IA usage + límites, versionado flujo, configurador widget + snippet, transcripts/logs, export.  
+- **Widget prod**: probar en dominio real (CORS, token renew, estado, latencia); smoke E2E automatizado; fallback offline verificado.  
+- **Observabilidad**: health global p95<1s, dashboards IA/errores por tenant, alertas 5xx/latencia/IA>80%, CloudWatch/Loki (si aplica).  
+- **Billing/planes**: UI admin para cambiar plan/IA limits, Stripe webhooks verificados, estados billing en tenants.  
+- **Go-live**: checklist DNS + SSL + health `/v1/health` + widget en landing; acceso SuperAdmin separado; backups y rollback definidos.

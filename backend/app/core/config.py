@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     loki_basic_auth: str | None = None  # user:pass
     cloudwatch_log_group: str | None = None
     cloudwatch_log_stream: str | None = None
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
+    oidc_admin_allowed_domain: str | None = None
 
 
 @lru_cache(maxsize=1)

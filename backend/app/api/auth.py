@@ -48,10 +48,11 @@ def login(payload: LoginInput, request: Request, db: Session = Depends(get_db)):
     if not settings.jwt_secret:
         raise HTTPException(status_code=500, detail="jwt_secret_not_configured")
     exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
+    role = (user.role or "").upper()
     payload_token = {
         "sub": str(user.id),
         "tenant_id": str(tenant_id),
-        "roles": [user.role] if user.role else [],
+        "roles": [role] if role else [],
         "type": "access",
         "exp": exp,
         "jti": str(uuid.uuid4()),

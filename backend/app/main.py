@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from app.api.appointments import router as appointments_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
+from app.api.admin import router as admin_router
 from app.api.routes.health import router as health_router
 from app.api.files import router as files_router
 from app.api.flows import router as flows_router
@@ -42,9 +43,15 @@ API_PREFIX = "/v1"
 def _load_allowed_origins() -> list[str]:
     origins: list[str] = []
     env_origins = os.getenv("CORS_ORIGINS")
+    panel_origins = os.getenv("PANEL_CORS_ORIGINS")
+    admin_origins = os.getenv("ADMIN_CORS_ORIGINS")
     cors_raw = env_origins if env_origins is not None else settings.cors_origins
     if cors_raw:
         origins.extend([o.strip() for o in cors_raw.split(",") if o.strip()])
+    if panel_origins:
+        origins.extend([o.strip() for o in panel_origins.split(",") if o.strip()])
+    if admin_origins:
+        origins.extend([o.strip() for o in admin_origins.split(",") if o.strip()])
     if not origins and os.getenv("DISABLE_DB") != "1":
         try:
             from app.db.session import SessionLocal
@@ -121,6 +128,7 @@ def get_application() -> FastAPI:
 
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
+    app.include_router(admin_router, prefix=API_PREFIX)
     app.include_router(flows_router, prefix=API_PREFIX)
     app.include_router(chat_router, prefix=API_PREFIX)
     app.include_router(sessions_router, prefix=API_PREFIX)
