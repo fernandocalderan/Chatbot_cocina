@@ -13,6 +13,7 @@ from app.models.tenants import Tenant, BillingStatus
 from app.services.key_manager import KeyManager
 from app.services.pricing import get_plan_limits
 from app.services.billing_service import create_billing_portal_session, subscription_overview
+from app.services.quota_service import QuotaService
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
 
@@ -280,6 +281,7 @@ def get_billing_overview(
             portal_url = create_billing_portal_session(tenant.stripe_customer_id)
         except Exception:
             portal_url = None
+    quota_status = QuotaService.evaluate(db, tenant)
 
     return {
         "tenant_id": str(tenant.id),
@@ -290,4 +292,5 @@ def get_billing_overview(
         "price_id": price_id,
         "limits": limits,
         "manage_url": portal_url,
+        "quota_status": quota_status.to_dict() if quota_status else None,
     }

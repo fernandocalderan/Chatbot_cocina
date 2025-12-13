@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
+from quota_constants import QUOTA_COPY
 
 
 def load_styles():
@@ -20,3 +21,25 @@ def format_timestamp(value: str | None) -> str:
 def render_json(title: str, payload: Any):
     with st.expander(title, expanded=False):
         st.json(payload)
+
+
+def render_quota_banner(quota_status: str | dict | None, needs_upgrade: bool = False, upgrade_url: str | None = None):
+    status = "ACTIVE"
+    if isinstance(quota_status, dict):
+        status = str(quota_status.get("mode") or quota_status.get("quota_status") or "ACTIVE")
+        needs_upgrade = needs_upgrade or bool(quota_status.get("needs_upgrade_notice"))
+    elif quota_status:
+        status = str(quota_status)
+    status = status.upper()
+    if status == "ACTIVE":
+        return
+    copy = QUOTA_COPY["LOCKED"] if status == "LOCKED" else QUOTA_COPY["SAVING"]
+    if status == "LOCKED":
+        st.error(f"🔒 {copy['title']}: {copy['message']}")
+    else:
+        st.warning(f"⚠️ {copy['title']}: {copy['message']}")
+    if needs_upgrade:
+        if upgrade_url:
+            st.markdown(f"[{copy['cta']}]({upgrade_url})", unsafe_allow_html=False)
+        else:
+            st.info(copy["cta"])

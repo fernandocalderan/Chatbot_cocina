@@ -11,6 +11,7 @@ from app.models.audits import AuditLog
 from app.models.ai_prompts import AiPrompt
 from app.models.ai_interaction import AIInteractionAudit
 from app.models.ia_usage import IAUsage
+from app.models.conversation_templates import ConversationTemplate
 
 __all__ = [
     "Tenant",
@@ -26,4 +27,5 @@ __all__ = [
     "AiPrompt",
     "AIInteractionAudit",
     "IAUsage",
+    "ConversationTemplate",
 ]

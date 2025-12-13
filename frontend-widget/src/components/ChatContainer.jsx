@@ -4,6 +4,7 @@ import ChatMessages from "./ChatMessages";
 import ChatOptions from "./ChatOptions";
 import ChatInput from "./ChatInput";
 import TypingIndicator from "./TypingIndicator";
+import QuotaBanner from "./QuotaBanner";
 
 export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, logoUrl, strings }) {
   const [messages, setMessages] = useState([]);
@@ -11,6 +12,9 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const [token, setToken] = useState(widgetToken || localStorage.getItem("widget_token") || "");
+  const [quotaStatus, setQuotaStatus] = useState("ACTIVE");
+  const [savingMode, setSavingMode] = useState(false);
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);
 
   const messagesRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -120,9 +124,20 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
       }
 
       const data = await res.json();
+      const qStatus = (data.quota_status || "ACTIVE").toString().toUpperCase();
+      const saving = Boolean(data.saving_mode) || qStatus === "SAVING";
+      const upgrade = Boolean(data.needs_upgrade_notice);
+      setQuotaStatus(qStatus);
+      setSavingMode(saving);
+      setNeedsUpgrade(upgrade);
 
       setTyping(false);
-      const botText = data.ai_reply || data.text || strings?.errorMessage || "No pude responder. Intenta de nuevo.";
+      const botText =
+        data.message ||
+        data.ai_reply ||
+        data.text ||
+        strings?.errorMessage ||
+        "No pude responder. Intenta de nuevo.";
       setMessages((prev) => [...prev, { role: "bot", text: botText }]);
 
       if (data.session_id && data.session_id !== sessionIdRef.current) {
@@ -152,6 +167,12 @@ export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, t
         subtitle={strings?.headerSubtitle}
         status={strings?.status}
         logoUrl={logoUrl}
+      />
+      <QuotaBanner
+        status={quotaStatus}
+        savingMode={savingMode}
+        needsUpgrade={needsUpgrade}
+        upgradeUrl={strings?.upgradeUrl}
       />
 
       <div className="chat-messages" ref={messagesRef}>

@@ -15,6 +15,7 @@ from app.models.tenants import Tenant
 from app.models.users import UserRole
 from app.services.key_manager import KeyManager
 from app.services.oidc_admin import validate_admin_id_token, OIDCValidationError
+from app.services.template_service import TemplateService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,6 +33,7 @@ class TenantBase(BaseModel):
     contact_email: Optional[str] = None
     plan: str = "BASE"
     ia_monthly_limit_eur: Optional[float] = None
+    usage_limit_monthly: Optional[float] = None
     allowed_origins: list[str] = Field(default_factory=list)
     maintenance: bool = False
     use_ia: Optional[bool] = None
@@ -47,6 +49,7 @@ class TenantUpdate(BaseModel):
     contact_email: Optional[str] = None
     plan: Optional[str] = None
     ia_monthly_limit_eur: Optional[float] = None
+    usage_limit_monthly: Optional[float] = None
     allowed_origins: Optional[list[str]] = None
     maintenance: Optional[bool] = None
     use_ia: Optional[bool] = None
@@ -76,6 +79,13 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         ),
         "use_ia": bool(getattr(t, "use_ia", False)),
         "ia_enabled": bool(getattr(t, "ia_enabled", True)),
+        "usage_mode": getattr(t, "usage_mode", None),
+        "usage_monthly": float(getattr(t, "usage_monthly", 0) or 0),
+        "usage_limit_monthly": float(getattr(t, "usage_limit_monthly", 0) or 0)
+        if getattr(t, "usage_limit_monthly", None) is not None
+        else None,
+        "needs_upgrade_notice": bool(getattr(t, "needs_upgrade_notice", False)),
+        "default_template_id": str(getattr(t, "default_template_id")) if getattr(t, "default_template_id", None) else None,
     }
 
 
@@ -123,6 +133,7 @@ def create_tenant(payload: TenantCreate, db=Depends(get_db)):
         contact_email=payload.contact_email,
         plan=payload.plan,
         ia_monthly_limit_eur=payload.ia_monthly_limit_eur,
+        usage_limit_monthly=payload.usage_limit_monthly,
         branding=branding,
         use_ia=payload.use_ia if payload.use_ia is not None else True,
         ia_enabled=payload.ia_enabled if payload.ia_enabled is not None else True,
@@ -130,6 +141,15 @@ def create_tenant(payload: TenantCreate, db=Depends(get_db)):
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+    try:
+        cloned_tpl = TemplateService.clone_default_template(db, str(tenant.id))
+        if cloned_tpl:
+            tenant.default_template_id = cloned_tpl.id
+            db.add(tenant)
+            db.commit()
+            db.refresh(tenant)
+    except Exception:
+        db.rollback()
     return _serialize_tenant(tenant)
 
 

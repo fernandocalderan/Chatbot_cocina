@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.middleware.authz import require_any_role
 from app.models.tenants import Tenant
+from app.services.template_service import TemplateService
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -47,6 +48,15 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+    try:
+        cloned_tpl = TemplateService.clone_default_template(db, str(tenant.id))
+        if cloned_tpl:
+            tenant.default_template_id = cloned_tpl.id
+            db.add(tenant)
+            db.commit()
+            db.refresh(tenant)
+    except Exception:
+        db.rollback()
 
     return {
         "id": str(tenant.id),
@@ -55,4 +65,5 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         "contact_email": tenant.contact_email,
         "timezone": tenant.timezone,
         "idioma_default": tenant.idioma_default,
+        "default_template_id": str(getattr(tenant, "default_template_id")) if getattr(tenant, "default_template_id", None) else None,
     }

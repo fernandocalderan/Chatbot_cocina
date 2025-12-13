@@ -20,16 +20,26 @@ class PlanEnum(str, Enum):
     ELITE = "ELITE"
 
 
+class UsageMode(str, Enum):
+    ACTIVE = "ACTIVE"
+    SAVING = "SAVING"
+    LOCKED = "LOCKED"
+
+
 class Tenant(Base):
     __tablename__ = "tenants"
 
     id = sa.Column(pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = sa.Column(sa.String(255), nullable=False, index=True)
     contact_email = sa.Column(sa.String(320), nullable=True)
-    plan = sa.Column(sa.String(50), nullable=False, server_default="Base")
+    plan = sa.Column(
+        sa.Enum(PlanEnum, name="plan_enum"), nullable=False, server_default=PlanEnum.BASE.value
+    )
     ia_enabled = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("true"))
     use_ia = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
-    ia_plan = sa.Column(sa.String(10), nullable=False, server_default="base")
+    ia_plan = sa.Column(
+        sa.Enum(PlanEnum, name="ia_plan_enum"), nullable=False, server_default=PlanEnum.BASE.value
+    )
     ia_monthly_limit_eur = sa.Column(sa.Numeric(precision=12, scale=2), nullable=True)
     billing_status = sa.Column(
         sa.Enum(BillingStatus, name="billing_status"), nullable=True, server_default=BillingStatus.ACTIVE.value
@@ -57,6 +67,19 @@ class Tenant(Base):
     )
     microsoft_refresh_token = sa.Column(sa.String(1024), nullable=True)
     microsoft_calendar_id = sa.Column(sa.String(255), nullable=True)
+    usage_mode = sa.Column(
+        sa.Enum(UsageMode, name="usage_mode"), nullable=False, server_default=UsageMode.ACTIVE.value
+    )
+    usage_monthly = sa.Column(sa.Float, nullable=False, server_default="0")
+    usage_limit_monthly = sa.Column(sa.Float, nullable=True)
+    usage_reset_day = sa.Column(sa.Integer, nullable=False, server_default="1")
+    needs_upgrade_notice = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
+    default_template_id = sa.Column(pg.UUID(as_uuid=True), sa.ForeignKey("conversation_templates.id"), nullable=True)
+    default_template = sa.orm.relationship(
+        "ConversationTemplate",
+        foreign_keys=[default_template_id],
+        lazy="joined",
+    )
     ai_cost = sa.Column(sa.Float, nullable=False, server_default="0")
     ai_monthly_limit = sa.Column(sa.Float, nullable=False, server_default="100")
     created_at = sa.Column(

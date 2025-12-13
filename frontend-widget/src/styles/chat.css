@@ -20,6 +20,52 @@
   font-family: "Inter", sans-serif;
 }
 
+.quota-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  background: #fff7e0;
+  color: #6b4f00;
+}
+
+.quota-banner.saving {
+  background: #fff7e0;
+  color: #6b4f00;
+}
+
+.quota-banner.locked {
+  background: #fff0f0;
+  color: #6f1d1b;
+  border-color: #f3c2c2;
+}
+
+.quota-title {
+  margin: 0 0 4px 0;
+  display: block;
+  font-size: 14px;
+}
+
+.quota-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.quota-cta {
+  align-self: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-gold);
+  background: var(--panel-bg);
+  color: var(--text-color);
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Cabecera */
 .chat-header {
   background: var(--panel-bg);

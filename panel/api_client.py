@@ -172,3 +172,11 @@ def get_billing():
 
 def issue_widget_token(allowed_origin: str, ttl_minutes: int = 30):
     return api_post("/tenant/widget/token", {"allowed_origin": allowed_origin, "ttl_minutes": ttl_minutes})
+
+
+def get_quota_status():
+    return api_get("/metrics/quota") or {}
+
+
+def get_tenant_kpis():
+    return api_get("/metrics/kpis") or {}

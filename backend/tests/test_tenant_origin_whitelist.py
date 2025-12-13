@@ -44,7 +44,7 @@ def test_origin_whitelist_allows_and_blocks(monkeypatch):
         id="tenant-origin",
         name="Tenant Origin",
         contact_email="t@example.com",
-        plan="Pro",
+            plan="PRO",
         branding={"allowed_origins": [allowed_origin]},
         idioma_default="es",
         timezone="Europe/Madrid",

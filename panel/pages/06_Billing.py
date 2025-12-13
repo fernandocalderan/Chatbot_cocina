@@ -2,7 +2,7 @@ import streamlit as st
 
 from api_client import get_billing
 from auth import ensure_login
-from utils import load_styles
+from utils import load_styles, render_quota_banner
 
 load_styles()
 if "token" not in st.session_state:
@@ -22,6 +22,11 @@ plan = billing.get("plan") or "N/D"
 status = billing.get("billing_status") or billing.get("stripe_status") or "N/D"
 renewal = billing.get("current_period_end")
 limits = billing.get("limits") or {}
+quota_status = billing.get("quota_status")
+needs_upgrade = False
+if isinstance(quota_status, dict):
+    needs_upgrade = bool(quota_status.get("needs_upgrade_notice"))
+render_quota_banner(quota_status, needs_upgrade=needs_upgrade, upgrade_url=billing.get("manage_url"))
 
 cols = st.columns(3)
 cols[0].metric("Plan", plan)

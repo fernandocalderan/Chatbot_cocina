@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class TenantSchema(BaseModel):
     use_ia: bool = False
-    ia_plan: Literal["base", "pro", "elite"] = "base"
+    ia_plan: Literal["BASE", "PRO", "ELITE"] = "BASE"
     workdays: List[int] | None = None
     opening_hours: Dict[str, str] | None = None
     slot_duration: int | None = None

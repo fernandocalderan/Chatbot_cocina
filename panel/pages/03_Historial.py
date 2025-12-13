@@ -2,7 +2,7 @@ import streamlit as st
 
 from api_client import chat_history, chat_send, fetch_flow
 from auth import ensure_login
-from utils import load_styles
+from utils import load_styles, render_quota_banner
 
 load_styles()
 if "token" not in st.session_state:
@@ -63,4 +63,5 @@ if col2.button("Enviar mensaje"):
         res = chat_send(message, session_id or None, lang)
     if res:
         st.json(res)
+        render_quota_banner(res.get("quota_status"), needs_upgrade=res.get("needs_upgrade_notice"))
         st.session_state["session_id"] = res.get("session_id") or session_id

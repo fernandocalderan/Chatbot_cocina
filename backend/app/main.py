@@ -9,7 +9,8 @@ from app.api.routes.health import router as health_router
 from app.api.files import router as files_router
 from app.api.flows import router as flows_router
 from app.api.leads import router as leads_router
-from app.api.metrics import router as metrics_router
+from app.api.metrics import router as tenant_metrics_router
+from app.api.templates import router as templates_router
 from app.api.scoring import router as scoring_router
 from app.api.sessions import router as sessions_router
 from app.api.tenant import router as tenant_router
@@ -17,7 +18,7 @@ from app.api.routes.calendar_oauth import router as calendar_oauth_router
 from app.api.routes.crm import router as crm_router
 from app.api.routes.gdpr import router as gdpr_router
 from app.api.routes.security import router as security_router
-from app.api.routes.metrics import router as metrics_router
+from app.api.routes.metrics import router as prometheus_metrics_router
 from app.api.v1.endpoints.metrics_ia import router as metrics_ia_router
 from app.api.v1.endpoints.billing import router as billing_router
 from app.api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
@@ -133,16 +134,17 @@ def get_application() -> FastAPI:
     app.include_router(chat_router, prefix=API_PREFIX)
     app.include_router(sessions_router, prefix=API_PREFIX)
     app.include_router(files_router, prefix=API_PREFIX)
+    app.include_router(templates_router, prefix=API_PREFIX)
     app.include_router(tenant_router, prefix=API_PREFIX)
     app.include_router(appointments_router, prefix=API_PREFIX)
     app.include_router(leads_router, prefix=API_PREFIX)
-    app.include_router(metrics_router, prefix=API_PREFIX)
+    app.include_router(tenant_metrics_router, prefix=API_PREFIX)
     app.include_router(scoring_router, prefix=API_PREFIX)
     app.include_router(calendar_oauth_router, prefix=API_PREFIX)
     app.include_router(crm_router, prefix=API_PREFIX)
     app.include_router(gdpr_router, prefix=API_PREFIX)
     app.include_router(security_router, prefix=API_PREFIX)
-    app.include_router(metrics_router, prefix=API_PREFIX)
+    app.include_router(prometheus_metrics_router, prefix=API_PREFIX)
     app.include_router(observability_router, prefix=API_PREFIX)
     app.include_router(metrics_ia_router, prefix=API_PREFIX)
     app.include_router(billing_router, prefix=API_PREFIX)

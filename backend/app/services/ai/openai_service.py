@@ -19,7 +19,7 @@ from app.services.config.tenant_prompt_config import get_tenant_prompt_config
 from app.services.prompts.router.prompt_router import PromptRouter
 from app.utils.masking import mask_payload
 from app.services.pricing import get_plan_limits
-from app.models.tenants import BillingStatus
+from app.models.tenants import BillingStatus, PlanEnum
 
 
 class OpenAIService(AiProvider):
@@ -54,10 +54,14 @@ class OpenAIService(AiProvider):
         self.last_fallback_reason = reason
 
     def _tenant_plan(self, tenant: Any) -> str:
-        if tenant and getattr(tenant, "ia_plan", None):
-            return str(getattr(tenant, "ia_plan")).lower()
-        if tenant and getattr(tenant, "plan", None):
-            return str(getattr(tenant, "plan")).lower()
+        if tenant:
+            for attr in ("ia_plan", "plan"):
+                plan_val = getattr(tenant, attr, None)
+                if plan_val:
+                    if isinstance(plan_val, PlanEnum):
+                        return plan_val.value.lower()
+                    plan_str = getattr(plan_val, "value", plan_val)
+                    return str(plan_str).lower()
         return "base"
 
     def _tenant_toggle(self, tenant: Any) -> bool:

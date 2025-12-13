@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from pydantic import BaseModel
 from loguru import logger
 
@@ -23,7 +23,7 @@ from app.observability import metrics
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
-from app.models.tenants import Tenant
+from app.models.tenants import Tenant, UsageMode
 from app.services.ia_usage_service import IAQuotaExceeded
 from app.services.pii_service import PIIService
 from app.observability.tracing import start_span, end_span, set_request_context
@@ -31,6 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
 from app.services.plan_limits import require_active_subscription
 from app.services.pricing import get_plan_limits
+from app.services.quota_service import QuotaService
 
 try:
     from app.services.ai.ai_engine import ai_extract, ai_reply, last_ai_fallback
@@ -297,7 +298,29 @@ def send_message(
 
     session_mgr = SessionManager(settings.redis_url)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    plan_value = tenant.plan if tenant else "base"
+    try:
+        quota_status = QuotaService.enforce(db, tenant)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_402_PAYMENT_REQUIRED:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            quota_payload = detail.get("quota_status") if isinstance(detail, dict) else None
+            quota_mode = (
+                quota_payload.get("mode") if isinstance(quota_payload, dict) else "LOCKED"
+            ) or "LOCKED"
+            fallback_response = {
+                "message": detail.get("message") or QuotaService.LOCKED_MESSAGE,
+                "quota_status": quota_mode,
+                "saving_mode": False,
+                "needs_upgrade_notice": True,
+                "cta": detail.get("cta") or QuotaService.CTA_UPGRADE,
+            }
+            idemp_store.set(idempotency_key, fallback_response)
+            return fallback_response
+        raise
+    plan_value = getattr(tenant, "plan", None)
+    if plan_value and hasattr(plan_value, "value"):
+        plan_value = plan_value.value
+    plan_value = plan_value or "base"
     flow_data = load_flow_for_plan(plan_value)
     flags = tenant.flags_ia if tenant else {}
     plan_limits = get_plan_limits(plan_value)
@@ -857,6 +880,14 @@ def send_message(
     }
     if ai_reply_text:
         response_data["ai_reply"] = ai_reply_text
+    if quota_status:
+        response_data["quota_status"] = quota_status.mode.value
+        response_data["quota_details"] = quota_status.to_dict()
+        response_data["needs_upgrade_notice"] = bool(
+            getattr(quota_status, "needs_upgrade_notice", False)
+        )
+        if quota_status.mode == UsageMode.SAVING:
+            response_data["saving_mode"] = True
     idemp_store.set(idempotency_key, response_data)
     end_span()
     return response_data

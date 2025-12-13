@@ -42,7 +42,7 @@ def setup_module():
         Base.metadata.create_all(bind=engine)
         with SessionLocal() as db:
             if not db.query(Tenant).first():
-                db.add(Tenant(id=uuid.uuid4(), name="Contract Tenant", contact_email="contract@example.com", plan="Pro"))
+                db.add(Tenant(id=uuid.uuid4(), name="Contract Tenant", contact_email="contract@example.com", plan="PRO"))
                 db.commit()
 
 

@@ -2,7 +2,8 @@ import math
 import streamlit as st
 import pandas as pd
 
-from api_client import api_get
+from api_client import api_get, get_quota_status
+from utils import render_quota_banner
 
 st.set_page_config(
     page_title="Consumo de IA",
@@ -33,6 +34,7 @@ if not token:
 # --- Fetch datos ---
 with st.spinner("Consultando métricas IA..."):
     res = api_get(f"/metrics/ia/tenant/{tenant_id}")
+    quota = get_quota_status()
 
 if not res or not isinstance(res, dict):
     st.error("No se pudieron obtener métricas IA desde la API.")
@@ -40,6 +42,9 @@ if not res or not isinstance(res, dict):
 
 monthly = res.get("monthly", {}) or {}
 latest = res.get("latest", []) or []
+qs = quota.get("quota_status") if isinstance(quota, dict) else None
+needs = bool(qs.get("needs_upgrade_notice")) if isinstance(qs, dict) else False
+render_quota_banner(qs, needs_upgrade=needs)
 
 # --- Resumen ---
 st.subheader("Resumen mensual")

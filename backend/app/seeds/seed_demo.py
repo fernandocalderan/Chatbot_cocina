@@ -11,6 +11,7 @@ from app.models.leads import Lead
 from app.models.sessions import Session as DBSess
 from app.models.appointments import Appointment
 from app.core.security import get_password_hash
+from app.services.template_service import TemplateService
 
 
 def seed_demo() -> None:
@@ -22,7 +23,7 @@ def seed_demo() -> None:
                 id=uuid.uuid4(),
                 name="Demo Studio",
                 contact_email="demo@example.com",
-                plan="Pro",
+                plan="PRO",
                 idioma_default="es",
                 timezone="Europe/Madrid",
                 flags_ia={"intent_extraction_enabled": True, "text_gen_enabled": True},
@@ -38,7 +39,7 @@ def seed_demo() -> None:
                 tenant_id=tenant.id,
                 email="admin@demo.com",
                 hashed_password=demo_hashed,
-                role="admin",
+                role="ADMIN",
             )
             db.add(user)
         else:
@@ -54,7 +55,7 @@ def seed_demo() -> None:
                 tenant_id=tenant.id,
                 email="master@demo.com",
                 hashed_password=master_hashed,
-                role="admin",
+                role="ADMIN",
             )
             db.add(master)
         else:
@@ -179,6 +180,15 @@ def seed_demo() -> None:
             db.add_all([session, lead, appt])
 
         db.commit()
+
+        try:
+            tpl = TemplateService.clone_default_template(db, str(tenant.id))
+            if tpl:
+                tenant.default_template_id = tpl.id
+                db.add(tenant)
+                db.commit()
+        except Exception:
+            db.rollback()
     except IntegrityError:
         db.rollback()
         raise
