@@ -85,7 +85,7 @@ def issue_widget_token_short(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
     data = {
-        "type": "widget",
+        "type": "WIDGET",
         "tenant_id": tenant_id,
         "allowed_origin": payload.allowed_origin,
         "exp": exp,
@@ -135,7 +135,7 @@ def issue_widget_token(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
     data = {
-        "type": "widget",
+        "type": "WIDGET",
         "tenant_id": tenant_id,
         "allowed_origin": payload.allowed_origin,
         "exp": exp,
@@ -190,7 +190,7 @@ def renew_widget_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token"
         )
 
-    if data.get("type") != "widget":
+    if (data.get("type") or "").upper() != "WIDGET":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="invalid_token_type"
         )
@@ -234,7 +234,7 @@ def renew_widget_token(
     )
     new_token = jwt.encode(
         {
-            "type": "widget",
+            "type": "WIDGET",
             "tenant_id": tenant_id,
             "allowed_origin": allowed_origin,
             "exp": exp,

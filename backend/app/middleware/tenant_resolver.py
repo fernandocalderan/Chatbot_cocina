@@ -47,14 +47,23 @@ async def resolve_tenant(request: Request, call_next: Callable):
         if auth_header.lower().startswith("bearer ")
         else None
     )
+    admin_api_token = settings.admin_api_token
     tenant_id = None
     tenant_obj = None
     token_type = None
+    roles = []
     allowed_origin_claim = None
     impersonate_tenant_id = None
 
     db = SessionLocal()
     try:
+        # Bypass para API key de superadmin (no requiere tenant)
+        if admin_api_token and api_key and api_key == admin_api_token:
+            request.state.tenant_id = None
+            request.state.token_type = "ADMIN"
+            request.state.roles = ["SUPER_ADMIN"]
+            return await call_next(request)
+
         # Prioriza header explícito de tenant si llega
         if header_tenant:
             tenant_obj = db.query(Tenant).filter(Tenant.id == header_tenant).first()
@@ -93,13 +102,16 @@ async def resolve_tenant(request: Request, call_next: Callable):
             jti = payload.get("jti")
             if jti and JWTBlacklist(km.redis_url).is_blacklisted(jti):
                 return JSONResponse({"detail": "invalid_token"}, status_code=401)
-            token_type = payload.get("type")
+            token_type = (payload.get("type") or "").upper()
+            roles_raw = payload.get("roles") or []
+            roles = [str(r).upper() for r in roles_raw] if isinstance(roles_raw, list) else []
             impersonate_tenant_id = payload.get("impersonate_tenant_id")
-            if token_type == "admin":
+            if token_type == "ADMIN" or "SUPER_ADMIN" in roles:
                 request.state.tenant_id = None
                 request.state.token_type = token_type
+                request.state.roles = roles
                 return await call_next(request)
-            if token_type == "widget":
+            if token_type == "WIDGET":
                 allowed_origin_claim = payload.get("allowed_origin")
                 allowed = payload.get("allowed_origin")
                 origin = (
@@ -123,7 +135,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
                 tenant_id = payload.get("tenant_id")
                 if not tenant_id:
                     return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
-            elif token_type == "impersonation" and impersonate_tenant_id:
+            elif impersonate_tenant_id:
                 tenant_id = impersonate_tenant_id
             else:
                 user_id = payload.get("sub")
@@ -169,6 +181,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
 
         request.state.tenant_id = tenant_id
         request.state.token_type = token_type
+        request.state.roles = roles
         if tenant_obj:
             request.state.tenant_obj = tenant_obj
     finally:

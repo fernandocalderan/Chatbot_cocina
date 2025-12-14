@@ -75,11 +75,6 @@ class Tenant(Base):
     usage_reset_day = sa.Column(sa.Integer, nullable=False, server_default="1")
     needs_upgrade_notice = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     default_template_id = sa.Column(pg.UUID(as_uuid=True), sa.ForeignKey("conversation_templates.id"), nullable=True)
-    default_template = sa.orm.relationship(
-        "ConversationTemplate",
-        foreign_keys=[default_template_id],
-        lazy="joined",
-    )
     ai_cost = sa.Column(sa.Float, nullable=False, server_default="0")
     ai_monthly_limit = sa.Column(sa.Float, nullable=False, server_default="100")
     created_at = sa.Column(

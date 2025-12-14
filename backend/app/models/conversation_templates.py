@@ -2,6 +2,7 @@ import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
+from sqlalchemy.orm import foreign
 
 from app.db.base import Base
 
@@ -29,10 +30,4 @@ class ConversationTemplate(Base):
         nullable=False,
         server_default=sa.func.now(),
         onupdate=sa.func.now(),
-    )
-
-    tenant = sa.orm.relationship(
-        "Tenant",
-        backref=sa.orm.backref("conversation_templates", lazy="selectin"),
-        lazy="joined",
     )

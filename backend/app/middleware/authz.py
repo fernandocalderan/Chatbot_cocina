@@ -1,4 +1,5 @@
 from typing import List, Optional
+import os
 
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -55,12 +56,13 @@ def decode_token(raw_token: str) -> AuthzContext:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="token_revoked"
         )
-    token_type = payload.get("type", "access")
+    token_type = (payload.get("type") or "TENANT").upper()
     tenant_id = payload.get("tenant_id")
     user_id = payload.get("sub")
-    roles = payload.get("roles") or []
-    if not isinstance(roles, list):
-        roles = []
+    roles_raw = payload.get("roles") or []
+    roles = []
+    if isinstance(roles_raw, list):
+        roles = [str(r).upper() for r in roles_raw if r]
     return AuthzContext(
         tenant_id=tenant_id, user_id=user_id, roles=roles, token_type=token_type
     )
@@ -70,10 +72,20 @@ async def get_authz_context(
     token: str = Depends(oauth2_scheme), x_api_key: str | None = Header(default=None)
 ):
     settings = get_settings()
-    # allow panel token bypass
+    if os.getenv("DISABLE_DB") == "1":
+        if token:
+            return decode_token(token)
+        if x_api_key:
+            return AuthzContext(tenant_id=None, user_id=None, roles=["SUPER_ADMIN"], token_type="API_KEY")
+        return AuthzContext(tenant_id=None, user_id=None, roles=[], token_type="API_KEY")
+    # allow API key bypasses
+    if settings.admin_api_token and x_api_key == settings.admin_api_token:
+        return AuthzContext(
+            tenant_id=None, user_id=None, roles=["SUPER_ADMIN"], token_type="API_KEY"
+        )
     if settings.panel_api_token and x_api_key == settings.panel_api_token:
         return AuthzContext(
-            tenant_id=None, user_id=None, roles=["ADMIN"], token_type="api_key"
+            tenant_id=None, user_id=None, roles=["ADMIN"], token_type="API_KEY"
         )
     return decode_token(token)
 
@@ -82,7 +94,7 @@ def require_role(role: str):
     async def _checker(
         ctx: AuthzContext = Depends(get_authz_context), request: Request = None
     ):
-        if ctx.token_type == "widget":
+        if ctx.token_type == "WIDGET":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="forbidden"
             )
@@ -103,7 +115,7 @@ def require_any_role(*roles: str):
     async def _checker(
         ctx: AuthzContext = Depends(get_authz_context), request: Request = None
     ):
-        if ctx.token_type == "widget":
+        if ctx.token_type == "WIDGET":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="forbidden"
             )

@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 
 from api_client import api_get, get_quota_status
-from utils import render_quota_banner
+from utils import render_quota_banner, render_quota_usage_bar, metric_card
 
 st.set_page_config(
     page_title="Consumo de IA",
@@ -11,10 +11,8 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📊 Consumo de IA por Tenant")
-st.caption(
-    "Monitoriza el coste mensual de IA, tokens consumidos y registros recientes por tenant."
-)
+st.title("📊 Consumo de IA")
+st.caption("Coste, tokens y estado de cuota para el tenant activo.")
 
 # --- Validación de sesión/rol ---
 role = st.session_state.get("role")
@@ -44,24 +42,27 @@ monthly = res.get("monthly", {}) or {}
 latest = res.get("latest", []) or []
 qs = quota.get("quota_status") if isinstance(quota, dict) else None
 needs = bool(qs.get("needs_upgrade_notice")) if isinstance(qs, dict) else False
-render_quota_banner(qs, needs_upgrade=needs)
+render_quota_banner(qs, needs_upgrade=needs, upgrade_url=res.get("manage_url"))
+render_quota_usage_bar(qs, label="Consumo IA mensual")
 
 # --- Resumen ---
-st.subheader("Resumen mensual")
 total_cost = float(monthly.get("total_cost_eur", 0.0) or 0.0)
 tokens_in = int(monthly.get("tokens_in", 0) or 0)
 tokens_out = int(monthly.get("tokens_out", 0) or 0)
-
 PLAN_LIMITS_EUR = {"BASE": 10.0, "PRO": 25.0, "ELITE": 100.0}
 plan = str(st.session_state.get("tenant_plan", "BASE")).upper()
 limit_eur = PLAN_LIMITS_EUR.get(plan, PLAN_LIMITS_EUR["BASE"])
 percentage = min((total_cost / limit_eur) * 100.0, 100.0) if limit_eur else 0.0
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("💶 Coste mensual (€)", f"{total_cost:.4f} €")
-col2.metric("🔢 Tokens IN", f"{tokens_in:,}")
-col3.metric("🔢 Tokens OUT", f"{tokens_out:,}")
-col4.metric("📈 Uso del límite (%)", f"{percentage:.2f} %")
+with col1:
+    metric_card("Coste mensual", f"{total_cost:.2f} €", subtitle="IA usage", accent="#1E88E5")
+with col2:
+    metric_card("Tokens IN", f"{tokens_in:,}", subtitle="Mes en curso", accent="#0D9488")
+with col3:
+    metric_card("Tokens OUT", f"{tokens_out:,}", subtitle="Mes en curso", accent="#0D9488")
+with col4:
+    metric_card("Uso del límite", f"{percentage:.0f} %", subtitle=f"Plan {plan}", accent="#B45309" if percentage >= 80 else "#1E88E5")
 
 st.subheader("Consumo respecto al límite mensual")
 st.progress(percentage / 100.0 if limit_eur else 0.0)

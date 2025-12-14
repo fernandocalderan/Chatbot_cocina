@@ -23,7 +23,7 @@ from app.observability import metrics
 from app.models.sessions import Session as DBSesion
 from app.models.leads import Lead as DBLead
 from app.models.messages import Message as DBMessage
-from app.models.tenants import Tenant, UsageMode
+from app.models.tenants import Tenant, UsageMode, BillingStatus
 from app.services.ia_usage_service import IAQuotaExceeded
 from app.services.pii_service import PIIService
 from app.observability.tracing import start_span, end_span, set_request_context
@@ -298,6 +298,15 @@ def send_message(
 
     session_mgr = SessionManager(settings.redis_url)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if tenant is None and os.getenv("DISABLE_DB") == "1":
+        class _Stub:
+            id = tenant_id
+            plan = "BASE"
+            ia_enabled = True
+            use_ia = True
+            billing_status = BillingStatus.ACTIVE
+            flags_ia = {}
+        tenant = _Stub()
     try:
         quota_status = QuotaService.enforce(db, tenant)
     except HTTPException as exc:

@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+from pathlib import Path
 
 from api_client import (
     admin_login,
@@ -11,45 +12,110 @@ from api_client import (
     toggle_maintenance,
     update_tenant,
 )
+from theme import FONT_FAMILY
 
 st.set_page_config(page_title="Opunnence SuperAdmin", layout="wide")
+
+
+def load_styles():
+    css_path = Path(__file__).parent / "styles.css"
+    if css_path.exists():
+        css = css_path.read_text()
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+load_styles()
 
 st.title("Opunnence — SuperAdmin")
 st.caption("Control global de tenants, dominios y tokens del widget.")
 
+admin_api_key = os.getenv("ADMIN_API_KEY")
+
 with st.sidebar:
-    st.subheader("Login OIDC SUPER_ADMIN")
-    st.caption("Pega el ID token del IdP (OIDC) autorizado.")
-    oidc_token = st.text_area("ID Token OIDC", height=150)
-    if st.button("Iniciar sesión"):
-        try:
-            resp = admin_login(oidc_token)
-            if resp and resp.get("token"):
-                st.session_state["admin_token"] = resp["token"]
-                st.success(f"Autenticado: {resp.get('email')}")
-            else:
-                st.error("No se pudo iniciar sesión")
-        except Exception as exc:
-            st.error(f"Error: {exc}")
+    if admin_api_key:
+        st.success("Autenticado con ADMIN_API_KEY (bypass OIDC).")
+        st.session_state["admin_token"] = None
+        st.session_state["admin_api_key"] = admin_api_key
+    else:
+        st.subheader("Login OIDC SUPER_ADMIN")
+        st.caption("Pega el ID token del IdP (OIDC) autorizado.")
+        oidc_token = st.text_area("ID Token OIDC", height=150)
+        if st.button("Iniciar sesión"):
+            try:
+                resp = admin_login(oidc_token)
+                if resp and (resp.get("token") or resp.get("api_key")):
+                    st.session_state["admin_token"] = resp.get("token")
+                    st.session_state["admin_api_key"] = resp.get("api_key")
+                    st.success(f"Autenticado: {resp.get('email') or 'api_key'}")
+                else:
+                    st.error("No se pudo iniciar sesión")
+            except Exception as exc:
+                st.error(f"Error: {exc}")
 
 token = st.session_state.get("admin_token")
-if not token:
+api_key = st.session_state.get("admin_api_key") or admin_api_key
+if not token and not api_key:
     st.stop()
+
+# Banner de impersonación (visible en todas las vistas)
+impersonation_token = st.session_state.get("impersonation_token")
+if impersonation_token:
+    with st.container():
+        st.markdown(
+            """
+            <div style="padding:12px;border:1px solid #f44336;background:#ffebee;border-radius:6px;margin-bottom:12px;">
+            <strong>Modo impersonación activo:</strong> estás operando como TENANT. Sal del modo impersonación antes de realizar otras acciones.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Salir de impersonación"):
+            st.session_state.pop("impersonation_token", None)
+            st.experimental_rerun()
+
+# Dashboard overview
+ov = admin_overview(token) or {}
+tenants = list_tenants(token) or []
+saving = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "SAVING"]
+locked = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "LOCKED"]
 
 col_overview, col_errors = st.columns([2, 1])
 with col_overview:
     st.subheader("Overview")
-    ov = admin_overview(token) or {}
-    st.metric("Tenants", ov.get("tenants", 0))
+    st.metric("Tenants", ov.get("tenants", len(tenants)))
     st.metric("Leads", ov.get("leads", 0))
     st.metric("IA cost (mes)", f"{ov.get('ia_cost_month', 0):.2f} €")
 with col_errors:
     st.subheader("Errores recientes")
     st.info("Integrar con logs externos (CloudWatch/Loki).")
 
+col_kpi = st.columns(4)
+col_kpi[0].metric("Tenants activos", len(tenants))
+col_kpi[1].metric("En SAVING", len(saving))
+col_kpi[2].metric("En LOCKED", len(locked))
+col_kpi[3].metric("Coste IA global", f"{ov.get('ia_cost_month', 0):.2f} €")
+
+st.subheader("Tenants en riesgo")
+risk = saving + locked
+if risk:
+    for t in risk:
+        st.markdown(f"- **{t.get('name')}** — {t.get('usage_mode')} — plan {t.get('plan')} — IA uso {t.get('usage_monthly', 0)} / {t.get('usage_limit_monthly') or 'N/D'}")
+else:
+    st.info("Sin tenants en riesgo ahora mismo.")
+
+if tenants:
+    st.subheader("Top 10 coste IA")
+    ordered = sorted(tenants, key=lambda x: float(x.get("usage_monthly") or 0), reverse=True)[:10]
+    names = [t.get("name") for t in ordered]
+    costs = [float(t.get("usage_monthly") or 0) for t in ordered]
+    if costs and any(costs):
+        chart_data = {"Tenant": names, "IA Cost": costs}
+        st.bar_chart(chart_data, x="Tenant", y="IA Cost")
+    else:
+        st.info("Aún no hay consumo IA registrado.")
+
 st.divider()
 st.subheader("Tenants")
-tenants = list_tenants(token) or []
 for t in tenants:
     with st.expander(f"{t.get('name')} — {t.get('plan')} — {t.get('id')}"):
         cols = st.columns(3)
@@ -85,7 +151,9 @@ for t in tenants:
         if st.button("Impersonar", key=f"imp-{t['id']}"):
             res = impersonate(token, t["id"])
             if "token" in res:
+                st.session_state["impersonation_token"] = res["token"]
                 st.code(res["token"], language="text")
+                st.info("Impersonación almacenada en sesión local. Úsalo en el panel de tenant o sal para limpiar.")
             else:
                 st.error(res)
 

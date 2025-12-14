@@ -7,10 +7,19 @@ from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db, get_tenant_id
 from app.models.leads import Lead
 from app.services.pii_service import PIIService
+from app.middleware.authz import get_authz_context, AuthzContext
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 pii_service = PIIService()
 PII_AUTO_UPGRADE = os.getenv("PII_AUTO_UPGRADE") == "1"
+
+
+def _assert_tenant_token(ctx: AuthzContext):
+    if (ctx.token_type or "").upper() not in {"TENANT", "API_KEY"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="forbidden",
+        )
 
 
 @router.get("/", dependencies=[Depends(require_auth)])
@@ -18,10 +27,12 @@ def list_leads(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=200),
     query: str | None = Query(default=None),
 ):
+    _assert_tenant_token(authz)
     q = db.query(Lead).filter(Lead.tenant_id == tenant_id)
     if query:
         like = f"%{query}%"
@@ -73,7 +84,9 @@ def get_lead(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     lead = (
         db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
     )

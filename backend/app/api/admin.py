@@ -1,8 +1,9 @@
 import datetime
+import secrets
 from typing import Any, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 
@@ -13,6 +14,7 @@ from app.models.ia_usage import IAUsage
 from app.models.leads import Lead
 from app.models.tenants import Tenant
 from app.models.users import UserRole
+from app.models.audits import AuditLog
 from app.services.key_manager import KeyManager
 from app.services.oidc_admin import validate_admin_id_token, OIDCValidationError
 from app.services.template_service import TemplateService
@@ -22,6 +24,50 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def _ensure_super_admin():
     return require_role(UserRole.SUPER_ADMIN.value)
+
+
+def _log_admin_action(db, tenant_id, entity: str, action: str, actor: str | None = None, meta: dict | None = None):
+    if db is None or tenant_id is None:
+        return
+    log = AuditLog(
+        tenant_id=tenant_id,
+        entity=entity,
+        entity_id=str(tenant_id),
+        action=action,
+        actor=actor,
+        meta_data=meta or {},
+    )
+    db.add(log)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _resolve_actor(auth_header: str | None, x_api_key: str | None) -> str:
+    settings = get_settings()
+    if x_api_key and settings.admin_api_token and x_api_key == settings.admin_api_token:
+        return "admin_api_key"
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return "super_admin"
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid") or "current"
+    except Exception:
+        return "super_admin"
+    km = KeyManager()
+    current_kid, current_secret, previous = km.get_jwt_keys()
+    secrets_map = {current_kid: current_secret}
+    secrets_map.update(previous)
+    secret = secrets_map.get(kid)
+    if not secret:
+        return "super_admin"
+    try:
+        payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
+        return payload.get("email") or payload.get("sub") or "super_admin"
+    except Exception:
+        return "super_admin"
 
 
 class AdminOIDCInput(BaseModel):
@@ -109,11 +155,11 @@ def admin_oidc_login(payload: AdminOIDCInput):
     exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=60)
     token = jwt.encode(
         {
-            "type": "admin",
+            "type": "ADMIN",
             "roles": [UserRole.SUPER_ADMIN.value],
             "email": claims.get("email"),
             "exp": exp,
-            "jti": jwt.utils.base64url_encode(jwt.utils.random_bytes(16)).decode(),
+            "jti": jwt.utils.base64url_encode(secrets.token_bytes(16)).decode(),
         },
         current_secret,
         algorithm=settings.jwt_algorithm,
@@ -123,7 +169,7 @@ def admin_oidc_login(payload: AdminOIDCInput):
 
 
 @router.post("/tenants", dependencies=[Depends(_ensure_super_admin())])
-def create_tenant(payload: TenantCreate, db=Depends(get_db)):
+def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
     branding = {
         "allowed_widget_origins": payload.allowed_origins or [],
         "maintenance": payload.maintenance,
@@ -150,11 +196,13 @@ def create_tenant(payload: TenantCreate, db=Depends(get_db)):
             db.refresh(tenant)
     except Exception:
         db.rollback()
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    _log_admin_action(db, tenant.id, "tenant", "create", actor=actor, meta={"plan": tenant.plan})
     return _serialize_tenant(tenant)
 
 
 @router.patch("/tenants/{tenant_id}", dependencies=[Depends(_ensure_super_admin())])
-def update_tenant(tenant_id: str, payload: TenantUpdate, db=Depends(get_db)):
+def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
@@ -170,11 +218,13 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, db=Depends(get_db)):
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    _log_admin_action(db, tenant.id, "tenant", "update", actor=actor, meta=payload.model_dump(exclude_none=True))
     return _serialize_tenant(tenant)
 
 
 @router.post("/tenants/{tenant_id}/maintenance", dependencies=[Depends(_ensure_super_admin())])
-def toggle_maintenance(tenant_id: str, maintenance: bool, db=Depends(get_db)):
+def toggle_maintenance(tenant_id: str, maintenance: bool, request: Request, db=Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
@@ -185,11 +235,13 @@ def toggle_maintenance(tenant_id: str, maintenance: bool, db=Depends(get_db)):
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    _log_admin_action(db, tenant.id, "tenant", "maintenance", actor=actor, meta={"maintenance": bool(maintenance)})
     return {"tenant_id": str(tenant.id), "maintenance": bool(maintenance)}
 
 
 @router.post("/tenants/{tenant_id}/widget-token", dependencies=[Depends(_ensure_super_admin())])
-def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, db=Depends(get_db)):
+def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, request: Request, db=Depends(get_db)):
     settings = get_settings()
     if not settings.jwt_secret:
         raise HTTPException(
@@ -211,15 +263,24 @@ def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, db=Dep
     current_kid, current_secret, _ = km.get_jwt_keys()
     signed = jwt.encode(
         {
-            "type": "widget",
+            "type": "WIDGET",
             "tenant_id": tenant_id,
             "allowed_origin": payload.allowed_origin,
             "exp": exp,
-            "jti": jwt.utils.base64url_encode(jwt.utils.random_bytes(16)).decode(),
+            "jti": jwt.utils.base64url_encode(secrets.token_bytes(16)).decode(),
         },
         current_secret,
         algorithm=settings.jwt_algorithm,
         headers={"kid": current_kid},
+    )
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    _log_admin_action(
+        db,
+        tenant.id,
+        "widget_token",
+        "issue",
+        actor=actor,
+        meta={"allowed_origin": payload.allowed_origin, "ttl_minutes": ttl},
     )
     return {"token": signed, "expires_at": exp.isoformat() + "Z", "ttl_minutes": ttl}
 
@@ -244,7 +305,7 @@ def recent_errors():
 
 
 @router.post("/impersonate/{tenant_id}", dependencies=[Depends(_ensure_super_admin())])
-def impersonate_tenant(tenant_id: str, db=Depends(get_db)):
+def impersonate_tenant(tenant_id: str, request: Request, db=Depends(get_db)):
     settings = get_settings()
     if not settings.jwt_secret:
         raise HTTPException(
@@ -259,15 +320,24 @@ def impersonate_tenant(tenant_id: str, db=Depends(get_db)):
     exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)
     token = jwt.encode(
         {
-            "type": "impersonation",
+            "type": "TENANT",
             "tenant_id": str(tenant.id),
             "impersonate_tenant_id": str(tenant.id),
             "roles": [UserRole.ADMIN.value, "IMPERSONATED"],
             "exp": exp,
-            "jti": jwt.utils.base64url_encode(jwt.utils.random_bytes(16)).decode(),
+            "jti": jwt.utils.base64url_encode(secrets.token_bytes(16)).decode(),
         },
         current_secret,
         algorithm=settings.jwt_algorithm,
         headers={"kid": current_kid},
+    )
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    _log_admin_action(
+        db,
+        tenant.id,
+        "tenant",
+        "impersonate",
+        actor=actor,
+        meta={"impersonate": str(tenant.id)},
     )
     return {"token": token, "expires_at": exp.isoformat() + "Z"}

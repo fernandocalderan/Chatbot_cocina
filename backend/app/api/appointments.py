@@ -20,6 +20,7 @@ from app.services.appointments_service import AppointmentService
 from app.services.agenda_reminders import ReminderService
 from app.services.calendar.google_service import GoogleCalendarService
 from app.services.calendar.microsoft_service import MicrosoftCalendarService
+from app.middleware.authz import get_authz_context, AuthzContext
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -47,13 +48,23 @@ class AppointmentReschedule(BaseModel):
     slot_start: str
 
 
+def _assert_tenant_token(ctx: AuthzContext):
+    if (ctx.token_type or "").upper() not in {"TENANT", "API_KEY"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="forbidden",
+        )
+
+
 @router.get("/slots", dependencies=[Depends(require_auth)])
 def get_slots(
     token: str = Depends(oauth2_scheme),
     tenant_id: str = Depends(get_tenant_id),
     visit_type: str | None = Query(default=None),
     db=Depends(get_db),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     cfg = (
         db.query(Config)
         .filter(Config.tenant_id == tenant_id, Config.tipo == "agenda_rules")
@@ -81,7 +92,9 @@ def book_slot(
     tenant_id: str = Depends(get_tenant_id),
     db=Depends(get_db),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     settings = get_settings()
     if not idempotency_key:
         raise HTTPException(
@@ -195,6 +208,7 @@ def list_appointments(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=200),
     fecha: date | None = Query(default=None),
@@ -202,6 +216,7 @@ def list_appointments(
     lead_id: str | None = Query(default=None),
     agente: str | None = Query(default=None),  # placeholder; sin campo dedicado
 ):
+    _assert_tenant_token(authz)
     q = db.query(Appointment).filter(Appointment.tenant_id == tenant_id)
 
     filters = []
@@ -243,7 +258,9 @@ def confirm_appointment(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     appt = (
         db.query(Appointment)
         .filter(Appointment.id == payload.id, Appointment.tenant_id == tenant_id)
@@ -287,7 +304,9 @@ def update_appointment(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     appt = (
         db.query(Appointment)
         .filter(Appointment.id == appt_id, Appointment.tenant_id == tenant_id)
@@ -331,7 +350,9 @@ def cancel_appointment(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     svc = AppointmentService()
     appt = svc.cancel_appointment(db, payload.id, tenant_id)
     if not appt:
@@ -356,7 +377,9 @@ def reschedule_appointment(
     db=Depends(get_db),
     tenant_id: str = Depends(get_tenant_id),
     token: str = Depends(oauth2_scheme),
+    authz: AuthzContext = Depends(get_authz_context),
 ):
+    _assert_tenant_token(authz)
     if not payload.slot_start:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="missing_slot"

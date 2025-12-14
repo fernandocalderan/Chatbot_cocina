@@ -180,3 +180,27 @@ def get_quota_status():
 
 def get_tenant_kpis():
     return api_get("/metrics/kpis") or {}
+
+
+def count_leads(status: str | None = None) -> int:
+    params = ""
+    if status:
+        params = f"?status={status}"
+    data = api_get(f"/leads{params}")
+    if isinstance(data, dict):
+        return int(data.get("total", 0) or 0)
+    return 0
+
+
+def count_appointments(status: str | None = None) -> int:
+    params = ""
+    if status:
+        params = f"?estado={status}"
+    data = api_get(f"/appointments{params}")
+    if isinstance(data, dict):
+        return int(data.get("total", 0) or 0)
+    return 0
+
+
+def get_ia_metrics(tenant_id: str):
+    return api_get(f"/metrics/ia/tenant/{tenant_id}") or {}

@@ -1,12 +1,12 @@
 QUOTA_COPY = {
     "SAVING": {
         "title": "Modo ahorro",
-        "message": "Has alcanzado el 80% del límite de IA. Algunas respuestas serán básicas hasta el siguiente ciclo.",
-        "cta": "Mejorar plan",
+        "message": "Estás en modo ahorro para optimizar costes de IA. Puedes seguir operando con respuestas más cortas o mejorar tu plan para mantener máxima calidad.",
+        "cta": "Actualizar plan",
     },
     "LOCKED": {
         "title": "Límite de IA alcanzado",
-        "message": "Has consumido el 100% del límite de IA. El asistente responde en modo básico. Mejora tu plan para recuperar IA completa.",
-        "cta": "Mejorar plan",
+        "message": "Has alcanzado el límite de IA de tu plan. Actualiza ahora para reactivar respuestas completas.",
+        "cta": "Actualizar plan",
     },
 }

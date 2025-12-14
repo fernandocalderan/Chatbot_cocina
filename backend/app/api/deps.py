@@ -22,6 +22,9 @@ class DummyQuery:
     def all(self):
         return []
 
+    def scalar(self):
+        return 0
+
 
 class DummySession:
     def query(self, *args, **kwargs):
@@ -37,6 +40,9 @@ class DummySession:
         return None
 
     def close(self):
+        return None
+
+    def refresh(self, *args, **kwargs):
         return None
 
 

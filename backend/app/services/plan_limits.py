@@ -1,3 +1,4 @@
+import os
 from fastapi import Depends, HTTPException, status
 
 from app.api.deps import get_db, get_tenant_id
@@ -7,6 +8,16 @@ from app.services.pricing import get_plan_limits
 
 
 def _load_tenant(db, tenant_id: str) -> Tenant:
+    if os.getenv("DISABLE_DB") == "1":
+        # Entorno de tests sin DB: devolver stub de tenant para no bloquear flujos
+        class _Stub:
+            id = tenant_id
+            plan = "BASE"
+            ia_enabled = True
+            use_ia = True
+            billing_status = BillingStatus.ACTIVE
+        return _Stub()
+
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(

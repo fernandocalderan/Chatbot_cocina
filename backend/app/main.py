@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.rate_limiter import add_request_context
 from app.middleware.tenant_resolver import resolve_tenant
 from app.middleware.metrics_middleware import metrics_middleware
+from app.middleware.token_guard import admin_token_guard
 from app.middleware.maintenance import maintenance_guard
 from app.core.logger import setup_logger
 from app.workers.retry_queue import RetryQueue
@@ -112,6 +113,7 @@ def get_application() -> FastAPI:
 
     app.middleware("http")(resolve_tenant)
     app.middleware("http")(maintenance_guard)
+    app.middleware("http")(admin_token_guard)
     app.middleware("http")(add_request_context)
     app.middleware("http")(metrics_middleware)
 

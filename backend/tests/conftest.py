@@ -81,6 +81,9 @@ def fake_sessionlocal(monkeypatch):
         def close(self):
             return None
 
+        def refresh(self, *args, **kwargs):
+            return None
+
     fake_factory = lambda: FakeSession()
     monkeypatch.setattr("app.db.session.SessionLocal", fake_factory, raising=False)
     monkeypatch.setattr("app.api.deps.SessionLocal", fake_factory, raising=False)
