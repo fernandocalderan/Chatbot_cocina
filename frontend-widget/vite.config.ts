@@ -1,35 +1,23 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 5173,
+
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+    'process.env': {},
   },
+
   build: {
     lib: {
-      entry: "src/main.jsx",
-      name: "OpunnenceWidget",
-      fileName: () => `chat-widget.js`,
-      formats: ["umd"],
+      entry: 'src/main.jsx',
+      name: 'ChatWidget',
+      fileName: () => 'chat-widget.js',
+      formats: ['es'],
     },
     rollupOptions: {
-      external: ["react", "react-dom"],
-      output: {
-        globals: {
-          react: "React",
-          "react-dom": "ReactDOM",
-        },
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name && assetInfo.name.endsWith(".css")) {
-            return "chat-widget.css";
-          }
-          return "[name].[ext]";
-        },
-      },
+      external: [],
     },
   },
-  test: {
-    environment: "jsdom",
-  },
-});
+})

@@ -82,7 +82,6 @@ class TenantBase(BaseModel):
     usage_limit_monthly: Optional[float] = None
     allowed_origins: list[str] = Field(default_factory=list)
     maintenance: bool = False
-    use_ia: Optional[bool] = None
     ia_enabled: Optional[bool] = None
 
 
@@ -98,7 +97,6 @@ class TenantUpdate(BaseModel):
     usage_limit_monthly: Optional[float] = None
     allowed_origins: Optional[list[str]] = None
     maintenance: Optional[bool] = None
-    use_ia: Optional[bool] = None
     ia_enabled: Optional[bool] = None
 
 
@@ -181,7 +179,6 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         ia_monthly_limit_eur=payload.ia_monthly_limit_eur,
         usage_limit_monthly=payload.usage_limit_monthly,
         branding=branding,
-        use_ia=payload.use_ia if payload.use_ia is not None else True,
         ia_enabled=payload.ia_enabled if payload.ia_enabled is not None else True,
     )
     db.add(tenant)
