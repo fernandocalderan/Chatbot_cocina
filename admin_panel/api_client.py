@@ -23,8 +23,14 @@ def admin_login(id_token: str):
     return resp.json()
 
 
-def list_tenants(token: str):
-    resp = requests.get(f"{API_BASE}/v1/admin/tenants", headers=_headers(token, ADMIN_API_KEY), timeout=10)
+def list_tenants(token: str, search: str | None = None):
+    params = {"search": search} if search else None
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/tenants",
+        headers=_headers(token, ADMIN_API_KEY),
+        params=params,
+        timeout=10,
+    )
     return resp.json() if resp.ok else []
 
 
@@ -65,8 +71,54 @@ def admin_overview(token: str):
     return resp.json() if resp.ok else {}
 
 
+def admin_health(token: str):
+    resp = requests.get(f"{API_BASE}/v1/admin/health", headers=_headers(token, ADMIN_API_KEY), timeout=10)
+    return resp.json() if resp.ok else {}
+
+
+def admin_recent_errors(token: str):
+    resp = requests.get(f"{API_BASE}/v1/admin/errors/recent", headers=_headers(token, ADMIN_API_KEY), timeout=10)
+    return resp.json() if resp.ok else {"items": []}
+
+
+def admin_alerts(token: str):
+    resp = requests.get(f"{API_BASE}/v1/admin/alerts", headers=_headers(token, ADMIN_API_KEY), timeout=10)
+    return resp.json() if resp.ok else {"items": []}
+
+
 def impersonate(token: str, tenant_id: str):
     resp = requests.post(
         f"{API_BASE}/v1/admin/impersonate/{tenant_id}", headers=_headers(token, ADMIN_API_KEY), timeout=10
+    )
+    return resp.json() if resp.ok else {"error": resp.text}
+
+
+def revoke_widget_tokens(token: str, tenant_id: str):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/widget-token/revoke",
+        headers=_headers(token, ADMIN_API_KEY),
+        timeout=10,
+    )
+    return resp.json() if resp.ok else {"error": resp.text}
+
+
+def exclude_tenant(token: str, tenant_id: str, reason: str | None = None):
+    payload = {"reason": reason} if reason else {}
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/exclude",
+        json=payload,
+        headers=_headers(token, ADMIN_API_KEY),
+        timeout=10,
+    )
+    return resp.json() if resp.ok else {"error": resp.text}
+
+
+def issue_magic_link(token: str, tenant_id: str, email: str | None = None):
+    payload = {"email": email} if email else {}
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/magic-login",
+        json=payload,
+        headers=_headers(token, ADMIN_API_KEY),
+        timeout=10,
     )
     return resp.json() if resp.ok else {"error": resp.text}

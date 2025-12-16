@@ -11,7 +11,7 @@ st.title("Login")
 existing_token = st.session_state.get("token") or st.session_state.get("access_token")
 if existing_token:
     st.success("Ya estás autenticado, redirigiendo…")
-    st.experimental_rerun()
+    st.rerun()
 
 default_tenant = st.session_state.get("tenant_id") or os.getenv("PANEL_TENANT_ID", "")
 
@@ -33,3 +33,6 @@ if st.button("Login"):
             st.session_state["role"] = "SUPER_ADMIN"
             st.success("Autenticación correcta")
             st.switch_page("app.py")
+        elif st.session_state.get("must_set_password_required"):
+            st.info("Debes activar tu cuenta primero. Usa el enlace de magic login enviado a tu email.")
+            st.page_link("pages/magic_login.py", label="Ir a magic login")

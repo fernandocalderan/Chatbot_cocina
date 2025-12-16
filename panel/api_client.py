@@ -69,8 +69,54 @@ def api_login(email: str, password: str, tenant_id: str | None = None) -> str | 
     if resp.ok:
         data = resp.json()
         return data.get("access_token")
+    try:
+        detail = resp.json().get("detail")
+    except Exception:
+        detail = None
+    if resp.status_code == 403 and detail == "must_set_password_first":
+        st.session_state["must_set_password_required"] = True
+        st.warning("Debes activar tu cuenta primero con el magic link.")
+        return None
 
     _handle_api_error(resp, fallback_message="No se pudo iniciar sesión.")
+    return None
+
+
+def api_magic_login(token: str):
+    try:
+        resp = requests.get(f"{API_BASE}{API_PREFIX}/auth/magic-login", params={"token": token}, timeout=10)
+    except requests.RequestException as exc:
+        st.error(f"Error de red en magic login: {exc}")
+        return None
+    if resp.ok:
+        return resp.json()
+    _handle_api_error(resp, fallback_message="Magic link inválido o expirado.")
+    return None
+
+
+def api_set_password(password: str, password_confirm: str):
+    token = st.session_state.get("token") or st.session_state.get("access_token")
+    headers: dict[str, str] = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        resp = requests.post(
+            f"{API_BASE}{API_PREFIX}/auth/set-password",
+            json={"password": password, "password_confirm": password_confirm},
+            headers=headers,
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        st.error(f"Error de red al fijar contraseña: {exc}")
+        return None
+    if resp.ok:
+        return resp.json()
+    try:
+        detail = resp.json().get("detail")
+        if detail:
+            st.error(f"No se pudo guardar la contraseña: {detail} (código {resp.status_code}).")
+            return None
+    except Exception:
+        pass
+    _handle_api_error(resp, fallback_message="No se pudo guardar la contraseña.")
     return None
 
 

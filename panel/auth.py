@@ -4,6 +4,11 @@ import streamlit as st
 
 def ensure_login() -> str | None:
     token = st.session_state.get("token") or st.session_state.get("access_token")
+    if st.session_state.get("must_set_password"):
+        try:
+            st.switch_page("pages/set_password.py")
+        except Exception:
+            st.stop()
     if not st.session_state.get("tenant_id") and os.getenv("PANEL_TENANT_ID"):
         # Prefill tenant_id for the session if not set yet
         st.session_state["tenant_id"] = os.getenv("PANEL_TENANT_ID")

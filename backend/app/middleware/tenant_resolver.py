@@ -1,4 +1,6 @@
 import os
+import uuid
+import datetime
 from typing import Callable
 
 import jwt
@@ -24,6 +26,19 @@ def _origin_allowed(
     return False
 
 
+def _safe_uuid(value: str | None) -> str | None:
+    """
+    Normaliza y valida UUIDs recibidos por cabecera/payload.
+    Devuelve None si el valor no es un UUID válido.
+    """
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 async def resolve_tenant(request: Request, call_next: Callable):
     """
     Resuelve tenant_id a partir de:
@@ -38,9 +53,12 @@ async def resolve_tenant(request: Request, call_next: Callable):
 
     settings = get_settings()
     api_key = request.headers.get("x-api-key") or request.headers.get("X-Api-Key")
-    header_tenant = request.headers.get("X-Tenant-ID") or request.headers.get(
+    header_tenant_raw = request.headers.get("X-Tenant-ID") or request.headers.get(
         "x-tenant-id"
     )
+    header_tenant = _safe_uuid(header_tenant_raw)
+    if header_tenant_raw and not header_tenant:
+        return JSONResponse({"detail": "invalid_tenant_id"}, status_code=400)
     auth_header = request.headers.get("Authorization", "")
     token_bearer = (
         auth_header.split(" ", 1)[1]
@@ -114,6 +132,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
             if token_type == "WIDGET":
                 allowed_origin_claim = payload.get("allowed_origin")
                 allowed = payload.get("allowed_origin")
+                token_iat = payload.get("iat")
                 origin = (
                     request.headers.get("Origin") or request.headers.get("origin") or ""
                 )
@@ -132,11 +151,27 @@ async def resolve_tenant(request: Request, call_next: Callable):
                     return JSONResponse(
                         {"detail": "origin_not_allowed"}, status_code=401
                     )
-                tenant_id = payload.get("tenant_id")
+                tenant_id = _safe_uuid(payload.get("tenant_id"))
                 if not tenant_id:
                     return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
+                if tenant_id and tenant_obj is None:
+                    tenant_obj = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                revoked_before = None
+                if tenant_obj:
+                    branding = getattr(tenant_obj, "branding", {}) or {}
+                    revoked_before = branding.get("widget_tokens_revoked_before")
+                if revoked_before and token_iat:
+                    try:
+                        revoked_dt = datetime.datetime.fromisoformat(revoked_before)
+                        issued_dt = datetime.datetime.fromtimestamp(int(token_iat), datetime.timezone.utc)
+                        if issued_dt < revoked_dt:
+                            return JSONResponse({"detail": "token_revoked"}, status_code=401)
+                    except Exception:
+                        pass
             elif impersonate_tenant_id:
-                tenant_id = impersonate_tenant_id
+                tenant_id = _safe_uuid(impersonate_tenant_id)
+                if not tenant_id:
+                    return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
             else:
                 user_id = payload.get("sub")
                 if not user_id:

@@ -8,7 +8,13 @@ from api_client import (
     create_tenant,
     impersonate,
     issue_widget_token,
+    admin_health,
+    admin_recent_errors,
+    admin_alerts,
+    exclude_tenant,
+    issue_magic_link,
     list_tenants,
+    revoke_widget_tokens,
     toggle_maintenance,
     update_tenant,
 )
@@ -73,114 +79,222 @@ if impersonation_token:
             st.session_state.pop("impersonation_token", None)
             st.experimental_rerun()
 
-# Dashboard overview
-ov = admin_overview(token) or {}
-tenants = list_tenants(token) or []
-saving = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "SAVING"]
-locked = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "LOCKED"]
+tabs = st.tabs(["📊 Overview", "🏢 Tenants", "➕ Crear tenant"])
 
-col_overview, col_errors = st.columns([2, 1])
-with col_overview:
-    st.subheader("Overview")
-    st.metric("Tenants", ov.get("tenants", len(tenants)))
-    st.metric("Leads", ov.get("leads", 0))
-    st.metric("IA cost (mes)", f"{ov.get('ia_cost_month', 0):.2f} €")
-with col_errors:
-    st.subheader("Errores recientes")
-    st.info("Integrar con logs externos (CloudWatch/Loki).")
+with tabs[0]:
+    ov = admin_overview(token) or {}
+    tenants = list_tenants(token) or []
+    saving = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "SAVING"]
+    locked = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "LOCKED"]
 
-col_kpi = st.columns(4)
-col_kpi[0].metric("Tenants activos", len(tenants))
-col_kpi[1].metric("En SAVING", len(saving))
-col_kpi[2].metric("En LOCKED", len(locked))
-col_kpi[3].metric("Coste IA global", f"{ov.get('ia_cost_month', 0):.2f} €")
-
-st.subheader("Tenants en riesgo")
-risk = saving + locked
-if risk:
-    for t in risk:
-        st.markdown(f"- **{t.get('name')}** — {t.get('usage_mode')} — plan {t.get('plan')} — IA uso {t.get('usage_monthly', 0)} / {t.get('usage_limit_monthly') or 'N/D'}")
-else:
-    st.info("Sin tenants en riesgo ahora mismo.")
-
-if tenants:
-    st.subheader("Top 10 coste IA")
-    ordered = sorted(tenants, key=lambda x: float(x.get("usage_monthly") or 0), reverse=True)[:10]
-    names = [t.get("name") for t in ordered]
-    costs = [float(t.get("usage_monthly") or 0) for t in ordered]
-    if costs and any(costs):
-        chart_data = {"Tenant": names, "IA Cost": costs}
-        st.bar_chart(chart_data, x="Tenant", y="IA Cost")
-    else:
-        st.info("Aún no hay consumo IA registrado.")
-
-st.divider()
-st.subheader("Tenants")
-for t in tenants:
-    with st.expander(f"{t.get('name')} — {t.get('plan')} — {t.get('id')}"):
-        cols = st.columns(3)
-        new_plan = cols[0].selectbox("Plan", ["BASE", "PRO", "ELITE"], index=["BASE", "PRO", "ELITE"].index(t.get("plan", "BASE")))
-        new_limit = cols[1].number_input("Límite IA €", value=float(t.get("ia_monthly_limit_eur", 0)), min_value=0.0, step=5.0)
-        maint = cols[2].checkbox("Mantenimiento", value=bool(t.get("maintenance")))
-        origins = st.text_area("Allowed origins (coma)", value=",".join(t.get("allowed_origins") or []))
-        use_ia = st.checkbox("IA habilitada", value=bool(t.get("ia_enabled", True)))
-        if st.button("Guardar", key=f"save-{t['id']}"):
-            payload = {
-                "plan": new_plan,
-                "ia_monthly_limit_eur": new_limit,
-                "allowed_origins": [o.strip() for o in origins.split(",") if o.strip()],
-                "maintenance": maint,
-                "ia_enabled": use_ia,
-                "use_ia": use_ia,
-            }
-            res = update_tenant(token, t["id"], payload)
-            st.success(f"Actualizado: {res}")
-        if st.button("ON/OFF mantenimiento", key=f"maint-{t['id']}"):
-            res = toggle_maintenance(token, t["id"], not maint)
-            st.success(res)
-        st.markdown("### Token del widget")
-        col_t1, col_t2 = st.columns(2)
-        allowed_origin = col_t1.text_input("Dominio", value=(t.get("allowed_origins") or [""])[0] if t.get("allowed_origins") else "")
-        ttl = col_t2.slider("TTL minutos", 15, 60, 30)
-        if st.button("Generar token", key=f"token-{t['id']}"):
-            res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl)
-            if "token" in res:
-                st.code(res["token"], language="text")
-            else:
-                st.error(res)
-        if st.button("Impersonar", key=f"imp-{t['id']}"):
-            res = impersonate(token, t["id"])
-            if "token" in res:
-                st.session_state["impersonation_token"] = res["token"]
-                st.code(res["token"], language="text")
-                st.info("Impersonación almacenada en sesión local. Úsalo en el panel de tenant o sal para limpiar.")
-            else:
-                st.error(res)
-
-st.divider()
-st.subheader("Crear tenant")
-with st.form("create-tenant-form"):
-    name = st.text_input("Nombre")
-    contact = st.text_input("Email contacto")
-    plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
-    origins_new = st.text_input("Allowed origins (coma)")
-    limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
-    maint_new = st.checkbox("Mantenimiento inicial", value=False)
-    use_ia_new = st.checkbox("IA habilitada", value=True)
-    submitted = st.form_submit_button("Crear")
-    if submitted:
-        payload = {
-            "name": name,
-            "contact_email": contact or None,
-            "plan": plan,
-            "ia_monthly_limit_eur": limit,
-            "allowed_origins": [o.strip() for o in origins_new.split(",") if o.strip()],
-            "maintenance": maint_new,
-            "use_ia": use_ia_new,
-            "ia_enabled": use_ia_new,
-        }
-        res = create_tenant(token, payload)
-        if res and "id" in res:
-            st.success(f"Tenant creado: {res['id']}")
+    col_overview, col_errors = st.columns([2, 1])
+    with col_overview:
+        st.subheader("KPIs")
+        st.metric("Tenants", ov.get("tenants", len(tenants)))
+        st.metric("Leads", ov.get("leads", 0))
+        st.metric("IA cost (mes)", f"{ov.get('ia_cost_month', 0):.2f} €")
+    with col_errors:
+        st.subheader("Errores recientes")
+        err_payload = admin_recent_errors(token) or {}
+        errs = err_payload.get("items") or []
+        if errs:
+            for err in errs[:5]:
+                st.markdown(f"- {err.get('timestamp', '')} — {err.get('level', '')}: {err.get('message')}")
+            if len(errs) > 5:
+                st.caption(f"... y {len(errs)-5} más")
         else:
-            st.error(res)
+            st.info("Sin errores recientes")
+
+    col_h1, col_h2, col_h3, col_h4 = st.columns(4)
+    health = admin_health(token) or {}
+    status_badge = lambda v: ("🟢" if v in ("UP", "OK") else "🟠") if v else "⚪"
+    col_h1.metric("API", f"{status_badge(health.get('api'))} {health.get('api', 'N/A')}")
+    col_h2.metric("DB", f"{status_badge(health.get('db'))} {health.get('db', 'N/A')}")
+    col_h3.metric("Redis", f"{status_badge(health.get('redis'))} {health.get('redis', 'N/A')}")
+    col_h4.metric("IA", f"{status_badge(health.get('ia_provider'))} {health.get('ia_provider', 'N/A')}")
+    if st.button("Refrescar health"):
+        st.rerun()
+
+    alerts_box = st.container()
+    with alerts_box:
+        st.subheader("Alertas activas")
+        alert_payload = admin_alerts(token) or {}
+        alerts = alert_payload.get("items") or []
+        if not alerts:
+            st.info("Sin alertas")
+        else:
+            for a in alerts:
+                sev = a.get("severity", "info")
+                icon = "🟢"
+                if sev == "warning":
+                    icon = "🟠"
+                elif sev == "critical":
+                    icon = "🔴"
+                st.markdown(f"- {icon} {a.get('tenant')}: {a.get('message')}")
+
+    col_kpi = st.columns(4)
+    col_kpi[0].metric("Tenants activos", len(tenants))
+    col_kpi[1].metric("En SAVING", len(saving))
+    col_kpi[2].metric("En LOCKED", len(locked))
+    col_kpi[3].metric("Coste IA global", f"{ov.get('ia_cost_month', 0):.2f} €")
+
+    st.subheader("Tenants en riesgo")
+    risk = saving + locked
+    if risk:
+        for t in risk:
+            st.markdown(f"- **{t.get('name')}** — {t.get('usage_mode')} — plan {t.get('plan')} — IA uso {t.get('usage_monthly', 0)} / {t.get('usage_limit_monthly') or 'N/D'}")
+    else:
+        st.info("Sin tenants en riesgo ahora mismo.")
+
+    if tenants:
+        st.subheader("Top 10 coste IA")
+        ordered = sorted(tenants, key=lambda x: float(x.get("usage_monthly") or 0), reverse=True)[:10]
+        names = [t.get("name") for t in ordered]
+        costs = [float(t.get("usage_monthly") or 0) for t in ordered]
+        if costs and any(costs):
+            chart_data = {"Tenant": names, "IA Cost": costs}
+            st.bar_chart(chart_data, x="Tenant", y="IA Cost")
+        else:
+            st.info("Aún no hay consumo IA registrado.")
+
+with tabs[1]:
+    search_text = st.text_input(
+        "Buscar tenant (email, nombre o código)",
+        value="",
+        placeholder="Ej: demo@kitchens.com | Demo Kitchens | OPN-000123",
+    )
+    tenants = list_tenants(token, search_text.strip() or None) or []
+    st.caption(f"Resultados: {len(tenants)}")
+
+    for t in tenants:
+        code = t.get("customer_code") or "N/D"
+        with st.expander(f"{t.get('name')} — {t.get('plan')} — {code} — {t.get('id')}"):
+            st.text_input("Código comercial", value=code, disabled=True, key=f"code-{t['id']}")
+
+            st.markdown("**Plan y Billing**")
+            cols = st.columns(3)
+            new_plan = cols[0].selectbox(
+                "Plan",
+                ["BASE", "PRO", "ELITE"],
+                index=["BASE", "PRO", "ELITE"].index(t.get("plan", "BASE")),
+                key=f"plan-{t['id']}",
+            )
+            new_limit = cols[1].number_input(
+                "Límite IA €",
+                value=float(t.get("ia_monthly_limit_eur", 0)),
+                min_value=0.0,
+                step=5.0,
+                key=f"limit-{t['id']}",
+            )
+            maint = cols[2].checkbox("Mantenimiento", value=bool(t.get("maintenance")), key=f"maint-check-{t['id']}")
+            billing_status = st.selectbox(
+                "Billing status",
+                ["ACTIVE", "PAST_DUE", "CANCELED", "INCOMPLETE"],
+                index=["ACTIVE", "PAST_DUE", "CANCELED", "INCOMPLETE"].index(str(t.get("billing_status") or "ACTIVE")),
+                key=f"billing-{t['id']}",
+            )
+            origins = st.text_area("Allowed origins (coma)", value=",".join(t.get("allowed_origins") or []), key=f"origins-{t['id']}")
+            use_ia = st.checkbox("IA habilitada", value=bool(t.get("ia_enabled", True)), key=f"use-ia-{t['id']}")
+
+            if st.button("Guardar", key=f"save-{t['id']}"):
+                payload = {
+                    "plan": new_plan,
+                    "ia_monthly_limit_eur": new_limit,
+                    "allowed_origins": [o.strip() for o in origins.split(",") if o.strip()],
+                    "maintenance": maint,
+                    "ia_enabled": use_ia,
+                    "use_ia": use_ia,
+                    "billing_status": billing_status,
+                }
+                res = update_tenant(token, t["id"], payload)
+                st.success(f"Actualizado: {res}")
+            if st.button("ON/OFF mantenimiento", key=f"maint-{t['id']}"):
+                res = toggle_maintenance(token, t["id"], not maint)
+                st.success(res)
+
+            st.markdown("**Accesos y Widget**")
+            col_t1, col_t2 = st.columns(2)
+            allowed_origin = col_t1.text_input(
+                "Dominio",
+                value=(t.get("allowed_origins") or [""])[0] if t.get("allowed_origins") else "",
+                key=f"allowed-origin-{t['id']}",
+            )
+            ttl = col_t2.slider("TTL minutos", 15, 60, 30, key=f"ttl-{t['id']}")
+            if st.button("Generar token widget", key=f"token-{t['id']}"):
+                res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl)
+                if "token" in res:
+                    st.code(res["token"], language="text")
+                else:
+                    st.error(res)
+            st.caption(f"Última revocación: {t.get('widget_tokens_revoked_before') or 'n/d'}")
+            with st.expander("Revocar todos los tokens del widget", expanded=False):
+                confirm_text = st.text_input("Escribe REVOCAR para confirmar", key=f"revoke-confirm-{t['id']}")
+                if st.button("Revocar tokens", key=f"revoke-{t['id']}"):
+                    if confirm_text.strip().upper() != "REVOCAR":
+                        st.warning("Escribe REVOCAR para continuar.")
+                    else:
+                        res = revoke_widget_tokens(token, t["id"])
+                        if "revoked_before" in res:
+                            st.success(f"Revocados. Nueva marca: {res['revoked_before']}")
+                        else:
+                            st.error(res)
+            with st.expander("Magic link (acceso tenant)", expanded=False):
+                ml_email = st.text_input("Email destino", value=t.get("contact_email") or "", key=f"ml-email-{t['id']}")
+                if st.button("Generar magic link", key=f"ml-btn-{t['id']}"):
+                    res = issue_magic_link(token, t["id"], ml_email.strip() or None)
+                    if res.get("token"):
+                        st.code(res["token"], language="text")
+                        st.success(f"Enlace enviado/emitido para {res.get('email')}")
+                    else:
+                        st.error(res)
+
+            st.markdown("**Estado y seguridad**")
+            with st.expander("Excluir tenant", expanded=False):
+                excl_reason = st.text_input("Motivo (opcional)", key=f"exclude-reason-{t['id']}")
+                excl_confirm = st.text_input("Escribe EXCLUIR para confirmar", key=f"exclude-confirm-{t['id']}")
+                if st.button("Excluir tenant", key=f"exclude-{t['id']}"):
+                    if excl_confirm.strip().upper() != "EXCLUIR":
+                        st.warning("Escribe EXCLUIR para continuar.")
+                    else:
+                        res = exclude_tenant(token, t["id"], excl_reason.strip() or None)
+                        if res.get("excluded"):
+                            st.success("Tenant marcado como excluido.")
+                        else:
+                            st.error(res)
+
+            if st.button("Impersonar", key=f"imp-{t['id']}"):
+                res = impersonate(token, t["id"])
+                if "token" in res:
+                    st.session_state["impersonation_token"] = res["token"]
+                    st.code(res["token"], language="text")
+                    st.info("Impersonación almacenada en sesión local. Úsalo en el panel de tenant o sal para limpiar.")
+                else:
+                    st.error(res)
+
+with tabs[2]:
+    st.subheader("Crear tenant")
+    with st.form("create-tenant-form"):
+        name = st.text_input("Nombre")
+        contact = st.text_input("Email contacto")
+        plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
+        origins_new = st.text_input("Allowed origins (coma)")
+        limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
+        maint_new = st.checkbox("Mantenimiento inicial", value=False)
+        use_ia_new = st.checkbox("IA habilitada", value=True)
+        submitted = st.form_submit_button("Crear")
+        if submitted:
+            payload = {
+                "name": name,
+                "contact_email": contact or None,
+                "plan": plan,
+                "ia_monthly_limit_eur": limit,
+                "allowed_origins": [o.strip() for o in origins_new.split(",") if o.strip()],
+                "maintenance": maint_new,
+                "use_ia": use_ia_new,
+                "ia_enabled": use_ia_new,
+            }
+            res = create_tenant(token, payload)
+            if res and "id" in res:
+                st.success(f"Tenant creado: {res['id']}")
+            else:
+                st.error(res)

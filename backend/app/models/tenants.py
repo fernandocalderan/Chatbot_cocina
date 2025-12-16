@@ -30,6 +30,7 @@ class Tenant(Base):
     __tablename__ = "tenants"
 
     id = sa.Column(pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_code = sa.Column(sa.String(20), nullable=False, unique=True, index=True)
     name = sa.Column(sa.String(255), nullable=False, index=True)
     contact_email = sa.Column(sa.String(320), nullable=True)
     plan = sa.Column(

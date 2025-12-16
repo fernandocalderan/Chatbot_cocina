@@ -84,10 +84,12 @@ def issue_widget_token_short(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
+    now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     data = {
         "type": "WIDGET",
         "tenant_id": tenant_id,
         "allowed_origin": payload.allowed_origin,
+        "iat": now_ts,
         "exp": exp,
         "jti": str(uuid.uuid4()),
     }
@@ -134,10 +136,12 @@ def issue_widget_token(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
+    now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     data = {
         "type": "WIDGET",
         "tenant_id": tenant_id,
         "allowed_origin": payload.allowed_origin,
+        "iat": now_ts,
         "exp": exp,
         "jti": str(uuid.uuid4()),
     }
@@ -197,6 +201,7 @@ def renew_widget_token(
 
     tenant_id = data.get("tenant_id")
     allowed_origin = data.get("allowed_origin")
+    issued_at = data.get("iat")
     if not tenant_id or not allowed_origin:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token"
@@ -215,6 +220,22 @@ def renew_widget_token(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found"
         )
+    branding = getattr(tenant, "branding", {}) or {}
+    revoked_before = branding.get("widget_tokens_revoked_before")
+    if revoked_before and issued_at:
+        try:
+            import datetime as _dt
+
+            revoked_dt = _dt.datetime.fromisoformat(revoked_before)
+            if _dt.datetime.fromtimestamp(int(issued_at), _dt.timezone.utc) < revoked_dt:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="token_revoked",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     branding = getattr(tenant, "branding", {}) or {}
     allowed = (
         branding.get("allowed_widget_origins")

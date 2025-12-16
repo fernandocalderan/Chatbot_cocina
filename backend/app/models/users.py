@@ -24,7 +24,8 @@ class User(Base):
     email = sa.Column(sa.String(320), nullable=False)
     hashed_password = sa.Column(sa.String(255), nullable=True)
     role = sa.Column(sa.String(50), nullable=False, server_default=UserRole.ADMIN.value)
-    status = sa.Column(sa.String(50), nullable=False, server_default="active")
+    status = sa.Column(sa.String(50), nullable=False, server_default="ACTIVE")
+    must_set_password = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("true"))
     mfa_enabled = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
     updated_at = sa.Column(

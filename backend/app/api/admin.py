@@ -1,47 +1,37 @@
 import datetime
 import secrets
+import hashlib
 from typing import Any, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import json
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+import sqlalchemy as sa
 
 from app.api.deps import get_db
 from app.core.config import get_settings
+from app.db.session import SessionLocal
 from app.middleware.authz import require_role
 from app.models.ia_usage import IAUsage
 from app.models.leads import Lead
-from app.models.tenants import Tenant
-from app.models.users import UserRole
-from app.models.audits import AuditLog
+from app.models.tenants import Tenant, UsageMode
+from app.models.users import UserRole, User
+from app.models.login_tokens import LoginToken
 from app.services.key_manager import KeyManager
 from app.services.oidc_admin import validate_admin_id_token, OIDCValidationError
 from app.services.template_service import TemplateService
+from app.services.audit_service import AuditService
+from app.services.email_service import send_magic_link
+from app.core.logger import LOG_DIR
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def _ensure_super_admin():
     return require_role(UserRole.SUPER_ADMIN.value)
-
-
-def _log_admin_action(db, tenant_id, entity: str, action: str, actor: str | None = None, meta: dict | None = None):
-    if db is None or tenant_id is None:
-        return
-    log = AuditLog(
-        tenant_id=tenant_id,
-        entity=entity,
-        entity_id=str(tenant_id),
-        action=action,
-        actor=actor,
-        meta_data=meta or {},
-    )
-    db.add(log)
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
 
 
 def _resolve_actor(auth_header: str | None, x_api_key: str | None) -> str:
@@ -68,6 +58,63 @@ def _resolve_actor(auth_header: str | None, x_api_key: str | None) -> str:
         return payload.get("email") or payload.get("sub") or "super_admin"
     except Exception:
         return "super_admin"
+
+
+def _next_customer_code(db) -> str:
+    last = db.query(Tenant).order_by(Tenant.customer_code.desc()).first()
+    seq = 0
+    if last and getattr(last, "customer_code", None):
+        try:
+            seq = int(str(last.customer_code).split("-")[-1])
+        except Exception:
+            seq = 0
+    seq += 1
+    return f"OPN-{seq:06d}"
+
+
+def _issue_magic_login_token(user: User, tenant: Tenant, db):
+    settings = get_settings()
+    km = KeyManager()
+    current_kid, current_secret, _ = km.get_jwt_keys()
+    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)
+    jti = jwt.utils.base64url_encode(secrets.token_bytes(16)).decode()
+    token = jwt.encode(
+        {
+            "scope": "tenant_magic_login",
+            "user_id": str(user.id),
+            "tenant_id": str(tenant.id),
+            "type": "TENANT",
+            "roles": [user.role],
+            "exp": exp,
+            "jti": jti,
+        },
+        current_secret,
+        algorithm=settings.jwt_algorithm,
+        headers={"kid": current_kid},
+    )
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    login_token = LoginToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        jti=jti,
+        expires_at=exp,
+    )
+    db.add(login_token)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return token, exp
+
+
+def _send_magic_link_email(email: str, token: str, expires_at: datetime.datetime):
+    settings = get_settings()
+    base = settings.panel_url or "https://panel.opunnence.com"
+    link = f"{base.rstrip('/')}/magic-login?token={token}"
+    try:
+        send_magic_link(email, link)
+    except Exception:
+        pass
 
 
 class AdminOIDCInput(BaseModel):
@@ -98,6 +145,7 @@ class TenantUpdate(BaseModel):
     allowed_origins: Optional[list[str]] = None
     maintenance: Optional[bool] = None
     ia_enabled: Optional[bool] = None
+    billing_status: Optional[str] = None
 
 
 class WidgetTokenRequest(BaseModel):
@@ -105,13 +153,24 @@ class WidgetTokenRequest(BaseModel):
     ttl_minutes: int = 30
 
 
+class TenantExclude(BaseModel):
+    reason: Optional[str] = None
+
+
+class MagicLinkRequest(BaseModel):
+    email: Optional[str] = None
+
+
 def _serialize_tenant(t: Tenant) -> dict[str, Any]:
     branding = getattr(t, "branding", {}) or {}
     return {
         "id": str(t.id),
+        "customer_code": getattr(t, "customer_code", None),
         "name": t.name,
         "contact_email": t.contact_email,
         "plan": t.plan,
+        "billing_status": getattr(t, "billing_status", None),
+        "plan_changed_at": branding.get("plan_changed_at"),
         "ia_monthly_limit_eur": float(t.ia_monthly_limit_eur or 0),
         "allowed_origins": branding.get("allowed_widget_origins")
         or branding.get("allowed_origins")
@@ -130,12 +189,24 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         else None,
         "needs_upgrade_notice": bool(getattr(t, "needs_upgrade_notice", False)),
         "default_template_id": str(getattr(t, "default_template_id")) if getattr(t, "default_template_id", None) else None,
+        "widget_tokens_revoked_before": branding.get("widget_tokens_revoked_before"),
+        "excluded": bool(branding.get("excluded", False)),
     }
 
 
 @router.get("/tenants", dependencies=[Depends(_ensure_super_admin())])
-def list_tenants(db=Depends(get_db)):
-    tenants = db.query(Tenant).all()
+def list_tenants(search: Optional[str] = Query(None, max_length=100), db=Depends(get_db)):
+    q = db.query(Tenant)
+    if search:
+        term = f"%{search.strip().lower()}%"
+        q = q.filter(
+            sa.or_(
+                sa.func.lower(Tenant.name).ilike(term),
+                sa.func.lower(Tenant.contact_email).ilike(term),
+                sa.func.lower(Tenant.customer_code).ilike(term),
+            )
+        )
+    tenants = q.all()
     return [_serialize_tenant(t) for t in tenants]
 
 
@@ -172,7 +243,9 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         "allowed_widget_origins": payload.allowed_origins or [],
         "maintenance": payload.maintenance,
     }
+    customer_code = _next_customer_code(db)
     tenant = Tenant(
+        customer_code=customer_code,
         name=payload.name,
         contact_email=payload.contact_email,
         plan=payload.plan,
@@ -194,7 +267,36 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
     except Exception:
         db.rollback()
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
-    _log_admin_action(db, tenant.id, "tenant", "create", actor=actor, meta={"plan": tenant.plan})
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.create",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"plan": tenant.plan},
+    )
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.customer_code_assigned",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"customer_code": customer_code},
+    )
+    if tenant.contact_email:
+        owner = User(
+            tenant_id=tenant.id,
+            email=tenant.contact_email,
+            role=UserRole.OWNER.value,
+            hashed_password=None,
+            must_set_password=True,
+            status="ACTIVE",
+        )
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
+        magic_token, exp = _issue_magic_login_token(owner, tenant, db)
+        _send_magic_link_email(tenant.contact_email, magic_token, exp)
     return _serialize_tenant(tenant)
 
 
@@ -204,6 +306,7 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
     branding = getattr(tenant, "branding", {}) or {}
+    previous_plan = tenant.plan
     if payload.allowed_origins is not None:
         branding["allowed_widget_origins"] = payload.allowed_origins
     if payload.maintenance is not None:
@@ -211,12 +314,21 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
         branding["maintenance_mode"] = bool(payload.maintenance)
     for field, value in payload.model_dump(exclude_none=True, exclude={"allowed_origins", "maintenance"}).items():
         setattr(tenant, field, value)
+    if payload.plan and payload.plan != previous_plan:
+        branding["plan_changed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     tenant.branding = branding
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
-    _log_admin_action(db, tenant.id, "tenant", "update", actor=actor, meta=payload.model_dump(exclude_none=True))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.update",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta=payload.model_dump(exclude_none=True),
+    )
     return _serialize_tenant(tenant)
 
 
@@ -233,7 +345,14 @@ def toggle_maintenance(tenant_id: str, maintenance: bool, request: Request, db=D
     db.commit()
     db.refresh(tenant)
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
-    _log_admin_action(db, tenant.id, "tenant", "maintenance", actor=actor, meta={"maintenance": bool(maintenance)})
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.maintenance",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"maintenance": bool(maintenance)},
+    )
     return {"tenant_id": str(tenant.id), "maintenance": bool(maintenance)}
 
 
@@ -256,6 +375,7 @@ def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, reques
         )
     ttl = min(max(payload.ttl_minutes, 15), 60)
     exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ttl)
+    issued_at = datetime.datetime.now(datetime.timezone.utc)
     km = KeyManager()
     current_kid, current_secret, _ = km.get_jwt_keys()
     signed = jwt.encode(
@@ -264,6 +384,7 @@ def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, reques
             "tenant_id": tenant_id,
             "allowed_origin": payload.allowed_origin,
             "exp": exp,
+            "iat": int(issued_at.timestamp()),
             "jti": jwt.utils.base64url_encode(secrets.token_bytes(16)).decode(),
         },
         current_secret,
@@ -271,15 +392,39 @@ def issue_widget_token_admin(tenant_id: str, payload: WidgetTokenRequest, reques
         headers={"kid": current_kid},
     )
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
-    _log_admin_action(
-        db,
-        tenant.id,
-        "widget_token",
-        "issue",
+    AuditService.log_admin_action(
         actor=actor,
+        action="widget_token.issue",
+        entity="widget_token",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
         meta={"allowed_origin": payload.allowed_origin, "ttl_minutes": ttl},
     )
     return {"token": signed, "expires_at": exp.isoformat() + "Z", "ttl_minutes": ttl}
+
+
+@router.post("/tenants/{tenant_id}/widget-token/revoke", dependencies=[Depends(_ensure_super_admin())])
+def revoke_widget_tokens_admin(tenant_id: str, request: Request, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    branding["widget_tokens_revoked_before"] = now.isoformat()
+    tenant.branding = branding
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="widget_token.revoke_all",
+        entity="widget_token",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"revoked_before": branding.get("widget_tokens_revoked_before")},
+    )
+    return {"tenant_id": str(tenant.id), "revoked_before": branding.get("widget_tokens_revoked_before")}
 
 
 @router.get("/overview", dependencies=[Depends(_ensure_super_admin())])
@@ -295,10 +440,114 @@ def admin_overview(db=Depends(get_db)):
     }
 
 
+@router.get("/alerts", dependencies=[Depends(_ensure_super_admin())])
+def admin_alerts(db=Depends(get_db)):
+    tenants = db.query(Tenant).all()
+    alerts = []
+    for t in tenants:
+        usage = float(getattr(t, "usage_monthly", 0) or 0)
+        limit = float(getattr(t, "usage_limit_monthly", 0) or 0) or float(getattr(t, "ia_monthly_limit_eur", 0) or 0) or 0
+        mode = (getattr(t, "usage_mode", "") or "").upper()
+        if limit and usage >= 0.8 * limit:
+            alerts.append(
+                {
+                    "tenant_id": str(t.id),
+                    "tenant": t.name,
+                    "type": "ia_usage_high",
+                    "message": f"Uso IA {usage:.2f}/{limit:.2f} EUR",
+                    "severity": "warning",
+                }
+            )
+        if mode == "LOCKED":
+            alerts.append(
+                {
+                    "tenant_id": str(t.id),
+                    "tenant": t.name,
+                    "type": "tenant_locked",
+                    "message": "Tenant en modo LOCKED",
+                    "severity": "critical",
+                }
+            )
+        if str(getattr(t, "billing_status", "") or "").upper() in {"PAST_DUE", "CANCELED", "INCOMPLETE"}:
+            alerts.append(
+                {
+                    "tenant_id": str(t.id),
+                    "tenant": t.name,
+                    "type": "billing_issue",
+                    "message": f"Billing {t.billing_status}",
+                    "severity": "warning",
+                }
+            )
+    return {"items": alerts}
+
+
 @router.get("/errors/recent", dependencies=[Depends(_ensure_super_admin())])
 def recent_errors():
-    # Placeholder: integrar con sistema de logs externo (CloudWatch/Loki)
-    return {"items": []}
+    log_path = Path(LOG_DIR) / "app.log"
+    items: list[dict[str, Any]] = []
+    if not log_path.exists():
+        return {"items": items}
+    try:
+        with log_path.open() as fh:
+            lines = fh.readlines()[-200:]  # leer cola y filtrar
+        for line in reversed(lines):
+            try:
+                record = json.loads(line.strip())
+            except Exception:
+                continue
+            level = (record.get("level") or "").upper()
+            if level not in {"WARNING", "ERROR", "CRITICAL"}:
+                continue
+            msg = record.get("message") or {}
+            payload = msg if isinstance(msg, dict) else {"message": msg}
+            items.append(
+                {
+                    "timestamp": record.get("time"),
+                    "level": level,
+                    "service": "api",
+                    "tenant_id": payload.get("tenant_id"),
+                    "message": payload.get("message") or payload.get("event") or str(payload),
+                }
+            )
+            if len(items) >= 50:
+                break
+    except Exception:
+        return {"items": []}
+    items.reverse()
+    return {"items": items}
+
+
+@router.get("/health", dependencies=[Depends(_ensure_super_admin())])
+def admin_health():
+    settings = get_settings()
+    status_map = {"api": "UP", "db": "OK", "redis": "OK", "ia_provider": "OK"}
+
+    # DB ping
+    try:
+        db = SessionLocal()
+        db.execute("SELECT 1")
+    except Exception:
+        status_map["db"] = "DEGRADED"
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    # Redis ping
+    try:
+        import redis  # type: ignore
+
+        client = redis.Redis.from_url(settings.redis_url, socket_timeout=0.2)
+        client.ping()
+    except Exception:
+        status_map["redis"] = "DEGRADED"
+
+    # IA provider: simple check clave presente
+    if not settings.openai_api_key:
+        status_map["ia_provider"] = "DEGRADED"
+
+    return status_map
 
 
 @router.post("/impersonate/{tenant_id}", dependencies=[Depends(_ensure_super_admin())])
@@ -329,12 +578,85 @@ def impersonate_tenant(tenant_id: str, request: Request, db=Depends(get_db)):
         headers={"kid": current_kid},
     )
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
-    _log_admin_action(
-        db,
-        tenant.id,
-        "tenant",
-        "impersonate",
+    AuditService.log_admin_action(
         actor=actor,
+        action="tenant.impersonate",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
         meta={"impersonate": str(tenant.id)},
     )
     return {"token": token, "expires_at": exp.isoformat() + "Z"}
+
+
+@router.post("/tenants/{tenant_id}/exclude", dependencies=[Depends(_ensure_super_admin())])
+def exclude_tenant(tenant_id: str, payload: TenantExclude, request: Request, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    branding["excluded"] = True
+    branding["excluded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if payload.reason:
+        branding["excluded_reason"] = payload.reason
+    tenant.branding = branding
+    tenant.ia_enabled = False
+    tenant.use_ia = False
+    try:
+        tenant.usage_mode = UsageMode.LOCKED  # type: ignore
+    except Exception:
+        pass
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.exclude",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"reason": payload.reason},
+    )
+    return {"tenant_id": str(tenant.id), "excluded": True}
+
+
+@router.post("/tenants/{tenant_id}/magic-login", dependencies=[Depends(_ensure_super_admin())])
+def issue_magic_login(tenant_id: str, payload: MagicLinkRequest, request: Request, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    email = payload.email or tenant.contact_email
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_email")
+    user = db.query(User).filter(User.tenant_id == tenant.id, User.email == email).first()
+    if not user:
+        user = User(
+            tenant_id=tenant.id,
+            email=email,
+            role=UserRole.OWNER.value,
+            hashed_password=None,
+            must_set_password=True,
+            status="ACTIVE",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        user.must_set_password = True
+        user.hashed_password = None
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    token, exp = _issue_magic_login_token(user, tenant, db)
+    _send_magic_link_email(email, token, exp)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="magic_link.issued",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"email": email, "expires_at": exp.isoformat() + "Z"},
+    )
+    return {"token": token, "expires_at": exp.isoformat() + "Z", "email": email}
