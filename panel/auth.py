@@ -9,9 +9,12 @@ def ensure_login() -> str | None:
             st.switch_page("pages/set_password.py")
         except Exception:
             st.stop()
-    if not st.session_state.get("tenant_id") and os.getenv("PANEL_TENANT_ID"):
+    default_tid = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
+    if token and not st.session_state.get("tenant_id"):
+        st.session_state["tenant_id"] = default_tid
+    if not st.session_state.get("tenant_id"):
         # Prefill tenant_id for the session if not set yet
-        st.session_state["tenant_id"] = os.getenv("PANEL_TENANT_ID")
+        st.session_state["tenant_id"] = default_tid
     if token:
         return token
     # Redirige a la página de login

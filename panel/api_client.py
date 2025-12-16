@@ -1,6 +1,8 @@
 import logging
 import os
 import uuid
+import base64
+import json
 from typing import Any
 
 import requests
@@ -9,7 +11,7 @@ import streamlit as st
 # API base: usa API_BASE si está, o por defecto el puerto de docker-compose (8100)
 API_BASE = os.getenv("API_BASE", "http://localhost:8100").rstrip("/")
 API_PREFIX = "/v1"
-TENANT_ID = os.getenv("PANEL_TENANT_ID")
+TENANT_ID = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
 API_TOKEN = os.getenv("PANEL_API_TOKEN")
 logger = logging.getLogger(__name__)
 
@@ -68,7 +70,9 @@ def api_login(email: str, password: str, tenant_id: str | None = None) -> str | 
 
     if resp.ok:
         data = resp.json()
-        return data.get("access_token")
+        token = data.get("access_token")
+        _maybe_set_tenant_from_token(token)
+        return token
     try:
         detail = resp.json().get("detail")
     except Exception:
@@ -89,7 +93,9 @@ def api_magic_login(token: str):
         st.error(f"Error de red en magic login: {exc}")
         return None
     if resp.ok:
-        return resp.json()
+        data = resp.json()
+        _maybe_set_tenant_from_token(data.get("token"))
+        return data
     _handle_api_error(resp, fallback_message="Magic link inválido o expirado.")
     return None
 
@@ -108,7 +114,9 @@ def api_set_password(password: str, password_confirm: str):
         st.error(f"Error de red al fijar contraseña: {exc}")
         return None
     if resp.ok:
-        return resp.json()
+        data = resp.json()
+        _maybe_set_tenant_from_token(data.get("token"))
+        return data
     try:
         detail = resp.json().get("detail")
         if detail:
@@ -250,3 +258,29 @@ def count_appointments(status: str | None = None) -> int:
 
 def get_ia_metrics(tenant_id: str):
     return api_get(f"/metrics/ia/tenant/{tenant_id}") or {}
+
+
+def get_tenant_config():
+    return api_get("/tenant/config") or {}
+
+
+def _decode_jwt_payload(token: str | None) -> dict:
+    if not token or "." not in token:
+        return {}
+    try:
+        payload_b64 = token.split(".")[1]
+        padding = "=" * (-len(payload_b64) % 4)
+        decoded = base64.urlsafe_b64decode(payload_b64 + padding)
+        return json.loads(decoded)
+    except Exception:
+        return {}
+
+
+def _maybe_set_tenant_from_token(token: str | None):
+    if not token:
+        return
+    if not st.session_state.get("tenant_id"):
+        payload = _decode_jwt_payload(token)
+        tid = payload.get("tenant_id") or TENANT_ID
+        if tid:
+            st.session_state["tenant_id"] = tid
