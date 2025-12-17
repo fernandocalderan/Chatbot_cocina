@@ -1,0 +1,51 @@
+{
+  "service_context": {
+    "service_type": {
+      "type": "string",
+      "enum": [
+        "instalacion",
+        "reparacion",
+        "presupuesto"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "clima",
+        "solar",
+        "cerramientos",
+        "carpinteria",
+        "electricidad",
+        "fontaneria",
+        "otros"
+      ]
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "alta",
+        "media",
+        "baja"
+      ]
+    },
+    "property_type": {
+      "type": "string",
+      "enum": [
+        "piso",
+        "casa",
+        "local"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "description": "Ciudad o código postal."
+    },
+    "access_availability": {
+      "type": "string",
+      "enum": [
+        "inmediata",
+        "concertar"
+      ]
+    }
+  }
+}

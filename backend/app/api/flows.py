@@ -10,6 +10,7 @@ from app.middleware.authz import require_any_role
 from app.api.deps import get_db, get_tenant_id
 from app.models.flow import Scoring
 from app.models.flows import Flow as FlowVersioned
+from app.models.tenants import Tenant
 
 router = APIRouter(prefix="/flows", tags=["flows"])
 _FLOW_PATH = Path(__file__).resolve().parent.parent / "flows" / "lead_intake_v1.json"
@@ -77,6 +78,10 @@ def update_flow(
 ):
     if not payload:
         raise HTTPException(status_code=400, detail="invalid_payload")
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
+    if tenant and getattr(tenant, "vertical_key", None):
+        raise HTTPException(status_code=403, detail="vertical_flow_locked")
 
     latest_flow = (
         db.query(FlowVersioned)

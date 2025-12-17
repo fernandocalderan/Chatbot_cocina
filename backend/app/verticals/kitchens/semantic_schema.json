@@ -1,0 +1,34 @@
+{
+  "service_context": {
+    "project_type": {
+      "type": "string",
+      "description": "Tipo de proyecto (p. ej. reforma integral, cocina nueva, actualización parcial)."
+    },
+    "surface_area_m2": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Superficie aproximada en m2 (si está disponible)."
+    },
+    "budget_range": {
+      "type": "string",
+      "description": "Rango de presupuesto o inversión preferida."
+    },
+    "urgency": {
+      "type": "string",
+      "description": "Nivel de urgencia (escala o categorías)."
+    },
+    "style_defined": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Indica si el usuario ha definido estilo/estética."
+    },
+    "location": {
+      "type": "string",
+      "description": "Ubicación del proyecto."
+    }
+  }
+}

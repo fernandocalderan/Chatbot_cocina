@@ -6,6 +6,7 @@ from typing import Any
 
 
 _FLOW_DIR = Path(__file__).resolve().parent.parent / "flows"
+_VERTICALS_DIR = Path(__file__).resolve().parent.parent / "verticals"
 
 _PLAN_TO_FLOW = {
     "base": "base_plan_fixed",
@@ -25,16 +26,29 @@ def list_flow_templates(allowed_ids: set[str] | None = None) -> list[dict[str, s
     return items
 
 
-def load_flow_template(flow_id: str | None, plan_value: str | None = None) -> dict[str, Any]:
+def load_flow_template(
+    flow_id: str | None,
+    plan_value: str | None = None,
+    *,
+    vertical_key: str | None = None,
+) -> dict[str, Any]:
+    # Source-of-truth for vertical tenants: `app/verticals/<vertical_key>/flow_base.json`
+    if vertical_key:
+        v_path = _VERTICALS_DIR / str(vertical_key).strip() / "flow_base.json"
+        if v_path.exists():
+            with v_path.open(encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+
     if flow_id:
         path = _FLOW_DIR / f"{flow_id}.json"
         if path.exists():
-            with path.open() as f:
+            with path.open(encoding="utf-8") as f:
                 return json.load(f)
     plan_norm = (plan_value or "base").lower()
     fallback_id = _PLAN_TO_FLOW.get(plan_norm, "base_plan_fixed")
     path = _FLOW_DIR / f"{fallback_id}.json"
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         return json.load(f)
 
 

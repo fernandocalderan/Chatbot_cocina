@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -140,7 +141,11 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
-    flow_data = load_flow_template(flow_id, plan_value=str(plan_value or "base").lower())
+    flow_data = load_flow_template(
+        flow_id,
+        plan_value=str(plan_value or "base").lower(),
+        vertical_key=getattr(tenant, "vertical_key", None),
+    )
     flow_data = apply_materials(flow_data, materials)
 
     visual_payload = _tenant_widget_config(db, tenant)
@@ -289,7 +294,8 @@ def _chat_send_as_widget(
     # Llama a la lógica existente (FlowEngine) sin exponer /chat al widget.
     from app.api.chat import ChatInput, send_message
 
-    idempotency_key = f"widget-{session_id}-{int(datetime.now(timezone.utc).timestamp())}"
+    # Evita colisiones (por segundo) que bloquean el avance del flujo.
+    idempotency_key = f"widget-{session_id}-{uuid4()}"
     return send_message(
         payload=ChatInput(message=message, session_id=session_id, lang=language),
         idempotency_key=idempotency_key,
@@ -303,19 +309,44 @@ def _widget_response_from_chat(
     *,
     chat_resp: dict,
     widget_state: WidgetState,
+    language: str | None = None,
 ) -> dict:
     messages: list[dict] = []
     text = chat_resp.get("message") or chat_resp.get("ai_reply") or chat_resp.get("text") or ""
     if text:
+        if isinstance(text, dict):
+            lang = (language or "es").lower()
+            text = (
+                text.get(lang)
+                or text.get("es")
+                or text.get("en")
+                or text.get("pt")
+                or text.get("ca")
+                or next(iter(text.values()), "")
+            )
         messages.append({"type": "text", "content": str(text)})
     opts = chat_resp.get("options") or []
     if isinstance(opts, list) and opts:
-        labels = []
+        labels: list[str] = []
+        lang = (language or "es").lower()
         for o in opts:
             if isinstance(o, dict):
-                labels.append(str(o.get("label") or o.get("id") or ""))
+                raw_label = o.get("label") or o.get("id") or o.get("value") or ""
+                if isinstance(raw_label, dict):
+                    raw_label = (
+                        raw_label.get(lang)
+                        or raw_label.get("es")
+                        or raw_label.get("en")
+                        or raw_label.get("pt")
+                        or raw_label.get("ca")
+                        or next(iter(raw_label.values()), "")
+                    )
+                if raw_label:
+                    labels.append(str(raw_label))
             else:
-                labels.append(str(o))
+                val = str(o)
+                if val:
+                    labels.append(val)
         labels = [x for x in labels if x]
         if labels:
             messages.append({"type": "buttons", "options": labels})
@@ -385,7 +416,7 @@ def widget_message(payload: WidgetMessageInput, request: Request, db: Session = 
     st_state["vars"] = vars_
     mgr.save(str(payload.session_id), st_state)
 
-    out = _widget_response_from_chat(chat_resp=chat_resp, widget_state=next_state)
+    out = _widget_response_from_chat(chat_resp=chat_resp, widget_state=next_state, language=str(lang) if lang else None)
     if lead_id:
         out["lead_id"] = lead_id
     return out
@@ -489,7 +520,7 @@ def widget_agenda_confirm(payload: WidgetAgendaConfirm, request: Request, db: Se
     st_state["vars"] = vars_
     mgr.save(str(payload.session_id), st_state)
 
-    out = _widget_response_from_chat(chat_resp=chat_resp, widget_state=next_state)
+    out = _widget_response_from_chat(chat_resp=chat_resp, widget_state=next_state, language=str(lang) if lang else None)
     if lead_id:
         out["lead_id"] = lead_id
     return out

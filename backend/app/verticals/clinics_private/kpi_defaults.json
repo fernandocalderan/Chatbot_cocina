@@ -1,0 +1,7 @@
+{
+  "conversion_to_booking": true,
+  "no_show_rate": true,
+  "time_to_booking": true,
+  "call_reduction": true,
+  "tenant_retention": true
+}

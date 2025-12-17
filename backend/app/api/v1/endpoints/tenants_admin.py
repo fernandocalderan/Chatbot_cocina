@@ -9,7 +9,7 @@ from app.api.deps import get_db
 from app.middleware.authz import require_any_role
 from app.models.tenants import Tenant
 from app.services.template_service import TemplateService
-from app.services.verticals import get_vertical_config, provision_vertical_materials
+from app.services.verticals import get_vertical_config, provision_vertical_assets
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -65,7 +65,7 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
     try:
-        provision_vertical_materials(db, tenant)
+        provision_vertical_assets(db, tenant)
     except Exception:
         db.rollback()
 

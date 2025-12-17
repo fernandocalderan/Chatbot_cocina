@@ -1,9 +1,21 @@
 {
   "kitchens": {
-    "label": "Kitchens",
-    "default_flow_id": "base_plan_fixed",
-    "flow_ids": ["base_plan_fixed", "pro_plan_fixed", "elite_plan_fixed"],
+    "label": "Cocinas & Reformas",
+    "default_flow_id": "kitchens_base_v1",
+    "flow_ids": ["kitchens_base_v1"],
     "vertical_prompt": "Asistente experto en cocinas y reformas. Enfocado en captar, cualificar y guiar proyectos de cocina."
+  },
+  "clinics_private": {
+    "label": "Clínicas Privadas",
+    "default_flow_id": "clinics_private_base_v1",
+    "flow_ids": ["clinics_private_base_v1"],
+    "vertical_prompt": "Asistente profesional de clínica privada. Orienta y agenda citas sin diagnósticos ni consejos médicos."
+  },
+  "home_services": {
+    "label": "Home Services",
+    "default_flow_id": "home_services_base_v1",
+    "flow_ids": ["home_services_base_v1"],
+    "vertical_prompt": "Asistente profesional de servicios para el hogar. Filtra urgencia y orienta hacia visita/presupuesto sin prometer precios."
   },
   "legal_services": {
     "label": "Legal Services",

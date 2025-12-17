@@ -26,7 +26,8 @@ from app.services.template_service import TemplateService
 from app.services.verticals import (
     list_verticals,
     get_vertical_config,
-    provision_vertical_materials,
+    provision_vertical_assets,
+    get_vertical_bundle,
 )
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
@@ -224,6 +225,14 @@ def list_verticals_admin():
     return {"items": list_verticals()}
 
 
+@router.get("/verticals/{vertical_key}", dependencies=[Depends(_ensure_super_admin())])
+def get_vertical_admin(vertical_key: str):
+    data = get_vertical_bundle(vertical_key)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vertical_not_found")
+    return data
+
+
 @router.post("/auth/login")
 def admin_oidc_login(payload: AdminOIDCInput):
     settings = get_settings()
@@ -286,9 +295,10 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
     except Exception:
         db.rollback()
     try:
-        provision_vertical_materials(db, tenant)
+        created = provision_vertical_assets(db, tenant)
     except Exception:
         db.rollback()
+        created = None
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
     AuditService.log_admin_action(
         actor=actor,
@@ -305,6 +315,14 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         entity_id=str(tenant.id),
         tenant_id=str(tenant.id),
         meta={"customer_code": customer_code},
+    )
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant_created_with_vertical",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"vertical_key": tenant.vertical_key, "provisioned": created or {}},
     )
     if tenant.contact_email:
         owner = User(
@@ -343,9 +361,20 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vertical_key_immutable")
         tenant.vertical_key = updates.pop("vertical_key")
         try:
-            provision_vertical_materials(db, tenant)
+            created = provision_vertical_assets(db, tenant)
         except Exception:
             db.rollback()
+            created = None
+        if payload.force_vertical:
+            actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+            AuditService.log_admin_action(
+                actor=actor,
+                action="tenant_vertical_override_manual_admin",
+                entity="tenant",
+                entity_id=str(tenant.id),
+                tenant_id=str(tenant.id),
+                meta={"vertical_key": tenant.vertical_key, "provisioned": created or {}},
+            )
     for field, value in updates.items():
         setattr(tenant, field, value)
     if payload.plan and payload.plan != previous_plan:

@@ -76,6 +76,15 @@ def list_verticals(token: str):
     return resp.json() if resp.ok else {"items": []}
 
 
+def get_vertical(token: str, vertical_key: str):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}",
+        headers=_headers(token, ADMIN_API_KEY),
+        timeout=10,
+    )
+    return resp.json() if resp.ok else {"error": resp.text}
+
+
 def admin_health(token: str):
     resp = requests.get(f"{API_BASE}/v1/admin/health", headers=_headers(token, ADMIN_API_KEY), timeout=10)
     return resp.json() if resp.ok else {}

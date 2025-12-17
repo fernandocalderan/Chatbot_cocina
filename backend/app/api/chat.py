@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -33,9 +34,10 @@ from app.services.plan_limits import require_active_subscription
 from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
 from app.services.flow_templates import load_flow_template, apply_materials
-from app.services.verticals import resolve_flow_id
+from app.services.verticals import resolve_flow_id, get_vertical_config
 from app.services.agenda_service import AgendaService
 from app.models.configs import Config
+from app.services.conversational_intelligence import is_doubt_text, is_question_text, resolve_block_text
 
 try:
     from app.services.ai.ai_engine import ai_extract, ai_reply, last_ai_fallback
@@ -237,6 +239,11 @@ def _apply_aliases(vars_data: dict) -> None:
         val = vars_data.get(src)
         if val and not vars_data.get(dest):
             vars_data[dest] = val
+        label_src = f"{src}_label"
+        label_dest = f"{dest}_label"
+        label_val = vars_data.get(label_src)
+        if label_val and not vars_data.get(label_dest):
+            vars_data[label_dest] = label_val
 
 
 def _normalize_scoring(scoring_cfg: dict | None) -> dict:
@@ -536,17 +543,25 @@ def send_message(
             .all()
         )
         for r in row:
-            payload = r.payload_json or {}
-            if str(payload.get("status") or "").upper() == "PUBLISHED":
-                materials = payload
+            materials_payload = r.payload_json or {}
+            if str(materials_payload.get("status") or "").upper() == "PUBLISHED":
+                materials = materials_payload
                 break
     except Exception:
         materials = None
 
+    tenant_vertical_key = getattr(tenant, "vertical_key", None)
     flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
-    flow_id_override = resolve_flow_id(flow_id_override, getattr(tenant, "vertical_key", None))
-    flow_data = load_flow_template(flow_id_override, plan_value=plan_value)
+    flow_id_override = resolve_flow_id(flow_id_override, tenant_vertical_key)
+    flow_data = load_flow_template(flow_id_override, plan_value=plan_value, vertical_key=tenant_vertical_key)
     flow_data = apply_materials(flow_data, materials)
+    vertical_cfg = get_vertical_config(tenant_vertical_key) if tenant_vertical_key else {}
+    ci_cfg = vertical_cfg.get("conversational_intelligence") if isinstance(vertical_cfg.get("conversational_intelligence"), dict) else {}
+    ci_enabled = bool(ci_cfg.get("enabled", False))
+    ci_copy_enabled = bool(ci_cfg.get("enriched_copy_enabled", ci_enabled))
+    ci_ai_enabled = bool(ci_cfg.get("ai_intervention_enabled", ci_enabled))
+    ci_score_threshold = int(ci_cfg.get("score_threshold", 70) or 70)
+    ci_friction_seconds = int(ci_cfg.get("friction_seconds", 12) or 12)
     flags = tenant.flags_ia if tenant else {}
     plan_limits = get_plan_limits(plan_value)
     plan_ai_enabled = (plan_limits.get("features") or {}).get("ia_enabled", True)
@@ -574,6 +589,7 @@ def send_message(
     executor = ActionExecutor(settings)
     ai_extract_meta = None
     ai_reply_text = None
+    raw_user_text = payload.message
 
     session_id = payload.session_id or str(uuid4())
     set_request_context(
@@ -621,6 +637,16 @@ def send_message(
     else:
         state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
 
+    now_ts = time.time()
+    ci_state = state.get("_ci") if isinstance(state.get("_ci"), dict) else {}
+    last_bot_ts = ci_state.get("last_bot_ts")
+    response_delay_s = None
+    try:
+        if isinstance(last_bot_ts, (int, float)) and last_bot_ts:
+            response_delay_s = max(float(now_ts) - float(last_bot_ts), 0.0)
+    except Exception:
+        response_delay_s = None
+
     if not use_ai_intent:
         _register_ai_fallback(state, "ai_disabled", session_id, tenant_id)
 
@@ -642,23 +668,94 @@ def send_message(
     # Validar input según bloque
     block_type = current_block.get("type")
     save_key = current_block.get("save_as") or current_block.get("save_to")
+    user_message_for_storage = payload.message
+    user_was_free_text = False
     if block_type in ("input",):
         validate_input(current_block, payload.message)
         if save_key:
             state.setdefault("vars", {})[save_key] = payload.message
+        user_was_free_text = True
     elif block_type in ("options", "buttons"):
         options_list = current_block.get("options", []) or []
-        option_ids = [
-            opt.get("id") or opt.get("value") or opt.get("label")
-            for opt in options_list
-        ]
-        chosen = (
-            payload.message
-            if payload.message in option_ids
-            else (option_ids[0] if option_ids else payload.message)
+        default_lang = (flow_data.get("languages") or ["es"])[0]
+        lang_hint = (
+            payload.lang
+            or state.get("vars", {}).get("language")
+            or state.get("vars", {}).get("lang")
+            or default_lang
         )
+        raw_choice = str(raw_user_text or "").strip()
+
+        def _opt_id(opt: object) -> str | None:
+            if isinstance(opt, dict):
+                val = opt.get("id") or opt.get("value")
+                return str(val) if val is not None else None
+            if opt is None:
+                return None
+            return str(opt)
+
+        def _opt_label(opt: object) -> str:
+            if not isinstance(opt, dict):
+                return str(opt) if opt is not None else ""
+            label = opt.get("label") or opt.get("label_es") or opt.get("label_en")
+            if isinstance(label, dict):
+                return str(
+                    label.get(str(lang_hint))
+                    or label.get(str(default_lang))
+                    or next(iter(label.values()), "")
+                    or ""
+                )
+            return str(label) if label is not None else ""
+
+        option_ids = [oid for opt in options_list if (oid := _opt_id(opt))]
+        matched = False
+        chosen: str | None = None
+
+        # 1) Match directo por ID/value
+        if raw_choice and raw_choice in option_ids:
+            matched = True
+            chosen = raw_choice
+
+        # 2) Match por label (para widget/usuarios que envían el texto visible)
+        if not chosen and raw_choice:
+            for opt in options_list:
+                oid = _opt_id(opt)
+                if not oid:
+                    continue
+                label_value = _opt_label(opt)
+                if raw_choice == label_value:
+                    matched = True
+                    chosen = oid
+                    break
+                if isinstance(opt, dict):
+                    label = opt.get("label")
+                    if isinstance(label, dict):
+                        for v in label.values():
+                            if raw_choice == str(v or ""):
+                                matched = True
+                                chosen = oid
+                                break
+                    if matched:
+                        break
+
+        # 3) Fallback conservador (no romper paths existentes)
+        if not chosen:
+            chosen = option_ids[0] if option_ids else payload.message
+            user_was_free_text = bool(option_ids) and not matched
+        else:
+            user_was_free_text = False
+
         if save_key:
             state.setdefault("vars", {})[save_key] = chosen
+            human_label = _resolve_option_label(
+                current_block.get("options", []) or [],
+                chosen,
+                str(lang_hint),
+                str(default_lang),
+            )
+            if human_label:
+                state.setdefault("vars", {})[f"{save_key}_label"] = human_label
+                user_message_for_storage = str(human_label)
         payload.message = chosen
     elif block_type in ("appointment", "calendar"):
         try:
@@ -682,6 +779,15 @@ def send_message(
 
     vars_data = state.setdefault("vars", {})
     _apply_aliases(vars_data)
+
+    # Conversational intelligence (v1.1) tracking: keep it out of vars to avoid polluting lead meta.
+    ci = state.setdefault("_ci", {})
+    if isinstance(ci, dict):
+        ci["free_text_seen"] = bool(ci.get("free_text_seen")) or bool(user_was_free_text)
+        ci["last_user_was_free_text"] = bool(user_was_free_text)
+        ci["last_user_doubt"] = bool(is_doubt_text(raw_user_text))
+        ci["last_user_question"] = bool(is_question_text(raw_user_text))
+        ci["last_user_ts"] = float(now_ts)
 
     # Registrar entrada en relatório para widget (evitar IDs y duplicados).
     if vars_data.get("channel") == "web_widget" and save_key and payload.message:
@@ -772,7 +878,7 @@ def send_message(
         session_id,
         tenant_id,
         "user",
-        payload.message,
+        user_message_for_storage,
         block_id=current_block_id,
         ai_meta=ai_extract_meta,
     )
@@ -957,8 +1063,24 @@ def send_message(
         data = dict(block)
         # Seleccionar texto por idioma si es dict
         if "text" in data:
-            data["text"] = engine.choose_text(
-                block, lang, flow_data.get("languages", ["es"])[0]
+            default_lang = flow_data.get("languages", ["es"])[0]
+            prelim_score = 0
+            try:
+                prelim_score, _ = compute_score(vars_data, flow_data.get("scoring", {}) or {})
+            except Exception:
+                prelim_score = 0
+            data["text"] = resolve_block_text(
+                block,
+                lang=str(lang),
+                default_lang=str(default_lang),
+                enabled=bool(ci_copy_enabled),
+                use_ai=bool(use_ai_intent),
+                ci_state=state.get("_ci") if isinstance(state.get("_ci"), dict) else {},
+                raw_user_text=raw_user_text,
+                response_delay_s=response_delay_s,
+                prelim_score=int(prelim_score or 0),
+                score_threshold=int(ci_score_threshold),
+                friction_seconds=int(ci_friction_seconds),
             )
         if data.get("type") in {"appointment", "calendar"}:
             tenant_id = (state.get("vars") or {}).get("tenant_id")
@@ -1088,7 +1210,23 @@ def send_message(
             "flow_conversations_completed_total", {"tenant_id": tenant_id}
         )
     session_mgr.save(session_id, state)
-    if ai_reply and use_ai_intent:
+    should_ai_intervene = bool(
+        ci_ai_enabled
+        and use_ai_intent
+        and ai_reply
+        and (vars_data.get("channel") == "web_widget")
+        and isinstance(state.get("_ci"), dict)
+        and (
+            state.get("_ci", {}).get("last_user_doubt")
+            or state.get("_ci", {}).get("last_user_question")
+            or (
+                state.get("_ci", {}).get("last_user_was_free_text")
+                and isinstance(raw_user_text, str)
+                and len(raw_user_text.strip()) >= 20
+            )
+        )
+    )
+    if should_ai_intervene:
         simple_context = {"vars": state.get("vars", {}), "bot_block": bot_block}
         try:
             ai_reply_text = (
@@ -1118,6 +1256,13 @@ def send_message(
             logger.warning({"event": "ai_reply_failed", "error": str(exc)})
             ai_reply_text = None
             _register_ai_fallback(state, "ai_reply_error", session_id, tenant_id)
+        # Para el widget: si intervenimos con IA, debe redirigir al siguiente bloque
+        # previsto (sin cambiar el flujo). Adjuntamos la pregunta del bloque actual.
+        if ai_reply_text and bot_block.get("text"):
+            try:
+                ai_reply_text = f"{str(ai_reply_text).strip()}\n\n{str(bot_block.get('text')).strip()}"
+            except Exception:
+                pass
 
     # Guardar mensaje del bot
     bot_ai_meta = {"ai_reply": ai_reply_text} if ai_reply_text else None
@@ -1151,6 +1296,15 @@ def send_message(
             or opt.get("value")
             or opt.get("id")
         )
+        if isinstance(label, dict):
+            label = (
+                label.get(lang)
+                or label.get("es")
+                or label.get("en")
+                or label.get("pt")
+                or label.get("ca")
+                or (next(iter(label.values()), "") if label else "")
+            )
         opt_id = opt.get("id") or opt.get("value") or opt.get("label")
         opts.append({"id": opt_id, "label": label})
 
@@ -1181,5 +1335,13 @@ def send_message(
         if quota_status.mode == UsageMode.SAVING:
             response_data["saving_mode"] = True
     idemp_store.set(idempotency_key, response_data)
+    # Persist CI timestamps (root state, not vars).
+    try:
+        ci = state.setdefault("_ci", {})
+        if isinstance(ci, dict):
+            ci["last_bot_ts"] = float(time.time())
+        session_mgr.save(session_id, state)
+    except Exception:
+        pass
     end_span()
     return response_data

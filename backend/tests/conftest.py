@@ -161,7 +161,12 @@ class DBStub:
     def __init__(self, datasets: dict[type, list[Any]]):
         self.datasets = datasets
 
-    def query(self, model):
+    def query(self, *models):
+        # Algunos endpoints usan `db.query(Model.col1, Model.col2)`; para los tests
+        # devolvemos un QueryStub vacío en ese caso.
+        if len(models) != 1:
+            return QueryStub([])
+        model = models[0]
         return QueryStub(self.datasets.get(model, []))
 
     def add(self, *args, **kwargs):

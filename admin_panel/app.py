@@ -6,6 +6,7 @@ from api_client import (
     admin_login,
     admin_overview,
     create_tenant,
+    get_vertical,
     impersonate,
     issue_widget_token,
     admin_health,
@@ -65,9 +66,15 @@ if not token and not api_key:
     st.stop()
 
 vertical_payload = list_verticals(token) or {}
-vertical_items = vertical_payload.get("items") or []
+vertical_items_raw = vertical_payload.get("items") or []
+vertical_items = [v for v in vertical_items_raw if isinstance(v, dict) and v.get("key")]
+vertical_items = sorted(
+    vertical_items,
+    key=lambda v: str(v.get("label") or v.get("key") or "").lower(),
+)
 vertical_keys = [v.get("key") for v in vertical_items if v.get("key")]
 vertical_labels = {v.get("key"): v.get("label") for v in vertical_items if v.get("key")}
+vertical_by_key = {v.get("key"): v for v in vertical_items if v.get("key")}
 
 # Banner de impersonación (visible en todas las vistas)
 impersonation_token = st.session_state.get("impersonation_token")
@@ -85,7 +92,7 @@ if impersonation_token:
             st.session_state.pop("impersonation_token", None)
             st.experimental_rerun()
 
-tabs = st.tabs(["📊 Overview", "🏢 Tenants", "➕ Crear tenant"])
+tabs = st.tabs(["📊 Overview", "🏢 Tenants", "🧩 Verticals", "➕ Crear tenant"])
 
 with tabs[0]:
     ov = admin_overview(token) or {}
@@ -300,19 +307,92 @@ with tabs[1]:
                     st.error(res)
 
 with tabs[2]:
+    st.subheader("Verticals")
+    st.caption("Catálogo de verticales (plantillas ADMIN) detectadas por la API.")
+    if not vertical_items:
+        st.warning("No se han encontrado verticales.")
+    else:
+        st.markdown("**Detalle de vertical**")
+        selected_key = st.selectbox(
+            "Selecciona un vertical",
+            vertical_keys,
+            format_func=lambda v: vertical_labels.get(v, v),
+            key="vertical-detail-select",
+        )
+        if selected_key:
+            detail = get_vertical(token, selected_key) or {}
+            if detail.get("error"):
+                st.error(detail.get("error"))
+            else:
+                cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
+                assets = detail.get("assets") if isinstance(detail.get("assets"), dict) else {}
+                files = detail.get("files") if isinstance(detail.get("files"), dict) else {}
+                st.markdown(f"**Key:** `{detail.get('key') or selected_key}`")
+                promise = cfg.get("promise_commercial")
+                if promise:
+                    st.caption(f"Promesa: {promise}")
+                missing = [fname for fname, ok in files.items() if not ok] if files else []
+                if missing:
+                    st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
+                with st.expander("metadata.json", expanded=False):
+                    st.json(assets.get("metadata") or cfg or {})
+                with st.expander("flow_base.json", expanded=False):
+                    st.json(assets.get("flow_base") or {})
+                with st.expander("semantic_schema.json", expanded=False):
+                    st.json(assets.get("semantic_schema") or {})
+                with st.expander("kpi_defaults.json", expanded=False):
+                    st.json(assets.get("kpi_defaults") or {})
+                with st.expander("prompt_vertical.txt", expanded=False):
+                    st.code(assets.get("prompt_vertical") or "", language="text")
+                with st.expander("prompt_vertical_extension.txt", expanded=False):
+                    st.code(assets.get("prompt_vertical_extension") or "", language="text")
+
+        st.divider()
+        for v in vertical_items:
+            key = v.get("key")
+            label = v.get("label") or key
+            with st.expander(f"{label} — {key}", expanded=False):
+                promise = v.get("promise_commercial")
+                if promise:
+                    st.markdown(f"**Promesa comercial:** {promise}")
+                st.markdown(f"**Default flow:** `{v.get('default_flow_id') or 'n/d'}`")
+                ci = v.get("conversational_intelligence") or {}
+                if isinstance(ci, dict) and ci:
+                    st.markdown("**CI v1.1:**")
+                    st.json(ci)
+                scope = v.get("scope") or {}
+                if isinstance(scope, dict) and scope:
+                    st.markdown("**Scope:**")
+                    st.json(scope)
+                files = v.get("files") or {}
+                if isinstance(files, dict) and files:
+                    missing = [fname for fname, ok in files.items() if not ok]
+                    if missing:
+                        st.warning(f"Faltan archivos: {', '.join(missing)}")
+                    else:
+                        st.success("Archivos mínimos OK.")
+                if v.get("flow_template_exists") is False:
+                    st.warning("No hay flujo disponible (falta `flow_base.json` y no hay fallback en `backend/app/flows/`).")
+                else:
+                    st.caption(f"Fuente de flujo en runtime: `{v.get('flow_source') or 'n/d'}`")
+
+with tabs[3]:
     st.subheader("Crear tenant")
     with st.form("create-tenant-form"):
         name = st.text_input("Nombre")
         contact = st.text_input("Email contacto")
         plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
-        if vertical_keys:
-            vertical_key = st.selectbox(
-                "Vertical",
-                vertical_keys,
-                format_func=lambda v: vertical_labels.get(v, v),
-            )
-        else:
-            vertical_key = st.text_input("Vertical", value="kitchens")
+        vertical_key = st.selectbox("Vertical", vertical_keys or ["kitchens"], format_func=lambda v: vertical_labels.get(v, v))
+        selected_vertical = vertical_by_key.get(vertical_key) if vertical_key else None
+        if isinstance(selected_vertical, dict):
+            promise = selected_vertical.get("promise_commercial")
+            if promise:
+                st.caption(f"Promesa: {promise}")
+            files = selected_vertical.get("files") or {}
+            if isinstance(files, dict):
+                missing = [fname for fname, ok in files.items() if not ok]
+                if missing:
+                    st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
         origins_new = st.text_input("Allowed origins (coma)")
         limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
         maint_new = st.checkbox("Mantenimiento inicial", value=False)
