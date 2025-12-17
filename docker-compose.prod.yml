@@ -19,6 +19,8 @@ services:
       dockerfile: panel/Dockerfile.prod
     env_file:
       - .env.prod
+    environment:
+      - PANEL_NAV_V2=true
     depends_on:
       - api
     expose:

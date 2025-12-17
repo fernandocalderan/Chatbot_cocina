@@ -1,8 +1,8 @@
 import streamlit as st
 
 from auth import ensure_login
+from nav import render_sidebar, show_flash, nav_v2_enabled
 from utils import load_styles, metric_card
-from nav import render_sidebar, legacy_redirect, nav_v2_enabled
 from api_client import (
     count_leads,
     count_appointments,
@@ -14,13 +14,13 @@ from api_client import (
 st.set_page_config(page_title="Inicio", page_icon="🏠", layout="wide")
 load_styles()
 ensure_login()
-if nav_v2_enabled():
-    legacy_redirect("/Inicio", "pages/inicio.py")
+if not nav_v2_enabled():
+    st.switch_page("pages/00_Inicio.py")
     st.stop()
 render_sidebar()
 
-tenant_name = st.session_state.get("tenant_name", "Tu negocio")
-tenant_plan = str(st.session_state.get("tenant_plan", "BASE")).upper()
+show_flash()
+
 tenant_id = st.session_state.get("tenant_id")
 
 # Datos principales tolerantes a fallo
@@ -41,12 +41,14 @@ limit = float(
 )
 usage_pct = min((spent / limit) * 100.0, 100.0) if limit else 0.0
 
+
 def _safe_count(fn, **kwargs) -> int:
     try:
         value = fn(**kwargs)
         return int(value or 0)
     except Exception:
         return 0
+
 
 leads_total = _safe_count(count_leads)
 appointments_confirmed = _safe_count(count_appointments, status="confirmed")
@@ -62,20 +64,19 @@ action_cols = st.columns(3)
 with action_cols[0]:
     if st.button(f"Leads nuevos sin contactar: {leads_new}", use_container_width=True):
         try:
-            st.switch_page("pages/02_Oportunidades.py")
+            st.switch_page("pages/oportunidades.py")
         except Exception:
             pass
 with action_cols[1]:
     if st.button(f"Citas para hoy: {appointments_today}", use_container_width=True):
         try:
-            st.switch_page("pages/03_Agenda.py")
+            st.switch_page("pages/agenda.py")
         except Exception:
             pass
 with action_cols[2]:
-    # Prioritarios = heurística: leads confirmados/próximos
     if st.button("Prioritarias", use_container_width=True):
         try:
-            st.switch_page("pages/02_Oportunidades.py")
+            st.switch_page("pages/oportunidades.py")
         except Exception:
             pass
 
@@ -111,4 +112,4 @@ for payload in (quota, kpis, ia_metrics):
     if isinstance(payload, dict) and "status_code" in payload:
         api_status_codes.append(payload.get("status_code"))
 if any(code in (500, 502, 503, 504) for code in api_status_codes):
-    st.info("Estamos teniendo un problema temporal al cargar algunos datos. El asistente sigue funcionando.")
+    st.info("Estamos cargando la información. El asistente sigue activo.")

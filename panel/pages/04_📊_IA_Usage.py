@@ -3,7 +3,9 @@ import streamlit as st
 import pandas as pd
 
 from api_client import api_get, get_quota_status
-from utils import render_quota_banner, render_quota_usage_bar, metric_card
+from auth import ensure_login
+from nav import render_sidebar, legacy_redirect_with_tab, nav_v2_enabled
+from utils import load_styles, render_quota_banner, render_quota_usage_bar, metric_card, empty_state
 
 st.set_page_config(
     page_title="Consumo de IA",
@@ -11,13 +13,23 @@ st.set_page_config(
     layout="wide",
 )
 
+load_styles()
+ensure_login()
+if nav_v2_enabled():
+    legacy_redirect_with_tab("/IA_Usage", "pages/automatizacion.py", "nivel")
+    st.stop()
+render_sidebar()
+
 st.title("📊 Consumo de IA")
 st.caption("Coste, tokens y estado de cuota para el tenant activo.")
+st.info("Resumen simplificado: Automatización → Nivel de automatización.")
+if st.button("Abrir Automatización", use_container_width=True):
+    st.switch_page("pages/automatizacion.py")
 
 # --- Validación de sesión/rol ---
 role = st.session_state.get("role")
 if role not in {"SUPER_ADMIN", "ADMIN"}:
-    st.error("Acceso restringido: solo super-admin/admin puede ver esta página.")
+    empty_state("Acceso restringido", "Solo admin puede ver esta vista técnica. El asistente sigue activo.", icon="🔒")
     st.stop()
 
 token = st.session_state.get("token") or st.session_state.get("access_token")

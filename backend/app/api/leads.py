@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import or_
+from sqlalchemy.exc import ProgrammingError
 
 from app.api.auth import oauth2_scheme, require_auth
 from app.api.deps import get_db, get_tenant_id
@@ -69,17 +70,22 @@ def list_leads(
     lead_ids = [r.id for r in rows]
     last_activity_at: dict[str, str] = {}
     if lead_ids:
-        acts = (
-            db.query(Activity.lead_id, Activity.created_at)
-            .filter(Activity.tenant_id == tenant_id, Activity.lead_id.in_(lead_ids))
-            .order_by(Activity.lead_id.asc(), Activity.created_at.desc())
-            .all()
-        )
-        for lead_id, created_at in acts:
-            sid = str(lead_id)
-            if sid in last_activity_at:
-                continue
-            last_activity_at[sid] = created_at.isoformat() if created_at else None
+        try:
+            acts = (
+                db.query(Activity.lead_id, Activity.created_at)
+                .filter(Activity.tenant_id == tenant_id, Activity.lead_id.in_(lead_ids))
+                .order_by(Activity.lead_id.asc(), Activity.created_at.desc())
+                .all()
+            )
+            for lead_id, created_at in acts:
+                sid = str(lead_id)
+                if sid in last_activity_at:
+                    continue
+                last_activity_at[sid] = created_at.isoformat() if created_at else None
+        except ProgrammingError:
+            # Compat: algunas instalaciones no tienen la tabla activities (migración pendiente).
+            db.rollback()
+            last_activity_at = {}
 
     def _meta_plain(lead_obj):
         meta = lead_obj.meta_data or {}

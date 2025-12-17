@@ -118,6 +118,11 @@ Panel profesional (Streamlit) consumiendo la API
 - Fase 6 Agenda inteligente (PARCIAL)
   - Slots y reservas con idempotencia; pendiente recordatorios/webhooks de reintento y rate limits específicos.
 - Fase 7 Widget del chat (COMPLETADA)
+
+## TODO (próxima versión) — Panel tenant navegación V2
+- Mantener `PANEL_NAV_V2` como feature flag hasta validar en staging con tenant demo.
+- Eliminar páginas legacy (`panel/pages/00_*.py`, `panel/pages/02_*.py`, etc.) cuando V2 sea estable.
+- Consolidar alias/redirects y limpiar duplicados una vez que no haya tráfico a rutas antiguas.
   - Burbuja JS, session_id en localStorage, personalización (colores/logo/textos), carga inicial `/v1/tenant/config` con auth y whitelisting de origen.
 - Fase 8 Panel Streamlit (COMPLETADA mínimamente)
   - Login por tenant, vistas de leads/citas/historial/scoring/flujo, spinners y errores estandarizados; falta KPIs y rollback de flows desde UI.

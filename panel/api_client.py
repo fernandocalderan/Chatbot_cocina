@@ -13,6 +13,7 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8100").rstrip("/")
 API_PREFIX = "/v1"
 TENANT_ID = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
 API_TOKEN = os.getenv("PANEL_API_TOKEN")
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN") or os.getenv("ADMIN_API_KEY")
 logger = logging.getLogger(__name__)
 
 
@@ -131,14 +132,87 @@ def api_set_password(password: str, password_confirm: str):
     return None
 
 
+def _load_local_admin_api_token() -> str | None:
+    """
+    Conveniencia para entorno local:
+    - Si no hay ADMIN_API_TOKEN en env, intenta leerlo desde ../backend/.env.
+    - Solo aplica cuando API_BASE apunta a localhost/127.0.0.1.
+    """
+    if ADMIN_API_TOKEN:
+        return ADMIN_API_TOKEN
+    if "localhost" not in API_BASE and "127.0.0.1" not in API_BASE:
+        return None
+    try:
+        here = os.path.dirname(__file__)
+        env_path = os.path.abspath(os.path.join(here, "..", "backend", ".env"))
+        if not os.path.exists(env_path):
+            return None
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("ADMIN_API_TOKEN="):
+                    return line.split("=", 1)[1].strip()
+    except Exception:
+        return None
+    return None
+
+
+def admin_issue_magic_link(tenant_id: str, email: str | None = None, admin_api_token: str | None = None):
+    key = (admin_api_token or _load_local_admin_api_token() or "").strip()
+    if not key:
+        return {"status_code": 401, "detail": "missing_admin_api_token"}
+    payload: dict[str, Any] = {}
+    if email:
+        payload["email"] = email
+    try:
+        resp = requests.post(
+            f"{API_BASE}{API_PREFIX}/admin/tenants/{tenant_id}/magic-login",
+            json=payload,
+            headers={"x-api-key": key},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        st.info("No se pudo completar la operación con la API.")
+        logger.error("Admin magic link request failed: %s", exc)
+        return {"status_code": 0, "detail": str(exc)}
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp, fallback_message="No se pudo generar el magic link.")
+
+
 def _handle_api_error(resp: requests.Response, fallback_message: str = "No se pudo completar la operación con la API."):
     try:
         detail = resp.json()
     except Exception:
         detail = resp.text
     status = resp.status_code
-    # UX: evita exponer errores técnicos (códigos, payloads) al comercial.
-    st.info(fallback_message)
+    url = getattr(resp.request, "url", "") if getattr(resp, "request", None) else ""
+
+    # Caso especial: el backend bloquea por activación pendiente.
+    detail_str = ""
+    if isinstance(detail, dict):
+        detail_str = str(detail.get("detail") or "")
+    else:
+        detail_str = str(detail or "")
+
+    # Si el token ya no es válido, forzar re-login sin ensuciar la UI.
+    if status == 401 and "/auth/" not in url:
+        for k in ["token", "access_token", "must_set_password", "must_set_password_required"]:
+            st.session_state.pop(k, None)
+        st.session_state["_flash_message"] = "Necesitas iniciar sesión para continuar."
+        try:
+            st.switch_page("pages/auth.py")
+        except Exception:
+            pass
+        return {"detail": detail, "status_code": status}
+
+    # UX: evita banners repetidos.
+    if not st.session_state.get("_api_error_shown"):
+        if not (status == 403 and detail_str == "must_set_password_first"):
+            st.info(fallback_message)
+        st.session_state["_api_error_shown"] = True
     logger.error("API error %s %s: %s", status, getattr(resp.request, "url", "<sin_url>"), detail)
     return {"detail": detail, "status_code": status}
 
@@ -316,6 +390,27 @@ def get_ia_metrics(tenant_id: str):
 
 def get_tenant_config():
     return api_get("/tenant/config") or {}
+
+
+def update_tenant_config(language: str | None = None, timezone: str | None = None, currency: str | None = None):
+    payload: dict[str, Any] = {}
+    if language is not None:
+        payload["language"] = language
+    if timezone is not None:
+        payload["timezone"] = timezone
+    if currency is not None:
+        payload["currency"] = currency
+    if not payload:
+        return get_tenant_config()
+    return api_patch("/tenant/config", payload) or {}
+
+
+def get_widget_settings():
+    return api_get("/tenant/widget/settings") or {}
+
+
+def update_widget_settings(allowed_origins: list[str]):
+    return api_patch("/tenant/widget/settings", {"allowed_origins": allowed_origins}) or {}
 
 
 def _decode_jwt_payload(token: str | None) -> dict:

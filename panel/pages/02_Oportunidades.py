@@ -1,12 +1,17 @@
 import streamlit as st
 
 from auth import ensure_login
-from utils import load_styles
+from utils import load_styles, empty_state, loading_state, pill
+from nav import render_sidebar, legacy_redirect, nav_v2_enabled
 from api_client import list_leads
 
 st.set_page_config(page_title="Oportunidades", page_icon="📈", layout="wide")
 load_styles()
 ensure_login()
+if nav_v2_enabled():
+    legacy_redirect("/Oportunidades", "pages/oportunidades.py")
+    st.stop()
+render_sidebar()
 
 from crm_ui import (  # noqa: E402
     human_status,
@@ -31,7 +36,11 @@ def _open_lead(lead_id: str):
 st.title("Oportunidades")
 st.caption("Prioriza acciones comerciales: personas primero, datos solo si ayudan.")
 
+loader = st.empty()
+with loader.container():
+    loading_state()
 leads = list_leads() or []
+loader.empty()
 
 filters = st.columns(4)
 show_new = filters[0].checkbox("Nuevos", value=False)
@@ -67,7 +76,7 @@ for lead in leads:
     filtered.append(lead)
 
 if not filtered:
-    st.info("Aún no hay oportunidades nuevas.")
+    empty_state("Sin oportunidades nuevas", "Buen momento para revisar los leads en seguimiento o preparar las citas.", icon="📈")
     st.stop()
 
 # Tabla (sin IDs ni timestamps crudos)
@@ -98,8 +107,9 @@ for lead in filtered:
         row[2].markdown(f"[📞 {p.phone}](tel:{p.phone})")
     else:
         row[2].write("")
-    row[3].write(status)
-    row[4].write(prio)
+    row[3].markdown(pill(status, tone="info"), unsafe_allow_html=True)
+    pr_tone = "danger" if prio.startswith("🔥") else ("warning" if prio.startswith("⚡") else "info")
+    row[4].markdown(pill(prio, tone=pr_tone), unsafe_allow_html=True)
     row[5].write(last_txt)
     row[6].write(action)
     if row[7].button("Ver detalles", key=f"view-{pid}", use_container_width=True):

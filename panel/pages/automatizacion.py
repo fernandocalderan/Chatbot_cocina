@@ -1,36 +1,103 @@
+from __future__ import annotations
+
 import json
+import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from auth import ensure_login
-from nav import render_sidebar, legacy_redirect_with_tab, nav_v2_enabled
-from api_client import fetch_flow, update_flow, get_quota_status, get_ia_metrics, get_tenant_kpis, get_tenant_config
-from utils import load_styles, empty_state, metric_card, render_quota_banner, render_quota_usage_bar
+from nav import render_sidebar, show_flash, nav_v2_enabled
+from api_client import (
+    fetch_flow,
+    update_flow,
+    get_quota_status,
+    get_ia_metrics,
+    get_tenant_kpis,
+    get_tenant_config,
+)
+from utils import load_styles, empty_state, metric_card, render_quota_banner, pill
 
 st.set_page_config(page_title="Automatización", page_icon="🤖", layout="wide")
 load_styles()
 ensure_login()
-if nav_v2_enabled():
-    legacy_redirect_with_tab("/Automatizacion", "pages/automatizacion.py", "flujo")
+if not nav_v2_enabled():
+    st.switch_page("pages/04_Automatizacion.py")
     st.stop()
 render_sidebar()
+
+show_flash()
 
 st.title("Automatización")
 st.caption("Ajusta cómo responde el asistente y el nivel de automatización.")
 
-tab_flow, tab_brand, tab_level = st.tabs(
-    ["Cómo responde el asistente", "Imagen y mensajes", "Nivel de automatización"]
+_TAB_KEY_TO_LABEL = {
+    "flujo": "Cómo responde el asistente",
+    "branding": "Imagen y mensajes",
+    "nivel": "Nivel de automatización",
+}
+_TAB_LABEL_TO_KEY = {v: k for k, v in _TAB_KEY_TO_LABEL.items()}
+
+
+def _qp_get(key: str) -> str | None:
+    try:
+        value = st.query_params.get(key)
+        if isinstance(value, list):
+            value = value[0] if value else None
+        return str(value) if value else None
+    except Exception:
+        return None
+
+
+def _qp_set(key: str, value: str):
+    try:
+        st.query_params[key] = value
+    except Exception:
+        pass
+
+
+def _sync_subroute_from_path():
+    # Nota: no usamos subrutas tipo /automatizacion/flujo porque rompen assets de Streamlit.
+    return
+
+
+def _clean_url(tab_key: str):
+    # Mantener query params (no tocar pathname).
+    return
+
+
+_sync_subroute_from_path()
+
+tab_key = (_qp_get("tab") or st.session_state.get("_automation_tab") or "flujo").lower()
+if tab_key not in _TAB_KEY_TO_LABEL:
+    tab_key = "flujo"
+st.session_state["_automation_tab"] = tab_key
+
+tab_label = st.radio(
+    "Automatización",
+    options=list(_TAB_KEY_TO_LABEL.values()),
+    index=list(_TAB_KEY_TO_LABEL.keys()).index(tab_key),
+    horizontal=True,
+    label_visibility="collapsed",
 )
+selected_key = _TAB_LABEL_TO_KEY.get(tab_label, "flujo")
+if selected_key != tab_key:
+    st.session_state["_automation_tab"] = selected_key
+    _qp_set("tab", selected_key)
+    st.rerun()
 
-with tab_flow:
+st.caption(f"Automatización > {_TAB_KEY_TO_LABEL[selected_key]}")
+
+if selected_key == "flujo":
     st.subheader("Cómo responde el asistente")
-    st.caption("Edita mensajes y opciones sin tocar cosas técnicas.")
+    st.caption("Configura el comportamiento conversacional sin exponer complejidad técnica.")
 
-    show_advanced = st.toggle(
-        "Modo avanzado",
-        value=False,
-        help="Muestra identificadores y estructura técnica del flujo.",
-    )
+    with st.expander("Opciones avanzadas", expanded=False):
+        show_advanced = st.toggle(
+            "Mostrar detalles técnicos",
+            value=False,
+            help="Muestra identificadores y estructura técnica del flujo.",
+        )
 
     flow_key = "_flow_data"
     if st.button("Cargar flujo", use_container_width=True):
@@ -52,7 +119,6 @@ with tab_flow:
         if not block_items:
             empty_state("No hay bloques", "Este flujo no tiene bloques para editar.", icon="🧩")
         else:
-            editing_key = "_editing_block"
             for idx, (block_id, block) in enumerate(block_items, start=1):
                 text = block.get("text") or {}
                 es = (text.get("es") if isinstance(text, dict) else "") or ""
@@ -83,9 +149,9 @@ with tab_flow:
             with st.expander("Ver JSON (avanzado)", expanded=False):
                 st.code(json.dumps(flow_data, ensure_ascii=False, indent=2), language="json")
 
-with tab_brand:
+elif selected_key == "branding":
     st.subheader("Imagen y mensajes")
-    st.caption("Lo que ve tu cliente: nombre, logo y tono.")
+    st.caption("Controla cómo se presenta el asistente al cliente final.")
 
     cfg = get_tenant_config() or {}
     if isinstance(cfg, dict) and cfg.get("status_code"):
@@ -95,6 +161,7 @@ with tab_brand:
         logo = st.session_state.get("tenant_logo_url") or cfg.get("logo_url")
         lang = st.session_state.get("tenant_language") or cfg.get("language") or "es"
         tz = st.session_state.get("tenant_timezone") or cfg.get("timezone") or "Europe/Madrid"
+        tenant_id = st.session_state.get("tenant_id") or cfg.get("tenant_id") or os.getenv("PANEL_TENANT_ID", "<TENANT_ID>")
 
         c1, c2 = st.columns([0.6, 0.4])
         with c1:
@@ -107,14 +174,22 @@ with tab_brand:
             if logo:
                 st.image(logo, width=170)
             else:
-                empty_state("Sin logo", "Puedes añadirlo en Configuración → Widget.", icon="🖼️")
+                empty_state("Sin logo", "Puedes añadirlo con soporte o desde el panel de administración.", icon="🖼️")
 
         st.markdown("### Mensajes")
         st.caption("Los mensajes se ajustan en “Cómo responde el asistente”.")
+        st.divider()
+        st.markdown("### Instalación del widget")
+        st.caption("La instalación (snippet + token) se gestiona en Configuración.")
+        if st.button("Abrir Configuración", use_container_width=True):
+            st.session_state["_config_tab"] = "widget"
+            st.switch_page("pages/configuracion.py")
 
-with tab_level:
+else:
     st.subheader("Nivel de automatización")
-    st.caption("Estado de la IA, consumo del mes y avisos de límite.")
+    st.caption("Control simplificado del uso de IA.")
+
+    st.info("El asistente adapta su nivel de automatización según tu plan.")
 
     tenant_id = st.session_state.get("tenant_id")
     quota = get_quota_status() or {}
@@ -133,15 +208,20 @@ with tab_level:
 
     needs_upgrade = bool(quota_status.get("needs_upgrade_notice")) if isinstance(quota_status, dict) else False
     render_quota_banner(quota_status, needs_upgrade=needs_upgrade)
-    render_quota_usage_bar(quota_status, label="Consumo IA mensual")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        metric_card("Estado IA", "IA activa" if mode == "ACTIVE" else ("Modo ahorro" if mode == "SAVING" else "Bloqueado"), subtitle="", accent="#0D9488" if mode == "ACTIVE" else "#B45309")
-    with c2:
-        metric_card("Consumo (mes)", f"{spent:.2f} €", subtitle="A la fecha", accent="#1E88E5")
-    with c3:
-        metric_card("Límite (mes)", f"{limit:.2f} €" if limit else "—", subtitle="Tu plan", accent="#111827")
+    estado = "Activo" if mode == "ACTIVE" else "Ahorro"
+    tone = "success" if estado == "Activo" else "warning"
+    metric_card("Estado del asistente", estado, subtitle="", accent="#0D9488" if estado == "Activo" else "#B45309")
 
-    if mode != "ACTIVE":
+    pct = 0.0
+    if limit:
+        try:
+            pct = min(max((spent / limit) * 100.0, 0.0), 100.0)
+        except Exception:
+            pct = 0.0
+    usage_level = "Bajo" if pct < 50 else ("Medio" if pct < 80 else "Alto")
+    st.markdown(pill(f"Uso del límite: {usage_level}", tone=tone), unsafe_allow_html=True)
+    st.progress(pct / 100.0 if limit else 0.0)
+
+    if estado != "Activo":
         empty_state("El asistente sigue activo", "Podrás seguir captando oportunidades, pero algunas respuestas pueden simplificarse.", icon="✨")

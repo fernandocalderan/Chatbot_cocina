@@ -2,6 +2,7 @@ import datetime
 import jwt
 import uuid
 from pydantic import BaseModel
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -17,6 +18,55 @@ from app.services.quota_service import QuotaService
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
 
+_ALLOWED_LANGS = {"es", "pt", "en", "ca"}
+_ALLOWED_CURRENCIES = {"EUR", "BRL", "USD"}
+
+
+def _normalize_origin(origin: str) -> str | None:
+    raw = (origin or "").strip()
+    if not raw:
+        return None
+    try:
+        u = urlparse(raw)
+    except Exception:
+        return None
+    if u.scheme not in {"http", "https"}:
+        return None
+    if not u.netloc:
+        return None
+    if u.path or u.params or u.query or u.fragment:
+        return None
+    return f"{u.scheme}://{u.netloc}"
+
+
+def _serialize_config(tenant: Tenant) -> dict:
+    branding = getattr(tenant, "branding", {}) or {}
+    currency = branding.get("currency") or branding.get("Currency") or "EUR"
+    allowed = (
+        branding.get("allowed_widget_origins")
+        or branding.get("allowed_origins")
+        or branding.get("allowedOrigins")
+        or []
+    )
+    if not isinstance(allowed, list):
+        allowed = []
+    allowed_norm = [o for o in (_normalize_origin(str(x)) for x in allowed) if o]
+    return {
+        "tenant_id": str(tenant.id),
+        "customer_code": getattr(tenant, "customer_code", None),
+        "name": tenant.name,
+        "logo_url": getattr(tenant, "logo_url", None),
+        "theme": getattr(tenant, "theme", None) or "orange",
+        "language": tenant.idioma_default or "es",
+        "timezone": getattr(tenant, "timezone", None) or "Europe/Madrid",
+        "currency": str(currency).upper(),
+        "allowed_widget_origins": sorted(set(allowed_norm)),
+        "texts": {
+            "header_title": tenant.name or "Asistente virtual",
+            "header_subtitle": "Resolvemos tus dudas",
+        },
+    }
+
 
 @router.get("/config", dependencies=[Depends(require_auth)])
 def get_tenant_config(
@@ -30,18 +80,94 @@ def get_tenant_config(
             status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found"
         )
 
-    # En una versión posterior, esto leerá configuración personalizada por tenant (logo, colores, textos, idioma).
-    return {
-        "tenant_id": str(tenant.id),
-        "name": tenant.name,
-        "logo_url": getattr(tenant, "logo_url", None),
-        "theme": getattr(tenant, "theme", None) or "orange",
-        "language": tenant.idioma_default or "es",
-        "texts": {
-            "header_title": tenant.name or "Asistente virtual",
-            "header_subtitle": "Resolvemos tus dudas",
-        },
-    }
+    # Additivo: incluye timezone/currency/allowlist sin romper compatibilidad.
+    return _serialize_config(tenant)
+
+
+class TenantConfigUpdate(BaseModel):
+    language: str | None = None
+    timezone: str | None = None
+    currency: str | None = None
+
+
+@router.patch("/config", dependencies=[Depends(require_any_role("OWNER", "ADMIN"))])
+def update_tenant_config(
+    payload: TenantConfigUpdate,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    if payload.language:
+        lang = str(payload.language).lower()
+        if lang not in _ALLOWED_LANGS:
+            raise HTTPException(status_code=400, detail="invalid_language")
+        tenant.idioma_default = lang
+    if payload.timezone:
+        tz = str(payload.timezone).strip()
+        if not tz or len(tz) > 64:
+            raise HTTPException(status_code=400, detail="invalid_timezone")
+        tenant.timezone = tz
+    if payload.currency:
+        cur = str(payload.currency).upper().strip()
+        if cur not in _ALLOWED_CURRENCIES:
+            raise HTTPException(status_code=400, detail="invalid_currency")
+        branding["currency"] = cur
+    tenant.branding = branding
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return _serialize_config(tenant)
+
+
+class WidgetSettings(BaseModel):
+    allowed_origins: list[str] | None = None
+
+
+@router.get("/widget/settings", dependencies=[Depends(require_any_role("OWNER", "ADMIN"))])
+def get_widget_settings(
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    allowed = (
+        branding.get("allowed_widget_origins")
+        or branding.get("allowed_origins")
+        or branding.get("allowedOrigins")
+        or []
+    )
+    if not isinstance(allowed, list):
+        allowed = []
+    allowed_norm = [o for o in (_normalize_origin(str(x)) for x in allowed) if o]
+    return {"allowed_origins": sorted(set(allowed_norm))}
+
+
+@router.patch("/widget/settings", dependencies=[Depends(require_any_role("OWNER", "ADMIN"))])
+def update_widget_settings(
+    payload: WidgetSettings,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    allowed = payload.allowed_origins or []
+    allowed_norm = [o for o in (_normalize_origin(str(x)) for x in allowed) if o]
+    branding["allowed_widget_origins"] = sorted(set(allowed_norm))
+    tenant.branding = branding
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return {"allowed_origins": branding.get("allowed_widget_origins") or []}
 
 
 class WidgetTokenInput(BaseModel):
