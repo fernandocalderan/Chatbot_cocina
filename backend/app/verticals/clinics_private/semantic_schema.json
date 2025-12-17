@@ -1,0 +1,49 @@
+{
+  "service_context": {
+    "service_type": {
+      "type": "string",
+      "enum": [
+        "consulta",
+        "tratamiento",
+        "valoracion"
+      ]
+    },
+    "specialty": {
+      "type": "string",
+      "enum": [
+        "dental",
+        "fisio",
+        "psicologia",
+        "podologia",
+        "rehab"
+      ]
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "alta",
+        "media",
+        "baja"
+      ]
+    },
+    "first_time": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ]
+    },
+    "preferred_schedule": {
+      "type": "string",
+      "enum": [
+        "manana",
+        "tarde",
+        "indiferente"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "description": "Ciudad o código postal (sin datos clínicos)."
+    }
+  }
+}

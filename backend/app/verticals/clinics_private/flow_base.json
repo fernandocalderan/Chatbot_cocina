@@ -1,0 +1,286 @@
+{
+  "version": "clinics_private_base_v1",
+  "plan": "base",
+  "start_block": "welcome",
+  "languages": [
+    "es"
+  ],
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": {
+        "es": "Hola, soy el asistente de la clínica. Estoy aquí para orientarte y ayudarte a pedir una cita si corresponde. ¿Empezamos?",
+        "en": "Hi, I'm the clinic assistant. I can guide you and help you book an appointment if appropriate. Shall we start?"
+      },
+      "text_enriched": {
+        "es": "Hola, soy el asistente de la clínica. Para ayudarte con calma y claridad, te haré unas preguntas breves y, si corresponde, podrás solicitar una cita. ¿Empezamos?"
+      },
+      "next": "service_type"
+    },
+    "service_type": {
+      "id": "service_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tipo de consulta necesitas?",
+        "en": "What type of visit do you need?"
+      },
+      "text_enriched": {
+        "es": "Para orientarte mejor desde el inicio, ¿qué tipo de consulta necesitas?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Consulta",
+            "en": "Consultation"
+          },
+          "value": "consulta"
+        },
+        {
+          "label": {
+            "es": "Tratamiento",
+            "en": "Treatment"
+          },
+          "value": "tratamiento"
+        },
+        {
+          "label": {
+            "es": "Valoración",
+            "en": "Assessment"
+          },
+          "value": "valoracion"
+        }
+      ],
+      "save_to": "service_type",
+      "next": "specialty"
+    },
+    "specialty": {
+      "id": "specialty",
+      "type": "buttons",
+      "text": {
+        "es": "¿En qué especialidad encaja mejor tu consulta?",
+        "en": "Which specialty fits your request best?"
+      },
+      "text_enriched": {
+        "es": "Para dirigir tu solicitud al equipo adecuado, ¿en qué especialidad encaja mejor tu consulta?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Dental",
+            "en": "Dental"
+          },
+          "value": "dental"
+        },
+        {
+          "label": {
+            "es": "Fisioterapia / Osteopatía",
+            "en": "Physio / Osteopathy"
+          },
+          "value": "fisio"
+        },
+        {
+          "label": {
+            "es": "Psicología privada",
+            "en": "Private psychology"
+          },
+          "value": "psicologia"
+        },
+        {
+          "label": {
+            "es": "Podología",
+            "en": "Podiatry"
+          },
+          "value": "podologia"
+        },
+        {
+          "label": {
+            "es": "Rehabilitación",
+            "en": "Rehabilitation"
+          },
+          "value": "rehab"
+        }
+      ],
+      "save_to": "specialty",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué nivel de urgencia percibes?",
+        "en": "How urgent does it feel?"
+      },
+      "text_enriched": {
+        "es": "Para priorizar correctamente, ¿qué nivel de urgencia percibes?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Alta",
+            "en": "High"
+          },
+          "value": "alta"
+        },
+        {
+          "label": {
+            "es": "Media",
+            "en": "Medium"
+          },
+          "value": "media"
+        },
+        {
+          "label": {
+            "es": "Baja",
+            "en": "Low"
+          },
+          "value": "baja"
+        }
+      ],
+      "save_to": "urgency",
+      "next": "first_time"
+    },
+    "first_time": {
+      "id": "first_time",
+      "type": "buttons",
+      "text": {
+        "es": "¿Es tu primera visita con nosotros?",
+        "en": "Is this your first visit with us?"
+      },
+      "text_enriched": {
+        "es": "Para ajustar mejor la atención, ¿es tu primera visita con nosotros?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Sí, primera vez",
+            "en": "Yes, first time"
+          },
+          "value": "yes"
+        },
+        {
+          "label": {
+            "es": "No, es seguimiento",
+            "en": "No, follow-up"
+          },
+          "value": "no"
+        }
+      ],
+      "save_to": "first_time",
+      "next": "preferred_schedule"
+    },
+    "preferred_schedule": {
+      "id": "preferred_schedule",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué horario te viene mejor?",
+        "en": "Which schedule works best for you?"
+      },
+      "text_enriched": {
+        "es": "Para proponerte opciones cómodas, ¿qué horario te viene mejor?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Mañana",
+            "en": "Morning"
+          },
+          "value": "manana"
+        },
+        {
+          "label": {
+            "es": "Tarde",
+            "en": "Afternoon"
+          },
+          "value": "tarde"
+        },
+        {
+          "label": {
+            "es": "Indiferente",
+            "en": "No preference"
+          },
+          "value": "indiferente"
+        }
+      ],
+      "save_to": "preferred_schedule",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": {
+        "es": "¿En qué ciudad o código postal sería la cita?",
+        "en": "Which city or postal code would the appointment be in?"
+      },
+      "text_enriched": {
+        "es": "Para asignarte la clínica o agenda correcta, ¿en qué ciudad o código postal sería la cita?"
+      },
+      "save_to": "location",
+      "next": "cta_router"
+    },
+    "cta_router": {
+      "id": "cta_router",
+      "type": "condition",
+      "conditions": [
+        {
+          "if": "urgency == 'alta'",
+          "next": "appointment_offer"
+        },
+        {
+          "if": "",
+          "next": "info_before_booking"
+        }
+      ]
+    },
+    "info_before_booking": {
+      "id": "info_before_booking",
+      "type": "message",
+      "text": {
+        "es": "Gracias. Puedo ayudarte a reservar una cita para que un profesional valore tu caso en consulta. Recuerda: no realizamos diagnósticos por chat.",
+        "en": "Thanks. I can help you book an appointment so a professional can assess your case in person. Reminder: we don't provide diagnoses via chat."
+      },
+      "text_enriched": {
+        "es": "Gracias. Para hacerlo bien, lo adecuado es una cita con el profesional. Por aquí puedo ayudarte a reservarla (sin diagnósticos por chat)."
+      },
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": {
+        "es": "Elige día y franja horaria para tu cita:",
+        "en": "Choose a day and time slot for your appointment:"
+      },
+      "text_enriched": {
+        "es": "Si te parece bien, el siguiente paso es reservar una cita. Elige día y franja horaria:"
+      },
+      "text_variants": [
+        "Por lo que nos indicas, lo más adecuado es verlo en consulta. Elige día y franja horaria para tu cita:",
+        "Si te parece, podemos agendar una cita para orientarte con calma. Elige día y franja horaria:"
+      ],
+      "save_to": "appointment_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": {
+        "es": "Perfecto. Hemos registrado tu solicitud. Te esperamos en la cita. Si necesitas cambiarla, dínoslo con antelación.",
+        "en": "Perfect. We've registered your request. We'll see you at the appointment. If you need to change it, please let us know in advance."
+      },
+      "text_enriched": {
+        "es": "Perfecto. Ya está todo listo. Te esperamos en la cita. Si necesitas ajustarla, avísanos con antelación."
+      },
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

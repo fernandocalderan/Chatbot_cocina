@@ -1,0 +1,43 @@
+{
+  "vertical_key": "clinics_private",
+  "label": "Clínicas Privadas",
+  "scope": {
+    "included": [
+      "dental",
+      "fisioterapia",
+      "osteopatia",
+      "psicologia_privada",
+      "podologia",
+      "rehabilitacion"
+    ],
+    "excluded": [
+      "estetica",
+      "cirugia",
+      "diagnostico_clinico"
+    ]
+  },
+  "promise_commercial": "Atendemos a tus pacientes 24/7, filtramos consultas repetitivas y llenamos tu agenda con citas reales, sin saturar a tu equipo.",
+  "default_flow_id": "clinics_private_base_v1",
+  "flow_ids": [
+    "clinics_private_base_v1"
+  ],
+  "assets": {
+    "flow_base": "flow_base.json",
+    "prompt_vertical": "prompt_vertical.txt",
+    "semantic_schema": "semantic_schema.json",
+    "kpi_defaults": "kpi_defaults.json"
+  },
+  "locks": {
+    "vertical_key_immutable": true,
+    "vertical_prompt_locked": true,
+    "semantic_schema_locked": true
+  },
+  "conversational_intelligence": {
+    "v": "1.1",
+    "enabled": true,
+    "enriched_copy_enabled": true,
+    "ai_intervention_enabled": true,
+    "score_threshold": 70,
+    "friction_seconds": 12
+  }
+}

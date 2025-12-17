@@ -1,6 +1,7 @@
 import streamlit as st
 
 from auth import ensure_login
+from nav import nav_v2_enabled
 from utils import load_styles, render_quota_banner, render_quota_usage_bar, metric_card
 from api_client import (
     get_quota_status,
@@ -22,9 +23,10 @@ if "token" not in st.session_state:
         st.stop()
 ensure_login()
 try:
-    st.switch_page("pages/00_Inicio.py")
+    st.switch_page("pages/inicio.py" if nav_v2_enabled() else "pages/00_Inicio.py")
 except Exception:
     st.stop()
+st.stop()
 
 def hydrate_branding():
     if st.session_state.get("_branding_loaded"):
@@ -124,6 +126,5 @@ with tab_branding:
         st.text_input("Código comercial", value=st.session_state.get("customer_code", ""), disabled=True)
         if tenant_logo:
             st.image(tenant_logo, width=180)
-    st.markdown("Para cambiar logo/branding, ve a la sección *Widget* o contacta soporte.")
-    st.page_link("pages/07_Widget.py", label="Ir a configuración del Widget")
-    st.page_link("pages/06_Billing.py", label="Ir a Billing")
+    st.markdown("Para cambios de branding, billing, widget o accesos, usa Configuración.")
+    st.page_link("pages/configuracion.py", label="Abrir Configuración")

@@ -6,6 +6,7 @@ from api_client import (
     admin_login,
     admin_overview,
     create_tenant,
+    get_vertical,
     impersonate,
     issue_widget_token,
     admin_health,
@@ -14,6 +15,8 @@ from api_client import (
     exclude_tenant,
     issue_magic_link,
     list_tenants,
+    list_verticals,
+    resolve_admin_api_key,
     revoke_widget_tokens,
     toggle_maintenance,
     update_tenant,
@@ -35,11 +38,18 @@ load_styles()
 st.title("Opunnence — SuperAdmin")
 st.caption("Control global de tenants, dominios y tokens del widget.")
 
-admin_api_key = os.getenv("ADMIN_API_KEY")
+admin_api_key = resolve_admin_api_key()
+
+
+def _show_api_error(payload: object, fallback: str = "Error llamando a la API") -> bool:
+    if isinstance(payload, dict) and payload.get("error"):
+        st.error(f"{fallback} (HTTP {payload.get('status_code', 'N/A')}): {payload.get('error')}")
+        return True
+    return False
 
 with st.sidebar:
     if admin_api_key:
-        st.success("Autenticado con ADMIN_API_KEY (bypass OIDC).")
+        st.success("Autenticado con ADMIN_API_KEY/ADMIN_API_TOKEN (bypass OIDC).")
         st.session_state["admin_token"] = None
         st.session_state["admin_api_key"] = admin_api_key
     else:
@@ -63,6 +73,18 @@ api_key = st.session_state.get("admin_api_key") or admin_api_key
 if not token and not api_key:
     st.stop()
 
+vertical_payload = list_verticals(token, api_key=api_key) or {}
+_show_api_error(vertical_payload, fallback="No se pudo cargar el catálogo de verticales")
+vertical_items_raw = vertical_payload.get("items") or []
+vertical_items = [v for v in vertical_items_raw if isinstance(v, dict) and v.get("key")]
+vertical_items = sorted(
+    vertical_items,
+    key=lambda v: str(v.get("label") or v.get("key") or "").lower(),
+)
+vertical_keys = [v.get("key") for v in vertical_items if v.get("key")]
+vertical_labels = {v.get("key"): v.get("label") for v in vertical_items if v.get("key")}
+vertical_by_key = {v.get("key"): v for v in vertical_items if v.get("key")}
+
 # Banner de impersonación (visible en todas las vistas)
 impersonation_token = st.session_state.get("impersonation_token")
 if impersonation_token:
@@ -79,11 +101,14 @@ if impersonation_token:
             st.session_state.pop("impersonation_token", None)
             st.experimental_rerun()
 
-tabs = st.tabs(["📊 Overview", "🏢 Tenants", "➕ Crear tenant"])
+tabs = st.tabs(["📊 Overview", "🏢 Tenants", "🧩 Verticals", "➕ Crear tenant"])
 
 with tabs[0]:
-    ov = admin_overview(token) or {}
-    tenants = list_tenants(token) or []
+    ov = admin_overview(token, api_key=api_key) or {}
+    _show_api_error(ov, fallback="No se pudo cargar el overview")
+    tenants_payload = list_tenants(token, api_key=api_key)
+    tenants = tenants_payload if isinstance(tenants_payload, list) else []
+    _show_api_error(tenants_payload, fallback="No se pudo cargar el listado de tenants")
     saving = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "SAVING"]
     locked = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "LOCKED"]
 
@@ -95,7 +120,8 @@ with tabs[0]:
         st.metric("IA cost (mes)", f"{ov.get('ia_cost_month', 0):.2f} €")
     with col_errors:
         st.subheader("Errores recientes")
-        err_payload = admin_recent_errors(token) or {}
+        err_payload = admin_recent_errors(token, api_key=api_key) or {}
+        _show_api_error(err_payload, fallback="No se pudieron cargar errores recientes")
         errs = err_payload.get("items") or []
         if errs:
             for err in errs[:5]:
@@ -106,7 +132,8 @@ with tabs[0]:
             st.info("Sin errores recientes")
 
     col_h1, col_h2, col_h3, col_h4 = st.columns(4)
-    health = admin_health(token) or {}
+    health = admin_health(token, api_key=api_key) or {}
+    _show_api_error(health, fallback="No se pudo cargar el estado de health")
     status_badge = lambda v: ("🟢" if v in ("UP", "OK") else "🟠") if v else "⚪"
     col_h1.metric("API", f"{status_badge(health.get('api'))} {health.get('api', 'N/A')}")
     col_h2.metric("DB", f"{status_badge(health.get('db'))} {health.get('db', 'N/A')}")
@@ -118,7 +145,8 @@ with tabs[0]:
     alerts_box = st.container()
     with alerts_box:
         st.subheader("Alertas activas")
-        alert_payload = admin_alerts(token) or {}
+        alert_payload = admin_alerts(token, api_key=api_key) or {}
+        _show_api_error(alert_payload, fallback="No se pudieron cargar alertas")
         alerts = alert_payload.get("items") or []
         if not alerts:
             st.info("Sin alertas")
@@ -163,13 +191,23 @@ with tabs[1]:
         value="",
         placeholder="Ej: demo@kitchens.com | Demo Kitchens | OPN-000123",
     )
-    tenants = list_tenants(token, search_text.strip() or None) or []
+    tenants_payload = list_tenants(token, search_text.strip() or None, api_key=api_key)
+    tenants = tenants_payload if isinstance(tenants_payload, list) else []
+    _show_api_error(tenants_payload, fallback="No se pudo cargar el listado de tenants")
     st.caption(f"Resultados: {len(tenants)}")
 
     for t in tenants:
         code = t.get("customer_code") or "N/D"
         with st.expander(f"{t.get('name')} — {t.get('plan')} — {code} — {t.get('id')}"):
             st.text_input("Código comercial", value=code, disabled=True, key=f"code-{t['id']}")
+            if vertical_keys:
+                current_vertical = t.get("vertical_key") or vertical_keys[0]
+                st.text_input(
+                    "Vertical actual",
+                    value=vertical_labels.get(current_vertical, current_vertical),
+                    disabled=True,
+                    key=f"vertical-label-{t['id']}",
+                )
 
             st.markdown("**Plan y Billing**")
             cols = st.columns(3)
@@ -195,6 +233,17 @@ with tabs[1]:
             )
             origins = st.text_area("Allowed origins (coma)", value=",".join(t.get("allowed_origins") or []), key=f"origins-{t['id']}")
             use_ia = st.checkbox("IA habilitada", value=bool(t.get("ia_enabled", True)), key=f"use-ia-{t['id']}")
+            new_vertical = None
+            force_vertical = False
+            if vertical_keys:
+                new_vertical = st.selectbox(
+                    "Cambiar vertical",
+                    vertical_keys,
+                    index=vertical_keys.index(current_vertical) if current_vertical in vertical_keys else 0,
+                    format_func=lambda v: vertical_labels.get(v, v),
+                    key=f"vertical-{t['id']}",
+                )
+                force_vertical = st.checkbox("Forzar cambio de vertical", value=False, key=f"force-vertical-{t['id']}")
 
             if st.button("Guardar", key=f"save-{t['id']}"):
                 payload = {
@@ -206,10 +255,13 @@ with tabs[1]:
                     "use_ia": use_ia,
                     "billing_status": billing_status,
                 }
-                res = update_tenant(token, t["id"], payload)
+                if new_vertical and new_vertical != current_vertical:
+                    payload["vertical_key"] = new_vertical
+                    payload["force_vertical"] = force_vertical
+                res = update_tenant(token, t["id"], payload, api_key=api_key)
                 st.success(f"Actualizado: {res}")
             if st.button("ON/OFF mantenimiento", key=f"maint-{t['id']}"):
-                res = toggle_maintenance(token, t["id"], not maint)
+                res = toggle_maintenance(token, t["id"], not maint, api_key=api_key)
                 st.success(res)
 
             st.markdown("**Accesos y Widget**")
@@ -221,7 +273,7 @@ with tabs[1]:
             )
             ttl = col_t2.slider("TTL minutos", 15, 60, 30, key=f"ttl-{t['id']}")
             if st.button("Generar token widget", key=f"token-{t['id']}"):
-                res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl)
+                res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl, api_key=api_key)
                 if "token" in res:
                     st.code(res["token"], language="text")
                 else:
@@ -233,7 +285,7 @@ with tabs[1]:
                     if confirm_text.strip().upper() != "REVOCAR":
                         st.warning("Escribe REVOCAR para continuar.")
                     else:
-                        res = revoke_widget_tokens(token, t["id"])
+                        res = revoke_widget_tokens(token, t["id"], api_key=api_key)
                         if "revoked_before" in res:
                             st.success(f"Revocados. Nueva marca: {res['revoked_before']}")
                         else:
@@ -241,7 +293,7 @@ with tabs[1]:
             with st.expander("Magic link (acceso tenant)", expanded=False):
                 ml_email = st.text_input("Email destino", value=t.get("contact_email") or "", key=f"ml-email-{t['id']}")
                 if st.button("Generar magic link", key=f"ml-btn-{t['id']}"):
-                    res = issue_magic_link(token, t["id"], ml_email.strip() or None)
+                    res = issue_magic_link(token, t["id"], ml_email.strip() or None, api_key=api_key)
                     if res.get("token"):
                         st.code(res["token"], language="text")
                         st.success(f"Enlace enviado/emitido para {res.get('email')}")
@@ -256,14 +308,14 @@ with tabs[1]:
                     if excl_confirm.strip().upper() != "EXCLUIR":
                         st.warning("Escribe EXCLUIR para continuar.")
                     else:
-                        res = exclude_tenant(token, t["id"], excl_reason.strip() or None)
+                        res = exclude_tenant(token, t["id"], excl_reason.strip() or None, api_key=api_key)
                         if res.get("excluded"):
                             st.success("Tenant marcado como excluido.")
                         else:
                             st.error(res)
 
             if st.button("Impersonar", key=f"imp-{t['id']}"):
-                res = impersonate(token, t["id"])
+                res = impersonate(token, t["id"], api_key=api_key)
                 if "token" in res:
                     st.session_state["impersonation_token"] = res["token"]
                     st.code(res["token"], language="text")
@@ -272,11 +324,92 @@ with tabs[1]:
                     st.error(res)
 
 with tabs[2]:
+    st.subheader("Verticals")
+    st.caption("Catálogo de verticales (plantillas ADMIN) detectadas por la API.")
+    if not vertical_items:
+        st.warning("No se han encontrado verticales.")
+    else:
+        st.markdown("**Detalle de vertical**")
+        selected_key = st.selectbox(
+            "Selecciona un vertical",
+            vertical_keys,
+            format_func=lambda v: vertical_labels.get(v, v),
+            key="vertical-detail-select",
+        )
+        if selected_key:
+            detail = get_vertical(token, selected_key, api_key=api_key) or {}
+            if detail.get("error"):
+                st.error(detail.get("error"))
+            else:
+                cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
+                assets = detail.get("assets") if isinstance(detail.get("assets"), dict) else {}
+                files = detail.get("files") if isinstance(detail.get("files"), dict) else {}
+                st.markdown(f"**Key:** `{detail.get('key') or selected_key}`")
+                promise = cfg.get("promise_commercial")
+                if promise:
+                    st.caption(f"Promesa: {promise}")
+                missing = [fname for fname, ok in files.items() if not ok] if files else []
+                if missing:
+                    st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
+                with st.expander("metadata.json", expanded=False):
+                    st.json(assets.get("metadata") or cfg or {})
+                with st.expander("flow_base.json", expanded=False):
+                    st.json(assets.get("flow_base") or {})
+                with st.expander("semantic_schema.json", expanded=False):
+                    st.json(assets.get("semantic_schema") or {})
+                with st.expander("kpi_defaults.json", expanded=False):
+                    st.json(assets.get("kpi_defaults") or {})
+                with st.expander("prompt_vertical.txt", expanded=False):
+                    st.code(assets.get("prompt_vertical") or "", language="text")
+                with st.expander("prompt_vertical_extension.txt", expanded=False):
+                    st.code(assets.get("prompt_vertical_extension") or "", language="text")
+
+        st.divider()
+        for v in vertical_items:
+            key = v.get("key")
+            label = v.get("label") or key
+            with st.expander(f"{label} — {key}", expanded=False):
+                promise = v.get("promise_commercial")
+                if promise:
+                    st.markdown(f"**Promesa comercial:** {promise}")
+                st.markdown(f"**Default flow:** `{v.get('default_flow_id') or 'n/d'}`")
+                ci = v.get("conversational_intelligence") or {}
+                if isinstance(ci, dict) and ci:
+                    st.markdown("**CI v1.1:**")
+                    st.json(ci)
+                scope = v.get("scope") or {}
+                if isinstance(scope, dict) and scope:
+                    st.markdown("**Scope:**")
+                    st.json(scope)
+                files = v.get("files") or {}
+                if isinstance(files, dict) and files:
+                    missing = [fname for fname, ok in files.items() if not ok]
+                    if missing:
+                        st.warning(f"Faltan archivos: {', '.join(missing)}")
+                    else:
+                        st.success("Archivos mínimos OK.")
+                if v.get("flow_template_exists") is False:
+                    st.warning("No hay flujo disponible (falta `flow_base.json` y no hay fallback en `backend/app/flows/`).")
+                else:
+                    st.caption(f"Fuente de flujo en runtime: `{v.get('flow_source') or 'n/d'}`")
+
+with tabs[3]:
     st.subheader("Crear tenant")
     with st.form("create-tenant-form"):
         name = st.text_input("Nombre")
         contact = st.text_input("Email contacto")
         plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
+        vertical_key = st.selectbox("Vertical", vertical_keys or ["kitchens"], format_func=lambda v: vertical_labels.get(v, v))
+        selected_vertical = vertical_by_key.get(vertical_key) if vertical_key else None
+        if isinstance(selected_vertical, dict):
+            promise = selected_vertical.get("promise_commercial")
+            if promise:
+                st.caption(f"Promesa: {promise}")
+            files = selected_vertical.get("files") or {}
+            if isinstance(files, dict):
+                missing = [fname for fname, ok in files.items() if not ok]
+                if missing:
+                    st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
         origins_new = st.text_input("Allowed origins (coma)")
         limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
         maint_new = st.checkbox("Mantenimiento inicial", value=False)
@@ -292,8 +425,9 @@ with tabs[2]:
                 "maintenance": maint_new,
                 "use_ia": use_ia_new,
                 "ia_enabled": use_ia_new,
+                "vertical_key": vertical_key,
             }
-            res = create_tenant(token, payload)
+            res = create_tenant(token, payload, api_key=api_key)
             if res and "id" in res:
                 st.success(f"Tenant creado: {res['id']}")
             else:

@@ -3,6 +3,8 @@ from typing import Dict, Tuple, Optional
 
 from openai import OpenAI
 
+from app.services.verticals import fetch_tenant_vertical_key, vertical_prompt
+
 
 class AIClient:
     def __init__(self, api_key: str | None = None, model: str | None = None, use_ai: bool = True):
@@ -23,11 +25,15 @@ class AIClient:
             return brief, 0, 0
 
         prompt = prompt_text or self._build_prompt(lead_data)
+        system_msg = "Eres un asistente comercial. Redacta breve, claro y orientado a accion."
+        v_prompt = self._vertical_prompt(lead_data)
+        if v_prompt:
+            system_msg = f"{v_prompt}\n\n{system_msg}"
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Eres un asistente de ventas de cocinas y muebles a medida. Redacta breve, claro y orientado a acción."},
+                    {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=180,
@@ -46,7 +52,7 @@ class AIClient:
         def get(k): return data.get(k) or "N/D"
 
         return (
-            "Genera un briefing comercial corto (5-6 líneas) para un proyecto de cocinas/muebles a medida:\n"
+            "Genera un briefing comercial corto (5-6 lineas) para un proyecto del cliente:\n"
             f"- Tipo de proyecto: {get('project_type')}\n"
             f"- Medidas: {get('measures')}\n"
             f"- Estilo: {get('style')}\n"
@@ -85,12 +91,15 @@ class AIClient:
             return self._deterministic_snippet(kind, vars_data), 0, 0
 
         system_prompts = {
-            "welcome": "Eres un asistente amable de una tienda de cocinas/muebles. Redacta un saludo breve, cálido y profesional.",
+            "welcome": "Eres un asistente amable. Redacta un saludo breve, calido y profesional.",
             "closing": "Eres un asistente amable. Redacta un cierre corto invitando a seguir en contacto.",
-            "micro_proposal": "Eres un consultor de cocinas/muebles. Genera una micro-propuesta de 3-4 líneas con próxima acción.",
+            "micro_proposal": "Eres un consultor comercial. Genera una micro-propuesta de 3-4 lineas con proxima accion.",
         }
         user_prompt = self._build_prompt(vars_data)
         system_msg = system_prompts.get(kind, system_prompts["welcome"])
+        v_prompt = self._vertical_prompt(vars_data)
+        if v_prompt:
+            system_msg = f"{v_prompt}\n\n{system_msg}"
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
@@ -108,6 +117,13 @@ class AIClient:
             return text, tokens_in, tokens_out
         except Exception:
             return self._deterministic_snippet(kind, vars_data), 0, 0
+
+    def _vertical_prompt(self, data: Dict) -> str | None:
+        tenant_id = data.get("tenant_id") if isinstance(data, dict) else None
+        if not tenant_id:
+            return None
+        v_key = fetch_tenant_vertical_key(str(tenant_id))
+        return vertical_prompt(v_key)
 
     def _deterministic_snippet(self, kind: str, data: Dict) -> str:
         name = data.get("contact_name") or "allí"

@@ -295,6 +295,11 @@ async def require_auth(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token"
             )
+        token_type = (payload.get("type") or "TENANT").upper()
+        if token_type == "WIDGET" and request is not None:
+            path = request.url.path if request.url else ""
+            if not path.startswith("/v1/widget"):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
         jti = payload.get("jti")
         if jti and JWTBlacklist(km.redis_url).is_blacklisted(jti):
             raise HTTPException(

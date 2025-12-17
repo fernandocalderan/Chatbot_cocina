@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -32,6 +33,12 @@ from datetime import datetime, timedelta, timezone
 from app.services.plan_limits import require_active_subscription
 from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
+from app.services.flow_templates import apply_materials
+from app.services.flow_resolver import resolve_runtime_flow
+from app.services.verticals import resolve_flow_id, get_vertical_config
+from app.services.agenda_service import AgendaService
+from app.models.configs import Config
+from app.services.conversational_intelligence import is_doubt_text, is_question_text, resolve_block_text
 
 try:
     from app.services.ai.ai_engine import ai_extract, ai_reply, last_ai_fallback
@@ -41,6 +48,17 @@ except Exception:
 router = APIRouter(prefix="/chat", tags=["chat"])
 pii_service = PIIService()
 PII_AUTO_UPGRADE = os.getenv("PII_AUTO_UPGRADE") == "1"
+
+DEFAULT_SCORING = {
+    "weights": {
+        "budget": 2,
+        "urgency": 2,
+        "area_m2": 1,
+        "style_defined": 1,
+        "origin": 1,
+    },
+    "thresholds": {"premium_min": 90, "hot_min": 70, "warm_min": 40},
+}
 
 
 class ChatInput(BaseModel):
@@ -181,8 +199,10 @@ def _hydrate_from_ai_extract(state: dict, ai_data: dict | None):
         "estilo": "style",
         "style": "style",
         "presupuesto": "budget",
+        "presupuesto_rango": "budget",
         "budget": "budget",
         "urgencia": "urgency",
+        "urgencia_escala": "urgency",
         "urgency": "urgency",
         "project_type": "project_type",
     }
@@ -192,7 +212,191 @@ def _hydrate_from_ai_extract(state: dict, ai_data: dict | None):
             vars_ref[dest] = val
 
 
+def _apply_aliases(vars_data: dict) -> None:
+    mapping = {
+        "nombre": "contact_name",
+        "name": "contact_name",
+        "telefono": "contact_phone",
+        "phone": "contact_phone",
+        "email": "contact_email",
+        "correo": "contact_email",
+        "tipo_proyecto": "project_type",
+        "project_type": "project_type",
+        "presupuesto": "budget",
+        "budget": "budget",
+        "urgencia": "urgency",
+        "urgency": "urgency",
+        "estilo": "style",
+        "style": "style",
+        "metros": "measures",
+        "measures": "measures",
+        "m2": "sqm",
+        "metros_cuadrados": "sqm",
+        "sqm": "sqm",
+        "ubicacion": "location",
+        "location": "location",
+    }
+    for src, dest in mapping.items():
+        val = vars_data.get(src)
+        if val and not vars_data.get(dest):
+            vars_data[dest] = val
+        label_src = f"{src}_label"
+        label_dest = f"{dest}_label"
+        label_val = vars_data.get(label_src)
+        if label_val and not vars_data.get(label_dest):
+            vars_data[label_dest] = label_val
+
+
+def _normalize_scoring(scoring_cfg: dict | None) -> dict:
+    if not isinstance(scoring_cfg, dict):
+        return dict(DEFAULT_SCORING)
+    if not scoring_cfg.get("weights"):
+        merged = dict(DEFAULT_SCORING)
+        merged.update(scoring_cfg)
+        return merged
+    return scoring_cfg
+
+
+def _has_min_contact(vars_data: dict) -> bool:
+    name = vars_data.get("contact_name")
+    phone = vars_data.get("contact_phone")
+    email = vars_data.get("contact_email")
+    return bool(name and (phone or email))
+
+
+def _resolve_option_label(options: list, chosen: str, lang: str, default_lang: str) -> str:
+    chosen_str = str(chosen)
+    for opt in options or []:
+        if not isinstance(opt, dict):
+            if chosen_str == str(opt):
+                return str(opt)
+            continue
+        opt_id = opt.get("id") or opt.get("value") or opt.get("label")
+        label = opt.get("label") or opt.get("label_es") or opt.get("label_en")
+        label_value = label
+        if isinstance(label, dict):
+            label_value = label.get(lang) or label.get(default_lang) or next(iter(label.values()), None)
+        if chosen_str in {str(opt_id), str(opt.get("value")), str(label_value)}:
+            return str(label_value or opt_id or chosen_str)
+    return chosen_str
+
+
+def _append_relatorio_entry(
+    *,
+    state: dict,
+    step: str,
+    value: str,
+    source: str,
+    db,
+    tenant_id: str,
+    lead_id: str | None,
+):
+    if not step or not value:
+        return
+    vars_data = state.setdefault("vars", {})
+    entries = vars_data.get("relatorio_entries")
+    if not isinstance(entries, list):
+        entries = []
+    entry = {
+        "step": step,
+        "value": value,
+        "source": source,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if entries:
+        last = entries[-1] if isinstance(entries[-1], dict) else {}
+        if last.get("step") == entry["step"] and last.get("value") == entry["value"]:
+            return
+    entries.append(entry)
+    vars_data["relatorio_entries"] = entries
+    if lead_id:
+        try:
+            from app.models.activity import Activity
+
+            act = Activity(
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                user_id=None,
+                type="relatorio",
+                content=f"{step}: {value}",
+                meta=entry,
+            )
+            db.add(act)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+def _upsert_lead_from_vars(
+    *,
+    db,
+    tenant_id: str,
+    session_id: str,
+    vars_data: dict,
+    scoring_cfg: dict | None,
+    source: str,
+) -> DBLead | None:
+    _apply_aliases(vars_data)
+    vars_data.setdefault("origin", source)
+    if not _has_min_contact(vars_data):
+        return None
+    scoring_cfg = _normalize_scoring(scoring_cfg)
+    score = vars_data.get("lead_score")
+    breakdown = vars_data.get("lead_score_breakdown") or {}
+    if score is None:
+        score, breakdown = compute_score(vars_data, scoring_cfg)
+        vars_data["lead_score"] = score
+        vars_data["lead_score_breakdown"] = breakdown
+    thresholds = scoring_cfg.get("thresholds", {})
+    lead_status = map_score_to_status(int(score or 0), thresholds)
+    protected_keys = {"internal_note", "quote_status", "quote_sent_at"}
+    filtered_vars = {k: v for k, v in vars_data.items() if k not in {"available_slots"}}
+    lead = (
+        db.query(DBLead)
+        .filter(DBLead.session_id == session_id, DBLead.tenant_id == tenant_id)
+        .first()
+    )
+    if lead:
+        existing_meta = pii_service.decrypt_meta(lead.meta_data or {})
+        merged = dict(existing_meta)
+        for key in protected_keys:
+            if key in existing_meta and key not in filtered_vars:
+                merged[key] = existing_meta[key]
+        merged.update(filtered_vars)
+        encrypted_meta, _ = pii_service.encrypt_meta(merged, tenant_id)
+        lead.meta_data = encrypted_meta
+        lead.pii_version = 1
+        lead.score = score
+        lead.score_breakdown_json = breakdown
+        if lead.status in {None, "", "nuevo"}:
+            lead.status = lead_status
+    else:
+        encrypted_meta, _ = pii_service.encrypt_meta(filtered_vars, tenant_id)
+        lead = DBLead(
+            tenant_id=tenant_id,
+            session_id=session_id,
+            status=lead_status or "nuevo",
+            score=score,
+            score_breakdown_json=breakdown,
+            meta_data=encrypted_meta,
+            pii_version=1,
+            source=source,
+            origen=source,
+        )
+        db.add(lead)
+        metrics.inc_counter(
+            "leads_created_total",
+            {"tenant_id": tenant_id, "source": source},
+        )
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+    return lead
+
+
 def compute_score(vars_data: dict, scoring_cfg: dict) -> tuple[int, dict]:
+    scoring_cfg = _normalize_scoring(scoring_cfg)
     weights = scoring_cfg.get("weights", {})
     breakdown = {}
     total_weight = sum(weights.values()) or 1
@@ -330,7 +534,40 @@ def send_message(
     if plan_value and hasattr(plan_value, "value"):
         plan_value = plan_value.value
     plan_value = plan_value or "base"
-    flow_data = load_flow_for_plan(plan_value)
+    # Flow template: base por plan + override por materiales del tenant (si existen).
+    materials = None
+    try:
+        row = (
+            db.query(Config)
+            .filter(Config.tenant_id == tenant_id, Config.tipo == "tenant_flow_materials")
+            .order_by(Config.version.desc(), Config.updated_at.desc())
+            .all()
+        )
+        for r in row:
+            materials_payload = r.payload_json or {}
+            if str(materials_payload.get("status") or "").upper() == "PUBLISHED":
+                materials = materials_payload
+                break
+    except Exception:
+        materials = None
+
+    tenant_vertical_key = getattr(tenant, "vertical_key", None)
+    flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
+    flow_id_override = resolve_flow_id(flow_id_override, tenant_vertical_key)
+    flow_data = resolve_runtime_flow(
+        db=db,
+        tenant=tenant,
+        flow_id_override=flow_id_override,
+        plan_value=str(plan_value or "base").lower(),
+    )
+    flow_data = apply_materials(flow_data, materials)
+    vertical_cfg = get_vertical_config(tenant_vertical_key) if tenant_vertical_key else {}
+    ci_cfg = vertical_cfg.get("conversational_intelligence") if isinstance(vertical_cfg.get("conversational_intelligence"), dict) else {}
+    ci_enabled = bool(ci_cfg.get("enabled", False))
+    ci_copy_enabled = bool(ci_cfg.get("enriched_copy_enabled", ci_enabled))
+    ci_ai_enabled = bool(ci_cfg.get("ai_intervention_enabled", ci_enabled))
+    ci_score_threshold = int(ci_cfg.get("score_threshold", 70) or 70)
+    ci_friction_seconds = int(ci_cfg.get("friction_seconds", 12) or 12)
     flags = tenant.flags_ia if tenant else {}
     plan_limits = get_plan_limits(plan_value)
     plan_ai_enabled = (plan_limits.get("features") or {}).get("ia_enabled", True)
@@ -343,6 +580,12 @@ def send_message(
     use_ai_intent = bool(
         settings.use_ia and plan_ai_enabled and tenant_ai_enabled and flags_enabled
     )
+    if isinstance(materials, dict):
+        auto_cfg = materials.get("automation") if isinstance(materials.get("automation"), dict) else {}
+        ai_level = str(auto_cfg.get("ai_level") or "").lower()
+        saving_mode = bool(auto_cfg.get("saving_mode") or False)
+        if saving_mode or ai_level in {"off", "low"}:
+            use_ai_intent = False
     ai_extractor = (
         AIExtractor(settings.openai_api_key, settings.ai_model)
         if use_ai_intent
@@ -352,6 +595,7 @@ def send_message(
     executor = ActionExecutor(settings)
     ai_extract_meta = None
     ai_reply_text = None
+    raw_user_text = payload.message
 
     session_id = payload.session_id or str(uuid4())
     set_request_context(
@@ -399,6 +643,16 @@ def send_message(
     else:
         state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
 
+    now_ts = time.time()
+    ci_state = state.get("_ci") if isinstance(state.get("_ci"), dict) else {}
+    last_bot_ts = ci_state.get("last_bot_ts")
+    response_delay_s = None
+    try:
+        if isinstance(last_bot_ts, (int, float)) and last_bot_ts:
+            response_delay_s = max(float(now_ts) - float(last_bot_ts), 0.0)
+    except Exception:
+        response_delay_s = None
+
     if not use_ai_intent:
         _register_ai_fallback(state, "ai_disabled", session_id, tenant_id)
 
@@ -420,25 +674,96 @@ def send_message(
     # Validar input según bloque
     block_type = current_block.get("type")
     save_key = current_block.get("save_as") or current_block.get("save_to")
+    user_message_for_storage = payload.message
+    user_was_free_text = False
     if block_type in ("input",):
         validate_input(current_block, payload.message)
         if save_key:
             state.setdefault("vars", {})[save_key] = payload.message
+        user_was_free_text = True
     elif block_type in ("options", "buttons"):
         options_list = current_block.get("options", []) or []
-        option_ids = [
-            opt.get("id") or opt.get("value") or opt.get("label")
-            for opt in options_list
-        ]
-        chosen = (
-            payload.message
-            if payload.message in option_ids
-            else (option_ids[0] if option_ids else payload.message)
+        default_lang = (flow_data.get("languages") or ["es"])[0]
+        lang_hint = (
+            payload.lang
+            or state.get("vars", {}).get("language")
+            or state.get("vars", {}).get("lang")
+            or default_lang
         )
+        raw_choice = str(raw_user_text or "").strip()
+
+        def _opt_id(opt: object) -> str | None:
+            if isinstance(opt, dict):
+                val = opt.get("id") or opt.get("value")
+                return str(val) if val is not None else None
+            if opt is None:
+                return None
+            return str(opt)
+
+        def _opt_label(opt: object) -> str:
+            if not isinstance(opt, dict):
+                return str(opt) if opt is not None else ""
+            label = opt.get("label") or opt.get("label_es") or opt.get("label_en")
+            if isinstance(label, dict):
+                return str(
+                    label.get(str(lang_hint))
+                    or label.get(str(default_lang))
+                    or next(iter(label.values()), "")
+                    or ""
+                )
+            return str(label) if label is not None else ""
+
+        option_ids = [oid for opt in options_list if (oid := _opt_id(opt))]
+        matched = False
+        chosen: str | None = None
+
+        # 1) Match directo por ID/value
+        if raw_choice and raw_choice in option_ids:
+            matched = True
+            chosen = raw_choice
+
+        # 2) Match por label (para widget/usuarios que envían el texto visible)
+        if not chosen and raw_choice:
+            for opt in options_list:
+                oid = _opt_id(opt)
+                if not oid:
+                    continue
+                label_value = _opt_label(opt)
+                if raw_choice == label_value:
+                    matched = True
+                    chosen = oid
+                    break
+                if isinstance(opt, dict):
+                    label = opt.get("label")
+                    if isinstance(label, dict):
+                        for v in label.values():
+                            if raw_choice == str(v or ""):
+                                matched = True
+                                chosen = oid
+                                break
+                    if matched:
+                        break
+
+        # 3) Fallback conservador (no romper paths existentes)
+        if not chosen:
+            chosen = option_ids[0] if option_ids else payload.message
+            user_was_free_text = bool(option_ids) and not matched
+        else:
+            user_was_free_text = False
+
         if save_key:
             state.setdefault("vars", {})[save_key] = chosen
+            human_label = _resolve_option_label(
+                current_block.get("options", []) or [],
+                chosen,
+                str(lang_hint),
+                str(default_lang),
+            )
+            if human_label:
+                state.setdefault("vars", {})[f"{save_key}_label"] = human_label
+                user_message_for_storage = str(human_label)
         payload.message = chosen
-    elif block_type == "appointment":
+    elif block_type in ("appointment", "calendar"):
         try:
             slot_dt = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
         except ValueError:
@@ -447,6 +772,8 @@ def send_message(
         future_limit = now + timedelta(days=365)
         if slot_dt < now or slot_dt > future_limit:
             raise HTTPException(status_code=400, detail="invalid_appointment_slot")
+        if save_key:
+            state.setdefault("vars", {})[save_key] = payload.message
         state.setdefault("vars", {})["appointment_slot"] = payload.message
     elif block_type == "attachment":
         # payload.message expected to be file_id or s3_key reference
@@ -455,6 +782,55 @@ def send_message(
         state["vars"]["attachments"].append({save_as: payload.message})
     elif block_type == "message":
         pass
+
+    vars_data = state.setdefault("vars", {})
+    _apply_aliases(vars_data)
+
+    # Conversational intelligence (v1.1) tracking: keep it out of vars to avoid polluting lead meta.
+    ci = state.setdefault("_ci", {})
+    if isinstance(ci, dict):
+        ci["free_text_seen"] = bool(ci.get("free_text_seen")) or bool(user_was_free_text)
+        ci["last_user_was_free_text"] = bool(user_was_free_text)
+        ci["last_user_doubt"] = bool(is_doubt_text(raw_user_text))
+        ci["last_user_question"] = bool(is_question_text(raw_user_text))
+        ci["last_user_ts"] = float(now_ts)
+
+    # Registrar entrada en relatório para widget (evitar IDs y duplicados).
+    if vars_data.get("channel") == "web_widget" and save_key and payload.message:
+        default_lang = (flow_data.get("languages") or ["es"])[0]
+        lang_hint = payload.lang or vars_data.get("language") or vars_data.get("lang") or default_lang
+        if block_type in ("options", "buttons"):
+            human_value = _resolve_option_label(
+                current_block.get("options", []) or [],
+                payload.message,
+                lang_hint,
+                default_lang,
+            )
+        else:
+            human_value = payload.message
+        lead_id_hint = vars_data.get("lead_id")
+        _append_relatorio_entry(
+            state=state,
+            step=save_key,
+            value=str(human_value),
+            source="widget",
+            db=db,
+            tenant_id=tenant_id,
+            lead_id=str(lead_id_hint) if lead_id_hint else None,
+        )
+
+    # Crear/actualizar lead cuando hay datos mínimos (solo widget).
+    if vars_data.get("channel") == "web_widget":
+        lead_obj = _upsert_lead_from_vars(
+            db=db,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            vars_data=vars_data,
+            scoring_cfg=flow_data.get("scoring"),
+            source="widget",
+        )
+        if lead_obj:
+            vars_data["lead_id"] = str(lead_obj.id)
 
     # Intent heuristic o IA (flag use_ia)
     if current_block.get("type") == "input":
@@ -508,13 +884,13 @@ def send_message(
         session_id,
         tenant_id,
         "user",
-        payload.message,
+        user_message_for_storage,
         block_id=current_block_id,
         ai_meta=ai_extract_meta,
     )
 
-    # Si bloque es appointment, guardar slot elegido y book en agenda
-    if current_block.get("type") == "appointment":
+    # Si bloque es appointment/calendar, guardar slot elegido y book en agenda
+    if current_block.get("type") in ("appointment", "calendar"):
         state.setdefault("vars", {})["appointment_slot"] = payload.message
         visit_type = state.get("vars", {}).get("visit_type")
         slot_start = datetime.fromisoformat(payload.message.replace("Z", "+00:00"))
@@ -526,9 +902,16 @@ def send_message(
         )
         lead_id = lead.id if lead else None
         lead_tenant = lead.tenant_id if lead else tenant_id
-        executor.agenda_service.book(
+        appt = executor.agenda_service.book(
             db, lead_id, lead_tenant, slot_start, slot_end, visit_type
         )
+        if appt and lead:
+            lead.status = "cita_programada"
+            db.add(lead)
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
 
     next_block_id = engine.next_block(current_block, payload.message)
     if next_block_id:
@@ -576,8 +959,13 @@ def send_message(
         session_mgr.save(session_id, state)
         next_block = engine.get_block(next_block_id)
 
-    lang = pick_lang(flow_data, payload.lang or state.get("lang"))
+    requested_lang = payload.lang
+    if not requested_lang and isinstance(materials, dict):
+        content_cfg = materials.get("content") if isinstance(materials.get("content"), dict) else {}
+        requested_lang = content_cfg.get("language") or content_cfg.get("lang")
+    lang = pick_lang(flow_data, requested_lang or state.get("lang"))
     state["lang"] = lang
+    state.setdefault("vars", {})["language"] = lang
     session_mgr.save(session_id, state)
 
     # Persist session to DB
@@ -681,19 +1069,34 @@ def send_message(
         data = dict(block)
         # Seleccionar texto por idioma si es dict
         if "text" in data:
-            data["text"] = engine.choose_text(
-                block, lang, flow_data.get("languages", ["es"])[0]
+            default_lang = flow_data.get("languages", ["es"])[0]
+            prelim_score = 0
+            try:
+                prelim_score, _ = compute_score(vars_data, flow_data.get("scoring", {}) or {})
+            except Exception:
+                prelim_score = 0
+            data["text"] = resolve_block_text(
+                block,
+                lang=str(lang),
+                default_lang=str(default_lang),
+                enabled=bool(ci_copy_enabled),
+                use_ai=bool(use_ai_intent),
+                ci_state=state.get("_ci") if isinstance(state.get("_ci"), dict) else {},
+                raw_user_text=raw_user_text,
+                response_delay_s=response_delay_s,
+                prelim_score=int(prelim_score or 0),
+                score_threshold=int(ci_score_threshold),
+                friction_seconds=int(ci_friction_seconds),
             )
-        if data.get("type") == "appointment":
-            from datetime import datetime, timedelta
-
-            now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-            slots = [
-                (now + timedelta(hours=2)).isoformat() + "Z",
-                (now + timedelta(hours=3)).isoformat() + "Z",
-                (now + timedelta(hours=4)).isoformat() + "Z",
-            ]
-            data["slots"] = slots
+        if data.get("type") in {"appointment", "calendar"}:
+            tenant_id = (state.get("vars") or {}).get("tenant_id")
+            visit_type = (state.get("vars") or {}).get("visit_type")
+            slots = []
+            if tenant_id:
+                slots = AgendaService(db=db).get_slots(
+                    tenant_id=str(tenant_id), visit_type=visit_type, location=None, db=db
+                )
+            data["slots"] = slots or []
         return {"id": block_id, **data}
 
     # Ejecutar bloques automáticos (ai_extract) antes de responder al usuario
@@ -788,9 +1191,17 @@ def send_message(
                 bot_block.get("fallback_text") or bot_block.get("text") or ""
             )
         bot_block["type"] = "message"
-    # Si el bloque es appointment, rellenar slots desde estado
-    if bot_block.get("type") == "appointment":
+    # Si el bloque es appointment/calendar, rellenar slots desde estado o agenda
+    if bot_block.get("type") in {"appointment", "calendar"}:
         slots_state = state.get("vars", {}).get("available_slots")
+        if not slots_state:
+            tenant_id = state.get("vars", {}).get("tenant_id")
+            visit_type = state.get("vars", {}).get("visit_type")
+            if tenant_id:
+                slots_state = AgendaService(db=db).get_slots(
+                    tenant_id=str(tenant_id), visit_type=visit_type, location=None, db=db
+                )
+                state.setdefault("vars", {})["available_slots"] = slots_state
         if slots_state:
             bot_block["slots"] = slots_state
     # Ejecutar acciones del bloque
@@ -805,7 +1216,23 @@ def send_message(
             "flow_conversations_completed_total", {"tenant_id": tenant_id}
         )
     session_mgr.save(session_id, state)
-    if ai_reply and use_ai_intent:
+    should_ai_intervene = bool(
+        ci_ai_enabled
+        and use_ai_intent
+        and ai_reply
+        and (vars_data.get("channel") == "web_widget")
+        and isinstance(state.get("_ci"), dict)
+        and (
+            state.get("_ci", {}).get("last_user_doubt")
+            or state.get("_ci", {}).get("last_user_question")
+            or (
+                state.get("_ci", {}).get("last_user_was_free_text")
+                and isinstance(raw_user_text, str)
+                and len(raw_user_text.strip()) >= 20
+            )
+        )
+    )
+    if should_ai_intervene:
         simple_context = {"vars": state.get("vars", {}), "bot_block": bot_block}
         try:
             ai_reply_text = (
@@ -835,6 +1262,13 @@ def send_message(
             logger.warning({"event": "ai_reply_failed", "error": str(exc)})
             ai_reply_text = None
             _register_ai_fallback(state, "ai_reply_error", session_id, tenant_id)
+        # Para el widget: si intervenimos con IA, debe redirigir al siguiente bloque
+        # previsto (sin cambiar el flujo). Adjuntamos la pregunta del bloque actual.
+        if ai_reply_text and bot_block.get("text"):
+            try:
+                ai_reply_text = f"{str(ai_reply_text).strip()}\n\n{str(bot_block.get('text')).strip()}"
+            except Exception:
+                pass
 
     # Guardar mensaje del bot
     bot_ai_meta = {"ai_reply": ai_reply_text} if ai_reply_text else None
@@ -868,6 +1302,15 @@ def send_message(
             or opt.get("value")
             or opt.get("id")
         )
+        if isinstance(label, dict):
+            label = (
+                label.get(lang)
+                or label.get("es")
+                or label.get("en")
+                or label.get("pt")
+                or label.get("ca")
+                or (next(iter(label.values()), "") if label else "")
+            )
         opt_id = opt.get("id") or opt.get("value") or opt.get("label")
         opts.append({"id": opt_id, "label": label})
 
@@ -898,5 +1341,13 @@ def send_message(
         if quota_status.mode == UsageMode.SAVING:
             response_data["saving_mode"] = True
     idemp_store.set(idempotency_key, response_data)
+    # Persist CI timestamps (root state, not vars).
+    try:
+        ci = state.setdefault("_ci", {})
+        if isinstance(ci, dict):
+            ci["last_bot_ts"] = float(time.time())
+        session_mgr.save(session_id, state)
+    except Exception:
+        pass
     end_span()
     return response_data

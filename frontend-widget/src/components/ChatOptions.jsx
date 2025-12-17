@@ -8,15 +8,16 @@ function resolveLabel(label) {
 }
 
 export default function ChatOptions({ options, onSelect }) {
+  const normalized = Array.isArray(options) ? options : [];
   return (
     <div className="options-container">
-      {options.map((opt) => (
+      {normalized.map((opt) => (
         <span
-          key={opt.id}
+          key={typeof opt === "string" ? opt : opt.id}
           className="option-chip"
           onClick={() => onSelect(opt)}
         >
-          {resolveLabel(opt.label)}
+          {resolveLabel(typeof opt === "string" ? opt : opt.label)}
         </span>
       ))}
     </div>

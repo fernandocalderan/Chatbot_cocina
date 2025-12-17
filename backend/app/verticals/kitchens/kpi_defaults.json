@@ -1,0 +1,16 @@
+{
+  "lead_scoring": {
+    "weights": {
+      "budget": 2,
+      "urgency": 2,
+      "area_m2": 1,
+      "style_defined": 1,
+      "origin": 1
+    },
+    "thresholds": {
+      "premium_min": 90,
+      "hot_min": 70,
+      "warm_min": 40
+    }
+  }
+}

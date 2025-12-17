@@ -6,16 +6,34 @@
   animation: fadeIn 0.3s ease;
 }
 
+.chat-window-wrapper.pos-bottom-left {
+  left: 28px;
+  right: auto;
+}
+
 .chat-window {
   width: 380px;
   height: 600px;
   background: var(--panel-bg);
-  border-radius: 18px;
+  border-radius: calc(var(--widget-radius) + 4px);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
   position: relative;
   animation: slideUp 0.25s ease;
+}
+
+.chat-window.size-sm {
+  width: 340px;
+  height: 520px;
+}
+.chat-window.size-md {
+  width: 380px;
+  height: 600px;
+}
+.chat-window.size-lg {
+  width: 420px;
+  height: 680px;
 }
 
 .chat-close {

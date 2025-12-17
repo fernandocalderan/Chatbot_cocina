@@ -1,13 +1,13 @@
-FONT_FAMILY = "'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+FONT_FAMILY = "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 COLORS = {
     "primary": "#6B5B95",  # violeta sobrio
-    "background": "#F5F5F7",
+    "background": "#F7F8FA",
     "panel": "#FFFFFF",
-    "text": "#1F2937",
+    "text": "#111827",
     "muted": "#6B7280",
     "border": "#E5E7EB",
-    "shadow": "0 12px 30px rgba(17, 24, 39, 0.08)",
+    "shadow": "0 10px 24px rgba(17, 24, 39, 0.08)",
 }
 
 STATE_COLORS = {

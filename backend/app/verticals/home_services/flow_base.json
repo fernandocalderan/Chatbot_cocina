@@ -1,0 +1,303 @@
+{
+  "version": "home_services_base_v1",
+  "plan": "base",
+  "start_block": "welcome",
+  "languages": [
+    "es"
+  ],
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": {
+        "es": "Hola, soy el asistente. Te ayudo a resolver tu solicitud de forma rápida y a coordinar visita o presupuesto si corresponde. ¿Empezamos?"
+      },
+      "text_enriched": {
+        "es": "Hola, soy el asistente. Para no hacerte perder tiempo, te haré unas preguntas rápidas y, si corresponde, coordinamos visita o presupuesto. ¿Empezamos?"
+      },
+      "next": "service_type"
+    },
+    "service_type": {
+      "id": "service_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué necesitas?",
+        "en": "What do you need?"
+      },
+      "text_enriched": {
+        "es": "Para orientarte bien desde el inicio, ¿qué necesitas?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Instalación",
+            "en": "Installation"
+          },
+          "value": "instalacion"
+        },
+        {
+          "label": {
+            "es": "Reparación",
+            "en": "Repair"
+          },
+          "value": "reparacion"
+        },
+        {
+          "label": {
+            "es": "Presupuesto",
+            "en": "Quote"
+          },
+          "value": "presupuesto"
+        }
+      ],
+      "save_to": "service_type",
+      "next": "category"
+    },
+    "category": {
+      "id": "category",
+      "type": "buttons",
+      "text": {
+        "es": "¿En qué categoría encaja mejor?",
+        "en": "Which category fits best?"
+      },
+      "text_enriched": {
+        "es": "Para asignarte al equipo adecuado, ¿en qué categoría encaja mejor?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Clima (A/A, calefacción)",
+            "en": "HVAC"
+          },
+          "value": "clima"
+        },
+        {
+          "label": {
+            "es": "Solar (placas)",
+            "en": "Solar"
+          },
+          "value": "solar"
+        },
+        {
+          "label": {
+            "es": "Cerramientos",
+            "en": "Enclosures"
+          },
+          "value": "cerramientos"
+        },
+        {
+          "label": {
+            "es": "Carpintería metálica",
+            "en": "Metal carpentry"
+          },
+          "value": "carpinteria"
+        },
+        {
+          "label": {
+            "es": "Electricidad",
+            "en": "Electrical"
+          },
+          "value": "electricidad"
+        },
+        {
+          "label": {
+            "es": "Fontanería",
+            "en": "Plumbing"
+          },
+          "value": "fontaneria"
+        },
+        {
+          "label": {
+            "es": "Otros",
+            "en": "Other"
+          },
+          "value": "otros"
+        }
+      ],
+      "save_to": "category",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué nivel de urgencia tiene?",
+        "en": "How urgent is it?"
+      },
+      "text_enriched": {
+        "es": "Para priorizar bien, ¿qué nivel de urgencia tiene?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Alta",
+            "en": "High"
+          },
+          "value": "alta"
+        },
+        {
+          "label": {
+            "es": "Media",
+            "en": "Medium"
+          },
+          "value": "media"
+        },
+        {
+          "label": {
+            "es": "Baja",
+            "en": "Low"
+          },
+          "value": "baja"
+        }
+      ],
+      "save_to": "urgency",
+      "next": "property_type"
+    },
+    "property_type": {
+      "id": "property_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿En qué tipo de inmueble es el trabajo?",
+        "en": "What type of property is it?"
+      },
+      "text_enriched": {
+        "es": "Para organizar el desplazamiento y herramientas, ¿en qué tipo de inmueble es el trabajo?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Piso",
+            "en": "Apartment"
+          },
+          "value": "piso"
+        },
+        {
+          "label": {
+            "es": "Casa",
+            "en": "House"
+          },
+          "value": "casa"
+        },
+        {
+          "label": {
+            "es": "Local",
+            "en": "Commercial"
+          },
+          "value": "local"
+        }
+      ],
+      "save_to": "property_type",
+      "next": "access_availability"
+    },
+    "access_availability": {
+      "id": "access_availability",
+      "type": "buttons",
+      "text": {
+        "es": "¿Tienes acceso al inmueble para revisar/actuar?",
+        "en": "Do you have access to the property?"
+      },
+      "text_enriched": {
+        "es": "Para coordinar la visita o actuación, ¿tienes acceso al inmueble?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Inmediata",
+            "en": "Immediate"
+          },
+          "value": "inmediata"
+        },
+        {
+          "label": {
+            "es": "Hay que concertar",
+            "en": "Need to schedule"
+          },
+          "value": "concertar"
+        }
+      ],
+      "save_to": "access_availability",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": {
+        "es": "¿En qué ciudad o código postal es el servicio?",
+        "en": "Which city or postal code is the service in?"
+      },
+      "text_enriched": {
+        "es": "Para confirmar zona y disponibilidad real, ¿en qué ciudad o código postal es el servicio?"
+      },
+      "save_to": "location",
+      "next": "cta_router"
+    },
+    "cta_router": {
+      "id": "cta_router",
+      "type": "condition",
+      "conditions": [
+        {
+          "if": "service_type in ['instalacion','reparacion']",
+          "next": "appointment_offer"
+        },
+        {
+          "if": "service_type == 'presupuesto'",
+          "next": "info_before_booking"
+        },
+        {
+          "if": "",
+          "next": "appointment_offer"
+        }
+      ]
+    },
+    "info_before_booking": {
+      "id": "info_before_booking",
+      "type": "message",
+      "text": {
+        "es": "Gracias. Para darte un presupuesto ajustado, normalmente necesitamos una visita o revisión inicial. Por aquí puedo ayudarte a reservarla.",
+        "en": "Thanks. To provide an accurate quote we usually need an initial visit or assessment. I can help you book it here."
+      },
+      "text_enriched": {
+        "es": "Gracias. Para no darte un precio que no encaje, lo habitual es una visita o revisión inicial. Por aquí puedo ayudarte a reservarla."
+      },
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": {
+        "es": "Elige día y franja horaria para la visita/llamada:",
+        "en": "Choose a day and time slot:"
+      },
+      "text_enriched": {
+        "es": "Si te parece bien, el siguiente paso es coordinar una visita o llamada. Elige día y franja horaria:"
+      },
+      "text_variants": [
+        "Por lo que nos indicas, lo más eficaz es coordinar una visita/llamada. Elige día y franja horaria:",
+        "Perfecto. Si te va bien, coordinamos una visita/llamada para revisarlo con calma. Elige día y franja horaria:"
+      ],
+      "save_to": "appointment_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": {
+        "es": "Perfecto. Hemos registrado tu solicitud. Nuestro equipo revisará la información y te contactará si hace falta algún detalle antes de la cita.",
+        "en": "Perfect. We've registered your request. Our team will review it and contact you if any detail is needed before the appointment."
+      },
+      "text_enriched": {
+        "es": "Perfecto. Ya está todo listo. Revisamos la información y, si falta algún detalle, te contactamos antes de la cita."
+      },
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

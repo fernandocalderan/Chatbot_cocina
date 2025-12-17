@@ -42,20 +42,22 @@ def render_quota_banner(quota_status: str | dict | None, needs_upgrade: bool = F
     if status == "ACTIVE":
         return
     copy = QUOTA_COPY["LOCKED"] if status == "LOCKED" else QUOTA_COPY["SAVING"]
-    tone = "error" if status == "LOCKED" else "warning"
+    tone = "danger" if status == "LOCKED" else "warning"
     palette = STATE_COLORS.get(tone, STATE_COLORS["warning"])
     st.markdown(
         f"""
-        <div style="border:1px solid {palette['fg']}33;background:{palette['bg']};color:{palette['fg']};padding:12px 14px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:18px;line-height:1;">{"🔒" if status=="LOCKED" else "⚠️"}</span>
-            <div>
-              <div style="font-weight:700;font-size:15px;font-family:{FONT_FAMILY};">{copy['title']}</div>
-              <div style="font-size:13px;">{copy['message']}</div>
+        <div class="op-card" style="border-left:4px solid {palette['fg']};background:{palette['bg']};">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <div style="font-size:18px;line-height:1;margin-top:2px;">{"🔒" if status=="LOCKED" else "⚠️"}</div>
+              <div>
+                <div style="font-weight:600;font-size:14px;">{copy['title']}</div>
+                <div style="font-size:13px;color:{COLORS.get('text')};opacity:0.9;">{copy['message']}</div>
+              </div>
             </div>
-          </div>
-          <div>
-            {"<a style='background:"+COLORS.get('primary')+";color:#fff;padding:8px 12px;border-radius:8px;font-weight:700;text-decoration:none;' href='"+upgrade_url+"'>"+copy['cta']+"</a>" if upgrade_url else "<span style='font-weight:700;'>"+copy['cta']+"</span>"}
+            <div>
+              {"<a class='op-btn op-btn-primary' style='background:"+COLORS.get('primary')+";color:#fff;padding:10px 12px;border-radius:10px;font-weight:600;text-decoration:none;display:inline-block;' href='"+upgrade_url+"'>"+copy['cta']+"</a>" if upgrade_url else "<span style='font-weight:600;'>"+copy['cta']+"</span>"}
+            </div>
           </div>
         </div>
         """,
@@ -81,10 +83,10 @@ def render_quota_usage_bar(quota_status: dict | None, label: str = "Consumo IA")
 def metric_card(title: str, value: str, subtitle: str | None = None, accent: str = "#1E88E5"):
     st.markdown(
         f"""
-        <div style="background:{COLORS.get('panel')};border:1px solid {COLORS.get('border')};border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:{COLORS.get('shadow')};">
-          <div style="font-size:12px;color:{COLORS.get('muted')};font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">{title}</div>
-          <div style="font-size:26px;font-weight:700;color:{accent};line-height:1.2;font-family:{FONT_FAMILY};">{value}</div>
-          {f'<div style="font-size:13px;color:{COLORS.get('muted')};margin-top:4px;">{subtitle}</div>' if subtitle else ''}
+        <div class="op-card" style="margin-bottom:12px;">
+          <div class="op-card-kicker">{title}</div>
+          <div class="op-card-value" style="color:{accent};">{value}</div>
+          {f'<div class="op-card-subtitle">{subtitle}</div>' if subtitle else ''}
         </div>
         """,
         unsafe_allow_html=True,
@@ -92,6 +94,35 @@ def metric_card(title: str, value: str, subtitle: str | None = None, accent: str
 
 
 def pill(text: str, tone: str = "info"):
-    palette = STATE_COLORS.get(tone, STATE_COLORS["info"])
-    bg, fg = palette["bg"], palette["fg"]
-    return f'<span style="display:inline-block;padding:6px 12px;border-radius:999px;background:{bg};color:{fg};font-weight:700;font-size:12px;font-family:{FONT_FAMILY};">{text}</span>'
+    tone_norm = (tone or "info").lower()
+    if tone_norm == "error":
+        tone_norm = "danger"
+    if tone_norm not in {"success", "warning", "danger", "info"}:
+        tone_norm = "info"
+    palette = STATE_COLORS.get(tone_norm, STATE_COLORS["info"])
+    # Mantén colores del DS aunque Streamlit no aplique clases en todos los lugares.
+    return f'<span class="op-pill op-pill--{tone_norm}" style="background:{palette["bg"]};color:{palette["fg"]};">{text}</span>'
+
+
+def empty_state(title: str, message: str, icon: str = "✨"):
+    st.markdown(
+        f"""
+        <div class="op-card" style="text-align:left;">
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            <div style="font-size:20px;line-height:1;">{icon}</div>
+            <div>
+              <div style="font-weight:600;margin-bottom:2px;">{title}</div>
+              <div style="color:{COLORS.get('muted')};font-size:13px;">{message}</div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def loading_state(message: str = "Estamos cargando la información. El asistente sigue activo."):
+    st.info(message)
+    st.markdown('<div class="op-skeleton-line"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="op-skeleton-line" style="width:85%;"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="op-skeleton-line" style="width:70%;"></div>', unsafe_allow_html=True)

@@ -2,6 +2,7 @@ import streamlit as st
 
 from auth import ensure_login
 from utils import load_styles, metric_card
+from nav import render_sidebar, legacy_redirect, nav_v2_enabled
 from api_client import (
     count_leads,
     count_appointments,
@@ -13,6 +14,10 @@ from api_client import (
 st.set_page_config(page_title="Inicio", page_icon="🏠", layout="wide")
 load_styles()
 ensure_login()
+if nav_v2_enabled():
+    legacy_redirect("/Inicio", "pages/inicio.py")
+    st.stop()
+render_sidebar()
 
 tenant_name = st.session_state.get("tenant_name", "Tu negocio")
 tenant_plan = str(st.session_state.get("tenant_plan", "BASE")).upper()
@@ -68,7 +73,7 @@ with action_cols[1]:
             pass
 with action_cols[2]:
     # Prioritarios = heurística: leads confirmados/próximos
-    if st.button("Oportunidades prioritarias: Revisar ahora", use_container_width=True):
+    if st.button("Prioritarias", use_container_width=True):
         try:
             st.switch_page("pages/02_Oportunidades.py")
         except Exception:

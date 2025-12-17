@@ -1,0 +1,7 @@
+{
+  "qualified_requests": true,
+  "visit_requests": true,
+  "urgency_distribution": true,
+  "time_to_contact": true,
+  "tenant_retention": true
+}

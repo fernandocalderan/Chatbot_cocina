@@ -1,10 +1,12 @@
 import ChatContainer from "./ChatContainer";
 import "../styles/window.css";
 
-export default function ChatWindow({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, logoUrl, strings, onClose }) {
+export default function ChatWindow({ apiUrl, widgetToken, runtime, strings, onClose }) {
+  const position = runtime?.tokens?.bubble?.position || runtime?.visual?.position || "bottom-right";
+  const size = runtime?.tokens?.bubble?.size || runtime?.visual?.size || "md";
   return (
-    <div className="chat-window-wrapper">
-      <div className="chat-window" data-theme={tenantTheme}>
+    <div className={`chat-window-wrapper pos-${position}`}>
+      <div className={`chat-window size-${size}`}>
         <button
           className="chat-close"
           onClick={onClose}
@@ -15,11 +17,8 @@ export default function ChatWindow({ apiUrl, apiKey, widgetToken, tenantId, tena
         </button>
         <ChatContainer
           apiUrl={apiUrl}
-          apiKey={apiKey}
           widgetToken={widgetToken}
-          tenantId={tenantId}
-          tenantTheme={tenantTheme}
-          logoUrl={logoUrl}
+          runtime={runtime}
           strings={strings}
         />
       </div>

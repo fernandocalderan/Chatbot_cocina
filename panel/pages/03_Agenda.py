@@ -1,7 +1,8 @@
 import streamlit as st
 
 from auth import ensure_login
-from utils import load_styles
+from utils import load_styles, empty_state, loading_state, pill
+from nav import render_sidebar, legacy_redirect, nav_v2_enabled
 from api_client import list_appointments, confirm_appointment, cancel_appointment, get_lead
 from crm_ui import format_time, format_day, day_bucket, human_status, lead_person  # noqa: E402
 from datetime import datetime, timezone
@@ -14,11 +15,19 @@ except Exception:  # pragma: no cover
 st.set_page_config(page_title="Agenda", page_icon="📅", layout="wide")
 load_styles()
 ensure_login()
+if nav_v2_enabled():
+    legacy_redirect("/Agenda", "pages/agenda.py")
+    st.stop()
+render_sidebar()
 
 st.title("Agenda")
 st.caption("Hoy y próximos días, con acciones rápidas.")
 
+loader = st.empty()
+with loader.container():
+    loading_state()
 appts = list_appointments() or []
+loader.empty()
 
 tenant_tz = st.session_state.get("tenant_timezone", "Europe/Madrid")
 
@@ -44,7 +53,11 @@ def _open_lead(lead_id: str):
 
 
 if not appts:
-    st.info("No tienes citas hoy. Buen momento para contactar oportunidades pendientes.\n\nEl asistente seguirá captando oportunidades.")
+    empty_state(
+        "No tienes citas hoy",
+        "Buen momento para contactar oportunidades pendientes. El asistente seguirá captando oportunidades.",
+        icon="📅",
+    )
     st.stop()
 
 # Ordenar y separar por fecha (sin timestamps crudos)
@@ -74,7 +87,7 @@ else:
         visit_type = (appt.get("visit_type") or "").lower()
         tipo = "Llamada" if visit_type in {"chat", "call", "llamada"} else "Visita"
         st.markdown(f"**🕙 {hour} — {name}**")
-        st.caption(f"{tipo} · {human_status(appt.get('status'))}")
+        st.markdown(f"{pill(tipo, tone='info')} {pill(human_status(appt.get('status')), tone='success' if appt.get('status')=='confirmed' else 'warning')}", unsafe_allow_html=True)
         c = st.columns([0.25, 0.25, 0.25, 0.25])
         if lead_id and c[0].button("Ver lead", key=f"view-today-{appt.get('id')}", use_container_width=True):
             _open_lead(str(lead_id))
@@ -114,7 +127,7 @@ else:
             tipo = "Llamada" if visit_type in {"chat", "call", "llamada"} else "Visita"
             cols = st.columns([0.35, 0.25, 0.2, 0.2])
             cols[0].write(f"{hour} — {name}")
-            cols[1].caption(tipo)
-            cols[2].caption(human_status(appt.get("status")))
+            cols[1].markdown(pill(tipo, tone="info"), unsafe_allow_html=True)
+            cols[2].markdown(pill(human_status(appt.get("status")), tone="success" if appt.get("status")=="confirmed" else "warning"), unsafe_allow_html=True)
             if lead_id and cols[3].button("Ver lead", key=f"view-up-{appt.get('id')}", use_container_width=True):
                 _open_lead(str(lead_id))

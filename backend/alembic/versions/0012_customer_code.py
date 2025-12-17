@@ -17,27 +17,58 @@ depends_on = None
 
 
 def upgrade():
-    # 1) add nullable column
-    op.add_column(
-        "tenants",
-        sa.Column("customer_code", sa.String(length=20), nullable=True),
-    )
-    # 2) backfill sequential codes
     conn = op.get_bind()
-    tenants = list(conn.execute(sa.text("SELECT id FROM tenants ORDER BY created_at ASC, id ASC")))
-    counter = 1
-    for row in tenants:
-        code = f"OPN-{counter:06d}"
-        conn.execute(
-            sa.text("UPDATE tenants SET customer_code=:code WHERE id=:id"),
-            {"code": code, "id": row.id},
+    insp = sa.inspect(conn)
+    cols = {c["name"] for c in insp.get_columns("tenants")}
+
+    # 1) add nullable column (idempotente)
+    if "customer_code" not in cols:
+        op.add_column(
+            "tenants",
+            sa.Column("customer_code", sa.String(length=20), nullable=True),
         )
-        counter += 1
-    # 3) set NOT NULL + unique index
-    op.alter_column("tenants", "customer_code", nullable=False)
-    op.create_index("ix_tenants_customer_code", "tenants", ["customer_code"], unique=True)
+
+    # 2) backfill sequential codes solo para NULLs
+    tenants = list(
+        conn.execute(
+            sa.text("SELECT id FROM tenants WHERE customer_code IS NULL ORDER BY created_at ASC, id ASC")
+        )
+    )
+    if tenants:
+        # Continuar desde el máximo existente si lo hay.
+        last = conn.execute(sa.text("SELECT max(customer_code) FROM tenants")).scalar()
+        seq = 0
+        if last:
+            try:
+                seq = int(str(last).split("-")[-1])
+            except Exception:
+                seq = 0
+        for row in tenants:
+            seq += 1
+            code = f"OPN-{seq:06d}"
+            conn.execute(
+                sa.text("UPDATE tenants SET customer_code=:code WHERE id=:id AND customer_code IS NULL"),
+                {"code": code, "id": row.id},
+            )
+
+    # 3) set NOT NULL + unique index (idempotente)
+    try:
+        op.alter_column("tenants", "customer_code", nullable=False)
+    except Exception:
+        pass
+    try:
+        conn.execute(sa.text("CREATE UNIQUE INDEX IF NOT EXISTS ix_tenants_customer_code ON tenants (customer_code)"))
+    except Exception:
+        pass
 
 
 def downgrade():
-    op.drop_index("ix_tenants_customer_code", table_name="tenants")
-    op.drop_column("tenants", "customer_code")
+    conn = op.get_bind()
+    try:
+        conn.execute(sa.text("DROP INDEX IF EXISTS ix_tenants_customer_code"))
+    except Exception:
+        pass
+    insp = sa.inspect(conn)
+    cols = {c["name"] for c in insp.get_columns("tenants")}
+    if "customer_code" in cols:
+        op.drop_column("tenants", "customer_code")

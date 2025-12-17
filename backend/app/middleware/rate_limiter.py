@@ -43,6 +43,9 @@ async def add_request_context(request: Request, call_next: Callable):
     # Límite por IP para el widget (chat endpoints)
     if path.startswith("/v1/chat"):
         limits.append((f"rl:ip:{client_ip}:chat", settings.rate_limit_chat_per_ip))
+    # Límite por IP para endpoints canónicos del widget
+    if path.startswith("/v1/widget"):
+        limits.append((f"rl:ip:{client_ip}:widget", settings.rate_limit_widget_per_ip))
     # Límite para operaciones admin (protege panel superadmin)
     if path.startswith("/v1/admin"):
         limits.append((f"rl:admin:{client_ip}", 30))
