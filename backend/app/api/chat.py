@@ -33,7 +33,8 @@ from datetime import datetime, timedelta, timezone
 from app.services.plan_limits import require_active_subscription
 from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
-from app.services.flow_templates import load_flow_template, apply_materials
+from app.services.flow_templates import apply_materials
+from app.services.flow_resolver import resolve_runtime_flow
 from app.services.verticals import resolve_flow_id, get_vertical_config
 from app.services.agenda_service import AgendaService
 from app.models.configs import Config
@@ -553,7 +554,12 @@ def send_message(
     tenant_vertical_key = getattr(tenant, "vertical_key", None)
     flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
     flow_id_override = resolve_flow_id(flow_id_override, tenant_vertical_key)
-    flow_data = load_flow_template(flow_id_override, plan_value=plan_value, vertical_key=tenant_vertical_key)
+    flow_data = resolve_runtime_flow(
+        db=db,
+        tenant=tenant,
+        flow_id_override=flow_id_override,
+        plan_value=str(plan_value or "base").lower(),
+    )
     flow_data = apply_materials(flow_data, materials)
     vertical_cfg = get_vertical_config(tenant_vertical_key) if tenant_vertical_key else {}
     ci_cfg = vertical_cfg.get("conversational_intelligence") if isinstance(vertical_cfg.get("conversational_intelligence"), dict) else {}

@@ -16,7 +16,8 @@ from app.models.sessions import Session as DBSession
 from app.models.tenants import Tenant
 from app.services.agenda_service import AgendaService
 from app.services.plan_limits import require_active_subscription
-from app.services.flow_templates import load_flow_template, apply_materials
+from app.services.flow_templates import apply_materials
+from app.services.flow_resolver import resolve_runtime_flow
 from app.services.verticals import resolve_flow_id
 from app.models.configs import Config
 
@@ -141,10 +142,11 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
-    flow_data = load_flow_template(
-        flow_id,
+    flow_data = resolve_runtime_flow(
+        db=db,
+        tenant=tenant,
+        flow_id_override=flow_id,
         plan_value=str(plan_value or "base").lower(),
-        vertical_key=getattr(tenant, "vertical_key", None),
     )
     flow_data = apply_materials(flow_data, materials)
 

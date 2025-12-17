@@ -51,6 +51,7 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         timezone=payload.timezone or "Europe/Madrid",
         idioma_default=payload.idioma_default or "es",
         vertical_key=payload.vertical_key,
+        flow_mode="VERTICAL",
     )
     db.add(tenant)
     db.commit()

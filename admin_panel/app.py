@@ -16,6 +16,7 @@ from api_client import (
     issue_magic_link,
     list_tenants,
     list_verticals,
+    resolve_admin_api_key,
     revoke_widget_tokens,
     toggle_maintenance,
     update_tenant,
@@ -37,11 +38,18 @@ load_styles()
 st.title("Opunnence — SuperAdmin")
 st.caption("Control global de tenants, dominios y tokens del widget.")
 
-admin_api_key = os.getenv("ADMIN_API_KEY")
+admin_api_key = resolve_admin_api_key()
+
+
+def _show_api_error(payload: object, fallback: str = "Error llamando a la API") -> bool:
+    if isinstance(payload, dict) and payload.get("error"):
+        st.error(f"{fallback} (HTTP {payload.get('status_code', 'N/A')}): {payload.get('error')}")
+        return True
+    return False
 
 with st.sidebar:
     if admin_api_key:
-        st.success("Autenticado con ADMIN_API_KEY (bypass OIDC).")
+        st.success("Autenticado con ADMIN_API_KEY/ADMIN_API_TOKEN (bypass OIDC).")
         st.session_state["admin_token"] = None
         st.session_state["admin_api_key"] = admin_api_key
     else:
@@ -65,7 +73,8 @@ api_key = st.session_state.get("admin_api_key") or admin_api_key
 if not token and not api_key:
     st.stop()
 
-vertical_payload = list_verticals(token) or {}
+vertical_payload = list_verticals(token, api_key=api_key) or {}
+_show_api_error(vertical_payload, fallback="No se pudo cargar el catálogo de verticales")
 vertical_items_raw = vertical_payload.get("items") or []
 vertical_items = [v for v in vertical_items_raw if isinstance(v, dict) and v.get("key")]
 vertical_items = sorted(
@@ -95,8 +104,11 @@ if impersonation_token:
 tabs = st.tabs(["📊 Overview", "🏢 Tenants", "🧩 Verticals", "➕ Crear tenant"])
 
 with tabs[0]:
-    ov = admin_overview(token) or {}
-    tenants = list_tenants(token) or []
+    ov = admin_overview(token, api_key=api_key) or {}
+    _show_api_error(ov, fallback="No se pudo cargar el overview")
+    tenants_payload = list_tenants(token, api_key=api_key)
+    tenants = tenants_payload if isinstance(tenants_payload, list) else []
+    _show_api_error(tenants_payload, fallback="No se pudo cargar el listado de tenants")
     saving = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "SAVING"]
     locked = [t for t in tenants if str(t.get("usage_mode") or "").upper() == "LOCKED"]
 
@@ -108,7 +120,8 @@ with tabs[0]:
         st.metric("IA cost (mes)", f"{ov.get('ia_cost_month', 0):.2f} €")
     with col_errors:
         st.subheader("Errores recientes")
-        err_payload = admin_recent_errors(token) or {}
+        err_payload = admin_recent_errors(token, api_key=api_key) or {}
+        _show_api_error(err_payload, fallback="No se pudieron cargar errores recientes")
         errs = err_payload.get("items") or []
         if errs:
             for err in errs[:5]:
@@ -119,7 +132,8 @@ with tabs[0]:
             st.info("Sin errores recientes")
 
     col_h1, col_h2, col_h3, col_h4 = st.columns(4)
-    health = admin_health(token) or {}
+    health = admin_health(token, api_key=api_key) or {}
+    _show_api_error(health, fallback="No se pudo cargar el estado de health")
     status_badge = lambda v: ("🟢" if v in ("UP", "OK") else "🟠") if v else "⚪"
     col_h1.metric("API", f"{status_badge(health.get('api'))} {health.get('api', 'N/A')}")
     col_h2.metric("DB", f"{status_badge(health.get('db'))} {health.get('db', 'N/A')}")
@@ -131,7 +145,8 @@ with tabs[0]:
     alerts_box = st.container()
     with alerts_box:
         st.subheader("Alertas activas")
-        alert_payload = admin_alerts(token) or {}
+        alert_payload = admin_alerts(token, api_key=api_key) or {}
+        _show_api_error(alert_payload, fallback="No se pudieron cargar alertas")
         alerts = alert_payload.get("items") or []
         if not alerts:
             st.info("Sin alertas")
@@ -176,7 +191,9 @@ with tabs[1]:
         value="",
         placeholder="Ej: demo@kitchens.com | Demo Kitchens | OPN-000123",
     )
-    tenants = list_tenants(token, search_text.strip() or None) or []
+    tenants_payload = list_tenants(token, search_text.strip() or None, api_key=api_key)
+    tenants = tenants_payload if isinstance(tenants_payload, list) else []
+    _show_api_error(tenants_payload, fallback="No se pudo cargar el listado de tenants")
     st.caption(f"Resultados: {len(tenants)}")
 
     for t in tenants:
@@ -241,10 +258,10 @@ with tabs[1]:
                 if new_vertical and new_vertical != current_vertical:
                     payload["vertical_key"] = new_vertical
                     payload["force_vertical"] = force_vertical
-                res = update_tenant(token, t["id"], payload)
+                res = update_tenant(token, t["id"], payload, api_key=api_key)
                 st.success(f"Actualizado: {res}")
             if st.button("ON/OFF mantenimiento", key=f"maint-{t['id']}"):
-                res = toggle_maintenance(token, t["id"], not maint)
+                res = toggle_maintenance(token, t["id"], not maint, api_key=api_key)
                 st.success(res)
 
             st.markdown("**Accesos y Widget**")
@@ -256,7 +273,7 @@ with tabs[1]:
             )
             ttl = col_t2.slider("TTL minutos", 15, 60, 30, key=f"ttl-{t['id']}")
             if st.button("Generar token widget", key=f"token-{t['id']}"):
-                res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl)
+                res = issue_widget_token(token, t["id"], allowed_origin, ttl_minutes=ttl, api_key=api_key)
                 if "token" in res:
                     st.code(res["token"], language="text")
                 else:
@@ -268,7 +285,7 @@ with tabs[1]:
                     if confirm_text.strip().upper() != "REVOCAR":
                         st.warning("Escribe REVOCAR para continuar.")
                     else:
-                        res = revoke_widget_tokens(token, t["id"])
+                        res = revoke_widget_tokens(token, t["id"], api_key=api_key)
                         if "revoked_before" in res:
                             st.success(f"Revocados. Nueva marca: {res['revoked_before']}")
                         else:
@@ -276,7 +293,7 @@ with tabs[1]:
             with st.expander("Magic link (acceso tenant)", expanded=False):
                 ml_email = st.text_input("Email destino", value=t.get("contact_email") or "", key=f"ml-email-{t['id']}")
                 if st.button("Generar magic link", key=f"ml-btn-{t['id']}"):
-                    res = issue_magic_link(token, t["id"], ml_email.strip() or None)
+                    res = issue_magic_link(token, t["id"], ml_email.strip() or None, api_key=api_key)
                     if res.get("token"):
                         st.code(res["token"], language="text")
                         st.success(f"Enlace enviado/emitido para {res.get('email')}")
@@ -291,14 +308,14 @@ with tabs[1]:
                     if excl_confirm.strip().upper() != "EXCLUIR":
                         st.warning("Escribe EXCLUIR para continuar.")
                     else:
-                        res = exclude_tenant(token, t["id"], excl_reason.strip() or None)
+                        res = exclude_tenant(token, t["id"], excl_reason.strip() or None, api_key=api_key)
                         if res.get("excluded"):
                             st.success("Tenant marcado como excluido.")
                         else:
                             st.error(res)
 
             if st.button("Impersonar", key=f"imp-{t['id']}"):
-                res = impersonate(token, t["id"])
+                res = impersonate(token, t["id"], api_key=api_key)
                 if "token" in res:
                     st.session_state["impersonation_token"] = res["token"]
                     st.code(res["token"], language="text")
@@ -320,7 +337,7 @@ with tabs[2]:
             key="vertical-detail-select",
         )
         if selected_key:
-            detail = get_vertical(token, selected_key) or {}
+            detail = get_vertical(token, selected_key, api_key=api_key) or {}
             if detail.get("error"):
                 st.error(detail.get("error"))
             else:
@@ -410,7 +427,7 @@ with tabs[3]:
                 "ia_enabled": use_ia_new,
                 "vertical_key": vertical_key,
             }
-            res = create_tenant(token, payload)
+            res = create_tenant(token, payload, api_key=api_key)
             if res and "id" in res:
                 st.success(f"Tenant creado: {res['id']}")
             else:

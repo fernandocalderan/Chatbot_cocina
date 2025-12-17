@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,7 +57,9 @@ class Settings(BaseSettings):
     oidc_issuer: str | None = None
     oidc_client_id: str | None = None
     oidc_admin_allowed_domain: str | None = None
-    admin_api_token: str | None = None
+    admin_api_token: str | None = Field(
+        default=None, validation_alias=AliasChoices("ADMIN_API_TOKEN", "ADMIN_API_KEY")
+    )
 
 
 @lru_cache(maxsize=1)

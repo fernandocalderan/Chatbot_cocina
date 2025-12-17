@@ -391,16 +391,35 @@ def provision_vertical_assets(db, tenant: Tenant) -> dict[str, Any] | None:
         if not existing_flow:
             flow = vertical_flow_base(tenant.vertical_key)
             if flow:
-                db.add(
-                    FlowVersioned(
-                        tenant_id=tenant.id,
-                        version=1,
-                        schema_json=flow,
-                        estado="published",
-                        published_at=datetime.now(timezone.utc),
-                    )
+                new_flow = FlowVersioned(
+                    tenant_id=tenant.id,
+                    vertical_key=str(tenant.vertical_key) if tenant.vertical_key else None,
+                    version=1,
+                    schema_json=flow,
+                    estado="published",
+                    published_at=datetime.now(timezone.utc),
                 )
+                db.add(new_flow)
+                # Asociar flow activo (si el modelo lo soporta)
+                try:
+                    tenant.active_flow_id = new_flow.id
+                    tenant.flow_mode = "VERTICAL"
+                    db.add(tenant)
+                except Exception:
+                    pass
                 created["created"].append("flows:published_v1")
+            else:
+                new_flow = None
+        else:
+            # Mantener active_flow_id apuntando al publicado actual si aún no está seteado.
+            try:
+                if not getattr(tenant, "active_flow_id", None):
+                    tenant.active_flow_id = existing_flow.id
+                    tenant.flow_mode = "VERTICAL"
+                    db.add(tenant)
+            except Exception:
+                pass
+            new_flow = existing_flow
     except Exception:
         # La tabla puede no estar migrada / disponible en ciertos entornos.
         pass

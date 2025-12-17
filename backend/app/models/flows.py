@@ -12,6 +12,7 @@ class Flow(Base):
 
     id = sa.Column(pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = sa.Column(pg.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    vertical_key = sa.Column(sa.String(64), nullable=True)
     version = sa.Column(sa.Integer, nullable=False)
     schema_json = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     estado = sa.Column(sa.String(30), nullable=False, server_default="draft")

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 
-_FLOW_DIR = Path(__file__).resolve().parent.parent / "flows"
 _VERTICALS_DIR = Path(__file__).resolve().parent.parent / "verticals"
+
+_ALLOW_LEGACY_FLOW_FILES = os.getenv("ALLOW_LEGACY_FLOW_FILES") == "1" or os.getenv("DISABLE_DB") == "1"
+_FLOW_DIR = Path(__file__).resolve().parent.parent / "flows"
 
 _PLAN_TO_FLOW = {
     "base": "base_plan_fixed",
@@ -16,6 +19,9 @@ _PLAN_TO_FLOW = {
 
 
 def list_flow_templates(allowed_ids: set[str] | None = None) -> list[dict[str, str]]:
+    # Deprecado: los flows ya no se exponen desde `app/flows` (solo migración).
+    if not _ALLOW_LEGACY_FLOW_FILES:
+        return []
     items = []
     for path in sorted(_FLOW_DIR.glob("*.json")):
         flow_id = path.stem
@@ -40,6 +46,9 @@ def load_flow_template(
                 data = json.load(f)
             return data if isinstance(data, dict) else {}
 
+    if not _ALLOW_LEGACY_FLOW_FILES:
+        return {}
+
     if flow_id:
         path = _FLOW_DIR / f"{flow_id}.json"
         if path.exists():
@@ -48,8 +57,11 @@ def load_flow_template(
     plan_norm = (plan_value or "base").lower()
     fallback_id = _PLAN_TO_FLOW.get(plan_norm, "base_plan_fixed")
     path = _FLOW_DIR / f"{fallback_id}.json"
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
+    if path.exists():
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    return {}
 
 
 def _merge_text(original: Any, override: Any) -> Any:

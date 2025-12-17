@@ -281,6 +281,7 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         branding=branding,
         ia_enabled=payload.ia_enabled if payload.ia_enabled is not None else True,
         vertical_key=payload.vertical_key,
+        flow_mode="VERTICAL",
     )
     db.add(tenant)
     db.commit()
