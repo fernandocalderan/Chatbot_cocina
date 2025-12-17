@@ -1,0 +1,32 @@
+{
+  "kitchens": {
+    "label": "Kitchens",
+    "default_flow_id": "base_plan_fixed",
+    "flow_ids": ["base_plan_fixed", "pro_plan_fixed", "elite_plan_fixed"],
+    "vertical_prompt": "Asistente experto en cocinas y reformas. Enfocado en captar, cualificar y guiar proyectos de cocina."
+  },
+  "legal_services": {
+    "label": "Legal Services",
+    "default_flow_id": "base_plan_fixed",
+    "flow_ids": ["base_plan_fixed"],
+    "vertical_prompt": "Asistente experto en servicios legales orientado a captar y cualificar clientes."
+  },
+  "real_estate": {
+    "label": "Real Estate",
+    "default_flow_id": "base_plan_fixed",
+    "flow_ids": ["base_plan_fixed"],
+    "vertical_prompt": "Asistente experto en inmobiliaria para captar, calificar y agendar visitas."
+  },
+  "medical": {
+    "label": "Medical",
+    "default_flow_id": "base_plan_fixed",
+    "flow_ids": ["base_plan_fixed"],
+    "vertical_prompt": "Asistente experto en servicios medicos para captar pacientes y priorizar consultas."
+  },
+  "custom": {
+    "label": "Custom",
+    "default_flow_id": "base_plan_fixed",
+    "flow_ids": ["base_plan_fixed"],
+    "vertical_prompt": "Asistente experto en el sector del negocio, enfocado en captar y cualificar clientes."
+  }
+}

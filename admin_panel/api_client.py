@@ -71,6 +71,11 @@ def admin_overview(token: str):
     return resp.json() if resp.ok else {}
 
 
+def list_verticals(token: str):
+    resp = requests.get(f"{API_BASE}/v1/admin/verticals", headers=_headers(token, ADMIN_API_KEY), timeout=10)
+    return resp.json() if resp.ok else {"items": []}
+
+
 def admin_health(token: str):
     resp = requests.get(f"{API_BASE}/v1/admin/health", headers=_headers(token, ADMIN_API_KEY), timeout=10)
     return resp.json() if resp.ok else {}

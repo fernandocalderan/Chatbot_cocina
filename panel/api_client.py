@@ -49,6 +49,9 @@ class API:
     def patch(self, path: str, data: dict):
         return requests.patch(self._full_url(path), json=data, headers=self.headers(), timeout=10)
 
+    def put(self, path: str, data: dict):
+        return requests.put(self._full_url(path), json=data, headers=self.headers(), timeout=10)
+
 
 def _current_tenant_id() -> str | None:
     return st.session_state.get("tenant_id") or TENANT_ID
@@ -233,6 +236,14 @@ def api_post(path: str, payload: dict, idempotency_key: str | None = None) -> An
     return _handle_api_error(resp)
 
 
+def api_put(path: str, payload: dict) -> Any:
+    client = _client()
+    resp = client.put(path, payload)
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp)
+
+
 def api_patch(path: str, payload: dict) -> Any:
     client = _client()
     resp = client.patch(path, payload)
@@ -411,6 +422,22 @@ def get_widget_settings():
 
 def update_widget_settings(allowed_origins: list[str]):
     return api_patch("/tenant/widget/settings", {"allowed_origins": allowed_origins}) or {}
+
+
+def get_automation_materials():
+    return api_get("/tenant/automation/materials") or {}
+
+
+def save_automation_materials(payload: dict):
+    return api_put("/tenant/automation/materials", payload) or {}
+
+
+def publish_automation_materials():
+    return api_post("/tenant/automation/materials/publish", {}) or {}
+
+
+def rollback_automation_materials(version: int):
+    return api_post("/tenant/automation/materials/rollback", {"version": version}) or {}
 
 
 def _decode_jwt_payload(token: str | None) -> dict:

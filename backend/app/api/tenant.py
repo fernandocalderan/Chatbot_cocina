@@ -195,7 +195,7 @@ def issue_widget_token_short(
             detail="jwt_secret_not_configured",
         )
 
-    ttl = min(max(payload.ttl_minutes, 15), 60)  # expiración corta para widget
+    ttl = min(max(payload.ttl_minutes, 15), 60)  # expiración corta para widget (<= 1h)
     exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ttl)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if db else None
     allowed = []
@@ -206,7 +206,10 @@ def issue_widget_token_short(
             or branding.get("allowed_origins")
             or []
         )
-    if allowed and payload.allowed_origin not in allowed:
+    normalized = _normalize_origin(payload.allowed_origin)
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_origin")
+    if allowed and normalized not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
@@ -214,7 +217,8 @@ def issue_widget_token_short(
     data = {
         "type": "WIDGET",
         "tenant_id": tenant_id,
-        "allowed_origin": payload.allowed_origin,
+        "scope": "widget",
+        "allowed_origin": normalized,
         "iat": now_ts,
         "exp": exp,
         "jti": str(uuid.uuid4()),
@@ -246,9 +250,8 @@ def issue_widget_token(
             detail="jwt_secret_not_configured",
         )
 
-    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-        minutes=min(max(payload.ttl_minutes, 15), 60)
-    )
+    ttl = min(max(payload.ttl_minutes, 15), 60)
+    exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ttl)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if db else None
     allowed = []
     if tenant:
@@ -258,7 +261,10 @@ def issue_widget_token(
             or branding.get("allowed_origins")
             or []
         )
-    if allowed and payload.allowed_origin not in allowed:
+    normalized = _normalize_origin(payload.allowed_origin)
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_origin")
+    if allowed and normalized not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="origin_not_allowed"
         )
@@ -266,7 +272,8 @@ def issue_widget_token(
     data = {
         "type": "WIDGET",
         "tenant_id": tenant_id,
-        "allowed_origin": payload.allowed_origin,
+        "scope": "widget",
+        "allowed_origin": normalized,
         "iat": now_ts,
         "exp": exp,
         "jti": str(uuid.uuid4()),
@@ -279,7 +286,7 @@ def issue_widget_token(
         algorithm=settings.jwt_algorithm,
         headers={"kid": current_kid},
     )
-    return {"token": signed, "expires_at": exp.isoformat() + "Z"}
+    return {"token": signed, "expires_at": exp.isoformat() + "Z", "ttl_minutes": ttl}
 
 
 @router.post("/widget/token/renew")
@@ -324,6 +331,8 @@ def renew_widget_token(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="invalid_token_type"
         )
+    if (data.get("scope") or "widget").lower() != "widget":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid_token_scope")
 
     tenant_id = data.get("tenant_id")
     allowed_origin = data.get("allowed_origin")

@@ -1,17 +1,27 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
 
 :root {
-  --primary-color: #ff5722; /* default */
-  --bg-color: #e9edf3;
+  --widget-primary: #3A4F7A;
+  --widget-secondary: #E6EAF2;
+  --widget-accent: #C9A24D;
+  --widget-font-family: "Inter";
+  --widget-font-size: 14px;
+  --widget-radius: 16px;
+  --widget-position: bottom-right;
+  --widget-size: md;
+  --widget-tone: serio;
+
+  --primary-color: var(--widget-primary);
+  --bg-color: #f5f7fb;
   --panel-bg: #ffffff;
-  --panel-contrast-bg: #f6f7f9;
+  --panel-contrast-bg: var(--widget-secondary);
   --bot-bubble-bg: #ffffff;
-  --user-bubble-bg: #fff7ef;
+  --user-bubble-bg: color-mix(in srgb, var(--widget-secondary) 60%, #ffffff);
   --text-color: #111827;
   --muted-text-color: #4b5563;
-  --border-color: #e5e7eb;
-  --accent-gold: #d1b46c;
-  --accent-gold-soft: #f1e3b8;
+  --border-color: color-mix(in srgb, var(--widget-secondary) 65%, #ffffff);
+  --accent-gold: var(--widget-accent);
+  --accent-gold-soft: color-mix(in srgb, var(--widget-accent) 18%, #ffffff);
   --shadow-soft: 0 10px 30px rgba(17, 24, 39, 0.08);
   --shadow-softer: 0 6px 18px rgba(17, 24, 39, 0.06);
 }
@@ -56,7 +66,8 @@
 
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: var(--widget-font-family), system-ui, -apple-system, sans-serif;
+  font-size: var(--widget-font-size);
   background: var(--bg-color);
   color: var(--text-color);
   min-height: 100vh;

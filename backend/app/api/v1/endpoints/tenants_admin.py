@@ -9,6 +9,7 @@ from app.api.deps import get_db
 from app.middleware.authz import require_any_role
 from app.models.tenants import Tenant
 from app.services.template_service import TemplateService
+from app.services.verticals import get_vertical_config, provision_vertical_materials
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -19,6 +20,7 @@ class TenantCreate(BaseModel):
     plan: Optional[str] = Field("BASE", description="Plan inicial BASE/PRO/ELITE")
     timezone: Optional[str] = Field("Europe/Madrid", max_length=64)
     idioma_default: Optional[str] = Field("es", max_length=10)
+    vertical_key: Optional[str] = Field(None, max_length=64)
 
 
 @router.post(
@@ -29,6 +31,10 @@ class TenantCreate(BaseModel):
 )
 def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
     tenant_id = uuid.uuid4()
+    if not payload.vertical_key:
+        raise HTTPException(status_code=400, detail="missing_vertical_key")
+    if not get_vertical_config(payload.vertical_key):
+        raise HTTPException(status_code=400, detail="invalid_vertical_key")
 
     # Evitar duplicados por nombre
     exists = db.query(Tenant).filter(Tenant.name == payload.name).first()
@@ -44,6 +50,7 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         plan=payload.plan or "BASE",
         timezone=payload.timezone or "Europe/Madrid",
         idioma_default=payload.idioma_default or "es",
+        vertical_key=payload.vertical_key,
     )
     db.add(tenant)
     db.commit()
@@ -57,6 +64,10 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
             db.refresh(tenant)
     except Exception:
         db.rollback()
+    try:
+        provision_vertical_materials(db, tenant)
+    except Exception:
+        db.rollback()
 
     return {
         "id": str(tenant.id),
@@ -66,4 +77,5 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         "timezone": tenant.timezone,
         "idioma_default": tenant.idioma_default,
         "default_template_id": str(getattr(tenant, "default_template_id")) if getattr(tenant, "default_template_id", None) else None,
+        "vertical_key": tenant.vertical_key,
     }

@@ -68,6 +68,7 @@ class Tenant(Base):
     )
     microsoft_refresh_token = sa.Column(sa.String(1024), nullable=True)
     microsoft_calendar_id = sa.Column(sa.String(255), nullable=True)
+    vertical_key = sa.Column(sa.String(64), nullable=True)
     usage_mode = sa.Column(
         sa.Enum(UsageMode, name="usage_mode"), nullable=False, server_default=UsageMode.ACTIVE.value
     )

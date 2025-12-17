@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import json
 import os
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from auth import ensure_login
 from nav import render_sidebar, show_flash, nav_v2_enabled
 from api_client import (
     fetch_flow,
-    update_flow,
     get_quota_status,
     get_ia_metrics,
     get_tenant_kpis,
     get_tenant_config,
+    get_automation_materials,
+    save_automation_materials,
+    publish_automation_materials,
+    rollback_automation_materials,
 )
 from utils import load_styles, empty_state, metric_card, render_quota_banner, pill
 
@@ -90,64 +91,191 @@ st.caption(f"Automatización > {_TAB_KEY_TO_LABEL[selected_key]}")
 
 if selected_key == "flujo":
     st.subheader("Cómo responde el asistente")
-    st.caption("Configura el comportamiento conversacional sin exponer complejidad técnica.")
+    st.caption("Configura materiales del flujo (visual, textos, automatización) sin tocar la lógica.")
 
-    with st.expander("Opciones avanzadas", expanded=False):
-        show_advanced = st.toggle(
-            "Mostrar detalles técnicos",
-            value=False,
-            help="Muestra identificadores y estructura técnica del flujo.",
-        )
+    data = get_automation_materials() or {}
+    draft = data.get("draft") if isinstance(data, dict) else None
+    published = data.get("published") if isinstance(data, dict) else None
+    visual = (data.get("visual") if isinstance(data, dict) else None) or {}
+    versions = data.get("versions") if isinstance(data.get("versions"), list) else []
+    available_flows = data.get("available_flows") if isinstance(data.get("available_flows"), list) else []
 
-    flow_key = "_flow_data"
-    if st.button("Cargar flujo", use_container_width=True):
-        with st.spinner("Cargando…"):
-            flow = fetch_flow()
-        if isinstance(flow, dict) and isinstance(flow.get("flow"), dict):
-            st.session_state[flow_key] = flow["flow"]
-        else:
-            empty_state("No pudimos cargar el flujo", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+    current = draft or published or {}
+    content = current.get("content") if isinstance(current.get("content"), dict) else {}
+    automation = current.get("automation") if isinstance(current.get("automation"), dict) else {}
 
-    flow_data = st.session_state.get(flow_key)
-    if not flow_data:
-        empty_state("Sin cambios por hacer ahora", "Carga el flujo para revisar y ajustar los mensajes.", icon="✨")
-    else:
-        blocks = flow_data.get("blocks", {}) or {}
-        block_items = list(blocks.items())
+    tabs = st.tabs(["Visual", "Cómo habla", "Automatización", "Flujo activo"])
 
-        st.markdown("### Mensajes")
-        if not block_items:
-            empty_state("No hay bloques", "Este flujo no tiene bloques para editar.", icon="🧩")
-        else:
-            for idx, (block_id, block) in enumerate(block_items, start=1):
-                text = block.get("text") or {}
-                es = (text.get("es") if isinstance(text, dict) else "") or ""
-                title = f"Mensaje {idx}"
-                if show_advanced:
-                    title = f"{title} · {block_id}"
-                snippet = (es or "").strip().split("\n")[0][:80]
+    with tabs[0]:
+        st.markdown("### Visual del widget")
+        col1, col2 = st.columns(2)
+        primary = col1.text_input("Color primario", value=str(visual.get("primary_color") or "#6B5B95"), key="vis_primary")
+        secondary = col2.text_input("Color secundario", value=str(visual.get("secondary_color") or "#EDE9FE"), key="vis_secondary")
+        accent = col1.text_input("Color acento", value=str(visual.get("accent_color") or "#C9A24D"), key="vis_accent")
+        logo_url = col2.text_input("Logo (URL)", value=str(visual.get("logo_url") or ""), key="vis_logo")
+        position = col1.selectbox("Posición", ["bottom-right", "bottom-left"], index=0 if str(visual.get("position") or "bottom-right") == "bottom-right" else 1, key="vis_pos")
+        size = col2.selectbox("Tamaño", ["sm", "md", "lg"], index=["sm", "md", "lg"].index(str(visual.get("size") or "md")), key="vis_size")
+        tone = col1.selectbox("Tono visual", ["serio", "cercano"], index=0 if str(visual.get("tone") or "serio") == "serio" else 1, key="vis_tone")
+        font_family = col2.text_input("Fuente (familia)", value=str(visual.get("font_family") or "Inter"), key="vis_font_family")
+        font_size = col1.slider("Tamaño base (px)", min_value=12, max_value=18, value=int(visual.get("font_size") or 14), key="vis_font_size")
+        border_radius = col2.slider("Radio de burbuja (px)", min_value=8, max_value=24, value=int(visual.get("border_radius") or 16), key="vis_radius")
+        if logo_url:
+            st.image(logo_url, width=140)
+
+    with tabs[1]:
+        st.markdown("### Cómo habla el asistente")
+        welcome = st.text_area("Mensaje de bienvenida", value=str(content.get("welcome") or ""), height=90, key="mat_welcome")
+        closing = st.text_area("Mensaje de cierre", value=str(content.get("closing") or ""), height=70, key="mat_closing")
+        lang = st.selectbox("Idioma por defecto", ["es", "pt", "en", "ca"], index=["es", "pt", "en", "ca"].index(str(content.get("language") or "es")), key="mat_lang")
+        tone_conv = st.selectbox("Tono conversacional", ["serio", "cercano"], index=0 if str(content.get("tone") or "serio") == "serio" else 1, key="mat_tone")
+
+        st.markdown("### Errores")
+        err_offline = st.text_input("Mensaje sin conexión", value=str((content.get("errors") or {}).get("offline") or ""), key="mat_err_offline")
+        err_generic = st.text_input("Mensaje genérico", value=str((content.get("errors") or {}).get("generic") or ""), key="mat_err_generic")
+
+        st.divider()
+        st.markdown("### Preguntas y botones (avance guiado)")
+        with st.expander("Cargar bloques del flujo activo", expanded=False):
+            if st.button("Cargar bloques", use_container_width=True):
+                with st.spinner("Cargando…"):
+                    flow = fetch_flow()
+                if isinstance(flow, dict) and isinstance(flow.get("flow"), dict):
+                    st.session_state["_flow_blocks"] = flow["flow"].get("blocks", {})
+                else:
+                    empty_state("No pudimos cargar el flujo", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+
+        blocks = st.session_state.get("_flow_blocks") or {}
+        if isinstance(blocks, dict) and blocks:
+            for block_id, block in list(blocks.items())[:20]:
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text")
+                if not text and block.get("type") not in {"buttons", "options"}:
+                    continue
+                title = block_id
+                snippet = ""
+                if isinstance(text, dict):
+                    snippet = str(text.get("es") or "")[:60]
+                elif isinstance(text, str):
+                    snippet = text[:60]
                 with st.expander(f"{title}{(' — ' + snippet) if snippet else ''}", expanded=False):
-                    col_a, col_b = st.columns(2)
-                    text_es = col_a.text_area("Texto (ES)", value=(text.get("es") if isinstance(text, dict) else "") or "", key=f"es-{block_id}")
-                    text_en = col_b.text_area("Texto (EN)", value=(text.get("en") if isinstance(text, dict) else "") or "", key=f"en-{block_id}")
-                    text_pt = col_a.text_area("Texto (PT)", value=(text.get("pt") if isinstance(text, dict) else "") or "", key=f"pt-{block_id}")
-                    text_ca = col_b.text_area("Texto (CA)", value=(text.get("ca") if isinstance(text, dict) else "") or "", key=f"ca-{block_id}")
+                    if text:
+                        st.text_area("Texto (ES)", value=str(text.get("es") if isinstance(text, dict) else text), key=f"q-{block_id}")
+                    options = block.get("options") if isinstance(block.get("options"), list) else []
+                    if options:
+                        for idx, opt in enumerate(options):
+                            label = opt.get("label") if isinstance(opt, dict) else opt
+                            label_es = label.get("es") if isinstance(label, dict) else label
+                            st.text_input(f"Botón {idx+1}", value=str(label_es or ""), key=f"b-{block_id}-{idx}")
 
-                    if st.button("Guardar", key=f"save-{block_id}", use_container_width=True):
-                        if not isinstance(block.get("text"), dict):
-                            block["text"] = {}
-                        block["text"] = {"es": text_es, "en": text_en, "pt": text_pt, "ca": text_ca}
-                        flow_data["blocks"][block_id] = block
-                        with st.spinner("Guardando…"):
-                            res = update_flow(flow_data)
-                        if isinstance(res, dict) and res.get("status_code"):
-                            empty_state("No pudimos guardar ahora", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
-                        else:
-                            st.success("Guardado.")
+    with tabs[2]:
+        st.markdown("### Automatización")
+        ai_level = st.selectbox("Nivel de IA", ["off", "low", "medium", "high"], index=["off", "low", "medium", "high"].index(str(automation.get("ai_level") or "medium")), key="auto_level")
+        saving_mode = st.toggle("Modo ahorro", value=bool(automation.get("saving_mode") or False), key="auto_saving")
+        human_fallback = st.toggle("Fallback humano", value=bool(automation.get("human_fallback") if "human_fallback" in automation else True), key="auto_fallback")
+        max_resp = st.slider("Tiempo máximo de respuesta (seg)", min_value=3, max_value=20, value=int(automation.get("max_response_seconds") or 8), key="auto_resp")
+        st.markdown("### Uso de IA por pasos")
+        steps = ["intent_extraction", "ai_reply", "ai_extract", "ai_generate"]
+        selected_steps = []
+        existing_steps = automation.get("ai_steps") if isinstance(automation.get("ai_steps"), list) else []
+        for step in steps:
+            if st.checkbox(step, value=step in existing_steps, key=f"auto_step_{step}"):
+                selected_steps.append(step)
 
-        if show_advanced:
-            with st.expander("Ver JSON (avanzado)", expanded=False):
-                st.code(json.dumps(flow_data, ensure_ascii=False, indent=2), language="json")
+    with tabs[3]:
+        st.markdown("### Flujo activo")
+        flow_ids = [f.get("id") for f in available_flows if isinstance(f, dict)]
+        flow_labels = {f.get("id"): f.get("label") for f in available_flows if isinstance(f, dict)}
+        current_flow = str(current.get("flow_id") or (flow_ids[0] if flow_ids else "base_plan_fixed"))
+        if flow_ids:
+            idx = flow_ids.index(current_flow) if current_flow in flow_ids else 0
+            selected_flow = st.selectbox("Selecciona el flujo", flow_ids, index=idx, format_func=lambda v: flow_labels.get(v, v))
+        else:
+            selected_flow = st.text_input("Flow ID", value=current_flow)
+        st.info("Los cambios afectan solo nuevas conversaciones. Las sesiones activas no se alteran.")
+
+    st.divider()
+    c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
+    if c1.button("Guardar borrador", use_container_width=True):
+        questions = {}
+        buttons = {}
+        blocks = st.session_state.get("_flow_blocks") or {}
+        if isinstance(blocks, dict):
+            for block_id, block in blocks.items():
+                if not isinstance(block, dict):
+                    continue
+                q_key = f"q-{block_id}"
+                if q_key in st.session_state and st.session_state[q_key].strip():
+                    questions[block_id] = st.session_state[q_key].strip()
+                options = block.get("options") if isinstance(block.get("options"), list) else []
+                labels = []
+                for idx, _opt in enumerate(options):
+                    b_key = f"b-{block_id}-{idx}"
+                    if b_key in st.session_state and st.session_state[b_key].strip():
+                        labels.append(st.session_state[b_key].strip())
+                if labels:
+                    buttons[block_id] = labels
+
+        payload = {
+            "flow_id": selected_flow,
+            "content": {
+                "welcome": welcome,
+                "closing": closing,
+                "language": lang,
+                "tone": tone_conv,
+                "errors": {"offline": err_offline, "generic": err_generic},
+                "questions": questions,
+                "buttons": buttons,
+            },
+            "automation": {
+                "ai_level": ai_level,
+                "saving_mode": saving_mode,
+                "human_fallback": human_fallback,
+                "max_response_seconds": max_resp,
+                "ai_steps": selected_steps,
+            },
+            "visual": {
+                "primary_color": primary,
+                "secondary_color": secondary,
+                "accent_color": accent,
+                "logo_url": logo_url,
+                "position": position,
+                "size": size,
+                "tone": tone,
+                "font_family": font_family,
+                "font_size": font_size,
+                "border_radius": border_radius,
+            },
+        }
+        with st.spinner("Guardando borrador…"):
+            res = save_automation_materials(payload)
+        if isinstance(res, dict) and res.get("status_code"):
+            empty_state("No pudimos guardar ahora", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+        else:
+            st.success("Borrador guardado.")
+
+    if c2.button("Publicar cambios", use_container_width=True):
+        with st.spinner("Publicando…"):
+            res = publish_automation_materials()
+        if isinstance(res, dict) and res.get("status_code"):
+            empty_state("No pudimos publicar ahora", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+        else:
+            st.success("Publicado. Afecta nuevas conversaciones.")
+            st.rerun()
+
+    if versions:
+        with c3:
+            version_ids = [v.get("version") for v in versions if v.get("version")]
+            if version_ids:
+                rollback_ver = st.selectbox("Rollback", version_ids, key="rollback_ver")
+                if st.button("Restaurar", use_container_width=True):
+                    with st.spinner("Restaurando…"):
+                        out = rollback_automation_materials(int(rollback_ver))
+                    if isinstance(out, dict) and out.get("status_code"):
+                        empty_state("No pudimos restaurar ahora", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+                    else:
+                        st.success("Rollback publicado.")
+                        st.rerun()
 
 elif selected_key == "branding":
     st.subheader("Imagen y mensajes")

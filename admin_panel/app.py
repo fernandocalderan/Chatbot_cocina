@@ -14,6 +14,7 @@ from api_client import (
     exclude_tenant,
     issue_magic_link,
     list_tenants,
+    list_verticals,
     revoke_widget_tokens,
     toggle_maintenance,
     update_tenant,
@@ -62,6 +63,11 @@ token = st.session_state.get("admin_token")
 api_key = st.session_state.get("admin_api_key") or admin_api_key
 if not token and not api_key:
     st.stop()
+
+vertical_payload = list_verticals(token) or {}
+vertical_items = vertical_payload.get("items") or []
+vertical_keys = [v.get("key") for v in vertical_items if v.get("key")]
+vertical_labels = {v.get("key"): v.get("label") for v in vertical_items if v.get("key")}
 
 # Banner de impersonación (visible en todas las vistas)
 impersonation_token = st.session_state.get("impersonation_token")
@@ -170,6 +176,14 @@ with tabs[1]:
         code = t.get("customer_code") or "N/D"
         with st.expander(f"{t.get('name')} — {t.get('plan')} — {code} — {t.get('id')}"):
             st.text_input("Código comercial", value=code, disabled=True, key=f"code-{t['id']}")
+            if vertical_keys:
+                current_vertical = t.get("vertical_key") or vertical_keys[0]
+                st.text_input(
+                    "Vertical actual",
+                    value=vertical_labels.get(current_vertical, current_vertical),
+                    disabled=True,
+                    key=f"vertical-label-{t['id']}",
+                )
 
             st.markdown("**Plan y Billing**")
             cols = st.columns(3)
@@ -195,6 +209,17 @@ with tabs[1]:
             )
             origins = st.text_area("Allowed origins (coma)", value=",".join(t.get("allowed_origins") or []), key=f"origins-{t['id']}")
             use_ia = st.checkbox("IA habilitada", value=bool(t.get("ia_enabled", True)), key=f"use-ia-{t['id']}")
+            new_vertical = None
+            force_vertical = False
+            if vertical_keys:
+                new_vertical = st.selectbox(
+                    "Cambiar vertical",
+                    vertical_keys,
+                    index=vertical_keys.index(current_vertical) if current_vertical in vertical_keys else 0,
+                    format_func=lambda v: vertical_labels.get(v, v),
+                    key=f"vertical-{t['id']}",
+                )
+                force_vertical = st.checkbox("Forzar cambio de vertical", value=False, key=f"force-vertical-{t['id']}")
 
             if st.button("Guardar", key=f"save-{t['id']}"):
                 payload = {
@@ -206,6 +231,9 @@ with tabs[1]:
                     "use_ia": use_ia,
                     "billing_status": billing_status,
                 }
+                if new_vertical and new_vertical != current_vertical:
+                    payload["vertical_key"] = new_vertical
+                    payload["force_vertical"] = force_vertical
                 res = update_tenant(token, t["id"], payload)
                 st.success(f"Actualizado: {res}")
             if st.button("ON/OFF mantenimiento", key=f"maint-{t['id']}"):
@@ -277,6 +305,14 @@ with tabs[2]:
         name = st.text_input("Nombre")
         contact = st.text_input("Email contacto")
         plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
+        if vertical_keys:
+            vertical_key = st.selectbox(
+                "Vertical",
+                vertical_keys,
+                format_func=lambda v: vertical_labels.get(v, v),
+            )
+        else:
+            vertical_key = st.text_input("Vertical", value="kitchens")
         origins_new = st.text_input("Allowed origins (coma)")
         limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
         maint_new = st.checkbox("Mantenimiento inicial", value=False)
@@ -292,6 +328,7 @@ with tabs[2]:
                 "maintenance": maint_new,
                 "use_ia": use_ia_new,
                 "ia_enabled": use_ia_new,
+                "vertical_key": vertical_key,
             }
             res = create_tenant(token, payload)
             if res and "id" in res:

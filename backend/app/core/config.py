@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     rate_limit_chat_per_ip: int = 60
     rate_limit_chat_per_tenant: int = 600
     rate_limit_widget_per_tenant: int = 20
+    rate_limit_widget_per_ip: int = 60
     jwt_secret: str | None = None
     jwt_private_key_current: str | None = None
     jwt_private_key_previous: str | None = None

@@ -4,182 +4,192 @@ import ChatMessages from "./ChatMessages";
 import ChatOptions from "./ChatOptions";
 import ChatInput from "./ChatInput";
 import TypingIndicator from "./TypingIndicator";
-import QuotaBanner from "./QuotaBanner";
+import { createWidgetSession, sendWidgetMessage, fetchAgendaSlots, confirmAgendaSlot } from "../api/widgetApi";
 
-export default function ChatContainer({ apiUrl, apiKey, widgetToken, tenantId, tenantTheme, logoUrl, strings }) {
+function sessionStorageKey(tenantId) {
+  return `opn_widget_session_id:${tenantId}`;
+}
+
+function resolveText(value, fallbackLang) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    return value[fallbackLang] || value.es || value.en || value.pt || value.ca || Object.values(value)[0] || "";
+  }
+  return String(value);
+}
+
+function humanDelay() {
+  const min = 200;
+  const max = 600;
+  return new Promise((resolve) => {
+    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+    setTimeout(resolve, delay);
+  });
+}
+
+function formatSlotLabel(value, lang) {
+  if (!value) return "";
+  const date = new Date(value.includes("T") ? `${value}:00` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(lang || "es", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export default function ChatContainer({ apiUrl, widgetToken, runtime, strings }) {
   const [messages, setMessages] = useState([]);
   const [options, setOptions] = useState([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
-  const [token, setToken] = useState(widgetToken || localStorage.getItem("widget_token") || "");
-  const [quotaStatus, setQuotaStatus] = useState("ACTIVE");
-  const [savingMode, setSavingMode] = useState(false);
-  const [needsUpgrade, setNeedsUpgrade] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
+  const [widgetState, setWidgetState] = useState("INICIADA");
+  const [slots, setSlots] = useState([]);
 
   const messagesRef = useRef(null);
-  const sessionIdRef = useRef(null);
-  const refreshTimerRef = useRef(null);
-
-  useEffect(() => {
-    let sid = localStorage.getItem("session_id");
-    if (!sid && window.crypto?.randomUUID) {
-      sid = window.crypto.randomUUID();
-      localStorage.setItem("session_id", sid);
-    } else if (!sid) {
-      sid = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      localStorage.setItem("session_id", sid);
-    }
-    sessionIdRef.current = sid;
-  }, []);
 
   // Auto-scroll
   useEffect(() => {
     if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+      messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
     }
   }, [messages, typing]);
 
-  function decodeExp(jwt) {
-    if (!jwt) return null;
-    try {
-      const payload = JSON.parse(atob(jwt.split(".")[1] || ""));
-      if (!payload.exp) return null;
-      return Number(payload.exp) * 1000;
-    } catch (err) {
-      console.warn("ChatWidget: no se pudo decodificar el token", err);
-      return null;
+  useEffect(() => {
+    const welcome = resolveText(runtime?.messages?.welcome, runtime?.messages?.language || "es");
+    if (welcome) {
+      setMessages([{ role: "bot", text: welcome }]);
     }
-  }
-
-  async function refreshToken() {
-    if (!token || !tenantId) return;
-    try {
-      const res = await fetch(`${apiUrl}/v1/tenant/widget/token/renew`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "X-Tenant-ID": tenantId,
-        },
-        body: JSON.stringify({ ttl_minutes: 30 }),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.token) {
-        setToken(data.token);
-        localStorage.setItem("widget_token", data.token);
-      }
-    } catch (err) {
-      console.warn("ChatWidget: no se pudo renovar el token", err);
-    }
-  }
+  }, [runtime]);
 
   useEffect(() => {
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
+    const tenantId = runtime?.tenant?.id;
+    if (!tenantId) return;
+    const key = sessionStorageKey(tenantId);
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      setSessionId(existing);
+      return;
     }
-    const expMs = decodeExp(token);
-    if (!expMs) return;
-    const now = Date.now();
-    const leadMs = Math.max(expMs - now - 5 * 60 * 1000, 10_000);
-    refreshTimerRef.current = setTimeout(refreshToken, leadMs);
-    return () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    };
-  }, [token, tenantId, apiUrl]);
+    (async () => {
+      const created = await createWidgetSession(apiUrl, widgetToken, tenantId);
+      if (created?.session_id) {
+        localStorage.setItem(key, created.session_id);
+        setSessionId(created.session_id);
+        setWidgetState(created.state || "INICIADA");
+      }
+    })();
+  }, [apiUrl, widgetToken, runtime]);
 
-  async function sendMessage(text) {
+  async function maybeLoadSlots(nextState) {
+    if (nextState !== "CITA_SOLICITADA") {
+      setSlots([]);
+      return;
+    }
+    if (!sessionId) return;
+    const resp = await fetchAgendaSlots(apiUrl, widgetToken, sessionId);
+    const list = Array.isArray(resp?.slots) ? resp.slots : [];
+    setSlots(list);
+  }
+
+  async function sendMessage(text, kind = "text") {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
+    if (!sessionId) return;
 
     setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
     setTyping(true);
 
     try {
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey) {
-        headers["x-api-key"] = apiKey;
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      } else if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      if (tenantId) {
-        headers["X-Tenant-ID"] = tenantId;
-      }
-      const idempotencyKey = `${sessionIdRef.current || "anon"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      headers["Idempotency-Key"] = idempotencyKey;
-
-      const res = await fetch(`${apiUrl}/v1/chat/send`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ message: trimmed, session_id: sessionIdRef.current }),
-      });
-
-      if (!res.ok) {
-        const offlineText = strings?.offlineMessage || strings?.errorMessage || "Nuestro asistente no está disponible.";
+      const data = await sendWidgetMessage(apiUrl, widgetToken, sessionId, kind, trimmed);
+      if (!data) {
+        const offlineText =
+          resolveText(runtime?.messages?.errors?.offline, runtime?.messages?.language || "es") ||
+          strings?.offlineMessage ||
+          strings?.errorMessage ||
+          "Nuestro asistente no está disponible.";
         setTyping(false);
         setMessages((prev) => [...prev, { role: "bot", text: offlineText }]);
         setOptions([]);
         return;
       }
 
-      const data = await res.json();
-      const qStatus = (data.quota_status || "ACTIVE").toString().toUpperCase();
-      const saving = Boolean(data.saving_mode) || qStatus === "SAVING";
-      const upgrade = Boolean(data.needs_upgrade_notice);
-      setQuotaStatus(qStatus);
-      setSavingMode(saving);
-      setNeedsUpgrade(upgrade);
-
+      await humanDelay();
       setTyping(false);
-      const botText =
-        data.message ||
-        data.ai_reply ||
-        data.text ||
-        strings?.errorMessage ||
-        "No pude responder. Intenta de nuevo.";
-      setMessages((prev) => [...prev, { role: "bot", text: botText }]);
-
-      if (data.session_id && data.session_id !== sessionIdRef.current) {
-        sessionIdRef.current = data.session_id;
-        localStorage.setItem("session_id", data.session_id);
-      }
-
-      if (data.options) setOptions(data.options);
+      const msgs = Array.isArray(data.messages) ? data.messages : [];
+      const btn = msgs.find((m) => m?.type === "buttons");
+      const textMsg = msgs.find((m) => m?.type === "text");
+      if (textMsg?.content) setMessages((prev) => [...prev, { role: "bot", text: textMsg.content }]);
+      if (btn?.options) setOptions(btn.options);
       else setOptions([]);
+      const nextState = data.state || "EN_CONVERSACION";
+      setWidgetState(nextState);
+      await maybeLoadSlots(nextState);
     } catch (error) {
       setTyping(false);
       setMessages((prev) => [
         ...prev,
         {
           role: "bot",
-          text: strings?.offlineMessage || strings?.errorMessage || "Nuestro asistente no está disponible.",
+          text:
+            resolveText(runtime?.messages?.errors?.offline, runtime?.messages?.language || "es") ||
+            strings?.offlineMessage ||
+            strings?.errorMessage ||
+            "Nuestro asistente no está disponible.",
         },
       ]);
       setOptions([]);
     }
   }
 
+  async function confirmSlot(slot) {
+    if (!sessionId) return;
+    const start = slot?.start;
+    if (!start) return;
+    setTyping(true);
+    const data = await confirmAgendaSlot(apiUrl, widgetToken, sessionId, start);
+    await humanDelay();
+    setTyping(false);
+    if (!data) return;
+    const msgs = Array.isArray(data.messages) ? data.messages : [];
+    const btn = msgs.find((m) => m?.type === "buttons");
+    const textMsg = msgs.find((m) => m?.type === "text");
+    if (textMsg?.content) setMessages((prev) => [...prev, { role: "bot", text: textMsg.content }]);
+    if (btn?.options) setOptions(btn.options);
+    else setOptions([]);
+    const nextState = data.state || widgetState;
+    setWidgetState(nextState);
+    await maybeLoadSlots(nextState);
+  }
+
+  const headerTitle = runtime?.tenant?.display_name || strings?.headerTitle || "Chat";
+  const logoUrl = runtime?.visual?.logo_url;
+
   return (
-    <div className="chat-container" data-theme={tenantTheme}>
+    <div className="chat-container">
       <ChatHeader
-        title={strings?.headerTitle || "Chat"}
-        subtitle={strings?.headerSubtitle}
+        title={headerTitle}
+        subtitle={null}
         status={strings?.status}
         logoUrl={logoUrl}
-      />
-      <QuotaBanner
-        status={quotaStatus}
-        savingMode={savingMode}
-        needsUpgrade={needsUpgrade}
-        upgradeUrl={strings?.upgradeUrl}
       />
 
       <div className="chat-messages" ref={messagesRef}>
         <ChatMessages messages={messages} />
         {typing && <TypingIndicator />}
-        {options.length > 0 && (
-          <ChatOptions options={options} onSelect={(opt) => sendMessage(opt.id)} />
+        {options.length > 0 && <ChatOptions options={options} onSelect={(opt) => sendMessage(opt, "button")} />}
+          {widgetState === "CITA_SOLICITADA" && slots.length > 0 && (
+          <div className="options-container">
+            {slots.slice(0, 10).map((s) => (
+              <span key={s.start} className="option-chip" onClick={() => confirmSlot(s)}>
+                {formatSlotLabel(s.start, runtime?.messages?.language || "es")}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 

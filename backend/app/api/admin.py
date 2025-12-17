@@ -23,6 +23,11 @@ from app.models.login_tokens import LoginToken
 from app.services.key_manager import KeyManager
 from app.services.oidc_admin import validate_admin_id_token, OIDCValidationError
 from app.services.template_service import TemplateService
+from app.services.verticals import (
+    list_verticals,
+    get_vertical_config,
+    provision_vertical_materials,
+)
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
 from app.core.logger import LOG_DIR
@@ -130,6 +135,7 @@ class TenantBase(BaseModel):
     allowed_origins: list[str] = Field(default_factory=list)
     maintenance: bool = False
     ia_enabled: Optional[bool] = None
+    vertical_key: Optional[str] = None
 
 
 class TenantCreate(TenantBase):
@@ -146,6 +152,8 @@ class TenantUpdate(BaseModel):
     maintenance: Optional[bool] = None
     ia_enabled: Optional[bool] = None
     billing_status: Optional[str] = None
+    vertical_key: Optional[str] = None
+    force_vertical: Optional[bool] = None
 
 
 class WidgetTokenRequest(BaseModel):
@@ -191,6 +199,7 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         "default_template_id": str(getattr(t, "default_template_id")) if getattr(t, "default_template_id", None) else None,
         "widget_tokens_revoked_before": branding.get("widget_tokens_revoked_before"),
         "excluded": bool(branding.get("excluded", False)),
+        "vertical_key": getattr(t, "vertical_key", None),
     }
 
 
@@ -208,6 +217,11 @@ def list_tenants(search: Optional[str] = Query(None, max_length=100), db=Depends
         )
     tenants = q.all()
     return [_serialize_tenant(t) for t in tenants]
+
+
+@router.get("/verticals", dependencies=[Depends(_ensure_super_admin())])
+def list_verticals_admin():
+    return {"items": list_verticals()}
 
 
 @router.post("/auth/login")
@@ -239,6 +253,10 @@ def admin_oidc_login(payload: AdminOIDCInput):
 
 @router.post("/tenants", dependencies=[Depends(_ensure_super_admin())])
 def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
+    if not payload.vertical_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_key")
+    if not get_vertical_config(payload.vertical_key):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_key")
     branding = {
         "allowed_widget_origins": payload.allowed_origins or [],
         "maintenance": payload.maintenance,
@@ -253,6 +271,7 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         usage_limit_monthly=payload.usage_limit_monthly,
         branding=branding,
         ia_enabled=payload.ia_enabled if payload.ia_enabled is not None else True,
+        vertical_key=payload.vertical_key,
     )
     db.add(tenant)
     db.commit()
@@ -266,6 +285,10 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
             db.refresh(tenant)
     except Exception:
         db.rollback()
+    try:
+        provision_vertical_materials(db, tenant)
+    except Exception:
+        db.rollback()
     actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
     AuditService.log_admin_action(
         actor=actor,
@@ -273,7 +296,7 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         entity="tenant",
         entity_id=str(tenant.id),
         tenant_id=str(tenant.id),
-        meta={"plan": tenant.plan},
+        meta={"plan": tenant.plan, "vertical_key": tenant.vertical_key},
     )
     AuditService.log_admin_action(
         actor=actor,
@@ -312,7 +335,18 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
     if payload.maintenance is not None:
         branding["maintenance"] = bool(payload.maintenance)
         branding["maintenance_mode"] = bool(payload.maintenance)
-    for field, value in payload.model_dump(exclude_none=True, exclude={"allowed_origins", "maintenance"}).items():
+    updates = payload.model_dump(exclude_none=True, exclude={"allowed_origins", "maintenance", "force_vertical"})
+    if "vertical_key" in updates:
+        if not get_vertical_config(updates["vertical_key"]):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_key")
+        if tenant.vertical_key and updates["vertical_key"] != tenant.vertical_key and not payload.force_vertical:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vertical_key_immutable")
+        tenant.vertical_key = updates.pop("vertical_key")
+        try:
+            provision_vertical_materials(db, tenant)
+        except Exception:
+            db.rollback()
+    for field, value in updates.items():
         setattr(tenant, field, value)
     if payload.plan and payload.plan != previous_plan:
         branding["plan_changed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()

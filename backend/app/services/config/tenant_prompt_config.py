@@ -1,5 +1,7 @@
 from typing import Dict, Any, Optional
 
+from app.services.verticals import fetch_tenant_vertical_key, vertical_prompt
+
 
 def get_tenant_prompt_config(tenant_id: Optional[str]) -> Dict[str, Any]:
     """
@@ -19,6 +21,14 @@ def get_tenant_prompt_config(tenant_id: Optional[str]) -> Dict[str, Any]:
             "max_cost_month": 25.0,
         }
     }
+
+    try:
+        vertical_key = fetch_tenant_vertical_key(tenant_id)
+        v_prompt = vertical_prompt(vertical_key)
+        if v_prompt:
+            base["vertical_prompt"] = v_prompt
+    except Exception:
+        pass
 
     # Aquí podrías hacer lookup real por tenant_id
     # if tenant_id:

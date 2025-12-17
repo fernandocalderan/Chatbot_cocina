@@ -39,6 +39,18 @@ class PromptRouter:
             return "en"
         return "es"
 
+    @staticmethod
+    def _apply_vertical_prompt(prompt: str, tenant_config: Optional[Dict[str, Any]]) -> str:
+        if not tenant_config:
+            return prompt
+        vertical_prompt = tenant_config.get("vertical_prompt")
+        if not vertical_prompt:
+            return prompt
+        vp = str(vertical_prompt).strip()
+        if not vp:
+            return prompt
+        return f"{vp}\n\n{prompt}"
+
     # ---------- EXTRACCIÓN ESTRUCTURADA ----------
 
     @classmethod
@@ -61,22 +73,22 @@ class PromptRouter:
         _ = cls._normalize_language(language)
 
         if purpose == "project_type":
-            return PROJECT_TYPE_ADVANCED.format(user_text=user_text)
+            return cls._apply_vertical_prompt(PROJECT_TYPE_ADVANCED.format(user_text=user_text), tenant_config)
 
         if purpose == "style":
-            return STYLE_ADVANCED.format(user_text=user_text)
+            return cls._apply_vertical_prompt(STYLE_ADVANCED.format(user_text=user_text), tenant_config)
 
         if purpose == "dimensions":
-            return DIMENSIONS_ADVANCED.format(user_text=user_text)
+            return cls._apply_vertical_prompt(DIMENSIONS_ADVANCED.format(user_text=user_text), tenant_config)
 
         if purpose == "budget":
-            return BUDGET_ADVANCED.format(user_text=user_text)
+            return cls._apply_vertical_prompt(BUDGET_ADVANCED.format(user_text=user_text), tenant_config)
 
         if purpose == "urgency":
-            return DEADLINE_ADVANCED.format(user_text=user_text)
+            return cls._apply_vertical_prompt(DEADLINE_ADVANCED.format(user_text=user_text), tenant_config)
 
         # Genérico extractor multi-campo
-        return EXTRACTION_PROMPT.format(user_text=user_text)
+        return cls._apply_vertical_prompt(EXTRACTION_PROMPT.format(user_text=user_text), tenant_config)
 
     # ---------- GENERACIÓN DE TEXTO ----------
 
@@ -100,30 +112,30 @@ class PromptRouter:
 
         if purpose == "welcome":
             # No necesita payload específico
-            return WELCOME_ADVANCED
+            return cls._apply_vertical_prompt(WELCOME_ADVANCED, tenant_config)
 
         if purpose == "closing":
-            return CLOSING_ADVANCED
+            return cls._apply_vertical_prompt(CLOSING_ADVANCED, tenant_config)
 
         if purpose == "microproposal":
-            return MICROPROPOSAL_ADVANCED.format(lead_data=payload)
+            return cls._apply_vertical_prompt(MICROPROPOSAL_ADVANCED.format(lead_data=payload), tenant_config)
 
         if purpose == "summary":
             # Reutiliza el SUMMARY_PROMPT básico
             import json
-            return SUMMARY_PROMPT.format(data=json.dumps(payload, ensure_ascii=False))
+            return cls._apply_vertical_prompt(SUMMARY_PROMPT.format(data=json.dumps(payload, ensure_ascii=False)), tenant_config)
 
         if purpose == "reply_contextual":
             user_message = payload.get("message", "")
             context = payload.get("context", {})
             import json
-            return REPLY_CONTEXTUAL_ADVANCED.format(
+            return cls._apply_vertical_prompt(REPLY_CONTEXTUAL_ADVANCED.format(
                 user_message=user_message,
                 context=json.dumps(context, ensure_ascii=False),
-            )
+            ), tenant_config)
 
         if purpose == "custom_prompt":
-            return payload.get("prompt") or ""
+            return cls._apply_vertical_prompt(payload.get("prompt") or "", tenant_config)
 
         # Fallback: reply básico
         message = payload.get("message", "")
@@ -133,4 +145,4 @@ class PromptRouter:
             message=message,
             contexto=json.dumps(context, ensure_ascii=False),
         )
-        return base
+        return cls._apply_vertical_prompt(base, tenant_config)
