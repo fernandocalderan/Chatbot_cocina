@@ -220,6 +220,10 @@ def list_appointments(
     q = db.query(Appointment).filter(Appointment.tenant_id == tenant_id)
 
     filters = []
+    # Compat: el panel usa estado=today para contar citas de hoy.
+    if estado and str(estado).lower() == "today" and not fecha:
+        fecha = datetime.now(timezone.utc).date()
+        estado = None
     if fecha:
         start_dt = datetime.combine(fecha, datetime.min.time(), tzinfo=timezone.utc)
         end_dt = datetime.combine(fecha, datetime.max.time(), tzinfo=timezone.utc)

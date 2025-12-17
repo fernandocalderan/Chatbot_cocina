@@ -8,8 +8,28 @@ st.set_page_config(page_title="Oportunidades", page_icon="📈", layout="wide")
 load_styles()
 ensure_login()
 
+from crm_ui import (  # noqa: E402
+    human_status,
+    priority_label,
+    relative_time,
+    lead_person,
+    recommended_action,
+)
+
+def _open_lead(lead_id: str):
+    st.session_state["selected_lead_id"] = lead_id
+    try:
+        st.query_params["lead_id"] = lead_id
+    except Exception:
+        pass
+    try:
+        st.switch_page("pages/08_Relatorio.py")
+    except Exception:
+        st.rerun()
+
+
 st.title("Oportunidades")
-st.caption("Prioridad visual y acción recomendada.")
+st.caption("Prioriza acciones comerciales: personas primero, datos solo si ayudan.")
 
 leads = list_leads() or []
 
@@ -19,70 +39,68 @@ show_high = filters[1].checkbox("Prioridad alta", value=False)
 show_with_appt = filters[2].checkbox("Con cita", value=False)
 show_no_contact = filters[3].checkbox("Sin contactar", value=False)
 
-def priority_label(lead):
-    score = lead.get("score")
-    prio = lead.get("priority")
-    if isinstance(prio, str):
-        val = prio.lower()
-        if "high" in val or "alta" in val or "🔥" in val:
-            return "🔥 Alta"
-        if "med" in val or "⚡" in val:
-            return "⚡ Media"
-        return "❄️ Baja"
-    if score is None:
-        return "⚡ Media"
-    score = float(score)
-    if score >= 70:
-        return "🔥 Alta"
-    if score >= 40:
-        return "⚡ Media"
-    return "❄️ Baja"
+tenant_tz = st.session_state.get("tenant_timezone", "Europe/Madrid")
 
-def status_label(lead):
-    status = str(lead.get("status") or "").lower()
-    mapping = {
-        "new": "Nuevo",
-        "hot": "En seguimiento",
-        "warm": "En seguimiento",
-        "booked": "Cita",
-        "confirmed": "Cita",
-        "lost": "Perdido",
-    }
-    return mapping.get(status, status.title() if status else "—")
+def _last_contact_text(lead: dict) -> str:
+    last = lead.get("last_activity_at") or lead.get("updated_at") or lead.get("created_at")
+    txt = relative_time(last, tz_name=tenant_tz)
+    if not txt:
+        return ""
+    if human_status(lead.get("status")) == "Nuevo" and not lead.get("last_activity_at"):
+        return "Recién llegado"
+    return txt
 
-def action_hint(lead):
-    if lead.get("status") in ("booked", "confirmed"):
-        return "Confirma o actualiza la cita"
-    if lead.get("status") in ("new", None):
-        return "Contacta hoy"
-    return "Dar seguimiento"
 
-def last_interaction(lead):
-    return lead.get("updated_at") or lead.get("created_at") or "—"
-
-rows = []
+filtered = []
 for lead in leads:
+    status = human_status(lead.get("status"))
     prio = priority_label(lead)
-    status = status_label(lead)
+    has_appt = status in {"Cita programada", "Cita confirmada"}
     if show_new and status != "Nuevo":
         continue
     if show_high and prio != "🔥 Alta":
         continue
-    if show_with_appt and status != "Cita":
+    if show_with_appt and not has_appt:
         continue
-    if show_no_contact and lead.get("last_contact_at"):
+    if show_no_contact and lead.get("last_activity_at"):
         continue
-    rows.append(
-        {
-            "Nombre / contacto": (lead.get("name") or lead.get("contact_name") or lead.get("email") or "—"),
-            "Estado": status,
-            "Prioridad": prio,
-            "Última interacción": last_interaction(lead),
-            "Acción recomendada": action_hint(lead),
-        }
-    )
+    filtered.append(lead)
 
-if not rows:
+if not filtered:
     st.info("Aún no hay oportunidades nuevas.")
-else:
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.stop()
+
+# Tabla (sin IDs ni timestamps crudos)
+header = st.columns([1.7, 1.3, 1.2, 1.2, 0.9, 1.1, 1.4, 0.9])
+header[0].markdown("**Cliente**")
+header[1].markdown("**Nombre**")
+header[2].markdown("**Teléfono**")
+header[3].markdown("**Estado**")
+header[4].markdown("**Prioridad**")
+header[5].markdown("**Último contacto**")
+header[6].markdown("**Acción recomendada**")
+header[7].markdown("**Acciones**")
+
+for lead in filtered:
+    pid = lead.get("id")
+    if not pid:
+        continue
+    p = lead_person(lead)
+    status = human_status(lead.get("status"))
+    prio = priority_label(lead)
+    last_txt = _last_contact_text(lead)
+    action = recommended_action(lead.get("status"), has_appointment=status in {"Cita programada", "Cita confirmada"})
+
+    row = st.columns([1.7, 1.3, 1.2, 1.2, 0.9, 1.1, 1.4, 0.9])
+    row[0].write(p.company or p.display_name)
+    row[1].write(p.display_name if p.company else "")
+    if p.phone:
+        row[2].markdown(f"[📞 {p.phone}](tel:{p.phone})")
+    else:
+        row[2].write("")
+    row[3].write(status)
+    row[4].write(prio)
+    row[5].write(last_txt)
+    row[6].write(action)
+    if row[7].button("Ver detalles", key=f"view-{pid}", use_container_width=True):
+        _open_lead(str(pid))

@@ -45,6 +45,9 @@ class API:
             headers["Idempotency-Key"] = idempotency_key
         return requests.post(self._full_url(path), json=data, headers=headers, timeout=10)
 
+    def patch(self, path: str, data: dict):
+        return requests.patch(self._full_url(path), json=data, headers=self.headers(), timeout=10)
+
 
 def _current_tenant_id() -> str | None:
     return st.session_state.get("tenant_id") or TENANT_ID
@@ -134,7 +137,8 @@ def _handle_api_error(resp: requests.Response, fallback_message: str = "No se pu
     except Exception:
         detail = resp.text
     status = resp.status_code
-    st.error(f"{fallback_message} (código {status}).")
+    # UX: evita exponer errores técnicos (códigos, payloads) al comercial.
+    st.info(fallback_message)
     logger.error("API error %s %s: %s", status, getattr(resp.request, "url", "<sin_url>"), detail)
     return {"detail": detail, "status_code": status}
 
@@ -150,6 +154,14 @@ def api_get(path: str) -> Any:
 def api_post(path: str, payload: dict, idempotency_key: str | None = None) -> Any:
     client = _client()
     resp = client.post(path, payload, idempotency_key=idempotency_key)
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp)
+
+
+def api_patch(path: str, payload: dict) -> Any:
+    client = _client()
+    resp = client.patch(path, payload)
     if resp.ok:
         return resp.json()
     return _handle_api_error(resp)
@@ -180,8 +192,34 @@ def list_leads():
     return []
 
 
-def list_appointments():
-    data = api_get("/appointments")
+def get_lead(lead_id: str):
+    return api_get(f"/leads/{lead_id}") or {}
+
+
+def update_lead_panel(lead_id: str, internal_note: str | None = None, quote_status: str | None = None):
+    payload: dict[str, Any] = {}
+    if internal_note is not None:
+        payload["internal_note"] = internal_note
+    if quote_status is not None:
+        payload["quote_status"] = quote_status
+    if not payload:
+        return {"ok": True}
+    return api_patch(f"/leads/{lead_id}/panel", payload) or {}
+
+
+def list_appointments(lead_id: str | None = None, estado: str | None = None, fecha: str | None = None, limit: int = 200):
+    qs = []
+    if lead_id:
+        qs.append(f"lead_id={lead_id}")
+    if estado:
+        qs.append(f"estado={estado}")
+    if fecha:
+        qs.append(f"fecha={fecha}")
+    qs.append(f"limit={int(limit)}")
+    path = "/appointments"
+    if qs:
+        path = f"{path}?{'&'.join(qs)}"
+    data = api_get(path)
     if isinstance(data, dict) and "items" in data:
         return data.get("items") or []
     if isinstance(data, list):
@@ -195,6 +233,22 @@ def confirm_appointment(appt_id: str):
 
 def cancel_appointment(appt_id: str):
     return api_post("/appointments/cancel", {"id": appt_id})
+
+
+def reschedule_appointment(appt_id: str, slot_start_iso: str):
+    return api_post("/appointments/reschedule", {"id": appt_id, "slot_start": slot_start_iso})
+
+
+def update_appointment(appt_id: str, payload: dict):
+    return api_patch(f"/appointments/{appt_id}", payload)
+
+
+def download_lead_pdf(lead_id: str, kind: str = "comercial"):
+    client = _client()
+    resp = client.get(f"/files/{lead_id}/{kind}.pdf")
+    if resp.ok:
+        return {"content": resp.content, "content_type": resp.headers.get("content-type") or "application/pdf"}
+    return _handle_api_error(resp, fallback_message="Aún no hay PDF disponible para este lead.")
 
 
 def get_scoring():

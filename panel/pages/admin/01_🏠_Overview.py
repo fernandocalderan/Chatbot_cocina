@@ -64,7 +64,7 @@ else:
                 <div>
                   <div style="font-weight:700;font-size:16px;">{t.get('name')}</div>
                   <div style="color:#6B7280;font-size:13px;">Plan {plan}</div>
-                  <div style="margin-top:4px;">{pill(f"Quota {quota}", tone=tone)} {pill(f\"Uso {pct:.0f}%\", tone='warning' if pct>=80 else 'info')}</div>
+	                  <div style="margin-top:4px;">{pill(f"Quota {quota}", tone=tone)} {pill(f"Uso {pct:.0f}%", tone='warning' if pct>=80 else 'info')}</div>
                 </div>
                 <div style="text-align:right;">
                   <div style="font-weight:700;font-size:16px;">{spent:.2f} €</div>
