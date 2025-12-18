@@ -39,5 +39,71 @@
     "ai_intervention_enabled": true,
     "score_threshold": 70,
     "friction_seconds": 12
+  },
+  "scope_definitions": {
+    "instaladores_clima": {
+      "label": "Climatización (A/A, calefacción)",
+      "defaults": {"category": "clima"},
+      "flow_overrides": {
+        "version": "home_services__instaladores_clima__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "instaladores_solar": {
+      "label": "Solar (placas)",
+      "defaults": {"category": "solar"},
+      "flow_overrides": {
+        "version": "home_services__instaladores_solar__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "reformas_parciales": {
+      "label": "Reformas parciales",
+      "defaults": {"category": "otros"},
+      "flow_overrides": {
+        "version": "home_services__reformas_parciales__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "carpinteria_metalica": {
+      "label": "Carpintería metálica",
+      "defaults": {"category": "carpinteria"},
+      "flow_overrides": {
+        "version": "home_services__carpinteria_metalica__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "cerramientos": {
+      "label": "Cerramientos",
+      "defaults": {"category": "cerramientos"},
+      "flow_overrides": {
+        "version": "home_services__cerramientos__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "persianas_toldos": {
+      "label": "Persianas y toldos",
+      "defaults": {"category": "cerramientos"},
+      "flow_overrides": {
+        "version": "home_services__persianas_toldos__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "electricidad": {
+      "label": "Electricidad",
+      "defaults": {"category": "electricidad"},
+      "flow_overrides": {
+        "version": "home_services__electricidad__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "fontaneria": {
+      "label": "Fontanería",
+      "defaults": {"category": "fontaneria"},
+      "flow_overrides": {
+        "version": "home_services__fontaneria__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    }
   }
 }

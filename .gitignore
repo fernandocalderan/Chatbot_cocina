@@ -19,3 +19,6 @@ dist/
 
 # OS / misc
 .DS_Store
+
+# Local widget test (contains tokens)
+test-widget.html

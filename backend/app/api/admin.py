@@ -31,6 +31,8 @@ from app.services.verticals import (
     provision_vertical_assets,
     get_vertical_bundle,
     resolve_flow_id,
+    allowed_scopes,
+    validate_vertical_scopes,
     vertical_flow_base,
 )
 from app.services.audit_service import AuditService
@@ -143,6 +145,7 @@ class TenantBase(BaseModel):
     maintenance: bool = False
     ia_enabled: Optional[bool] = None
     vertical_key: Optional[str] = None
+    vertical_scopes: list[str] = Field(default_factory=list)
 
 
 class TenantCreate(TenantBase):
@@ -160,6 +163,7 @@ class TenantUpdate(BaseModel):
     ia_enabled: Optional[bool] = None
     billing_status: Optional[str] = None
     vertical_key: Optional[str] = None
+    vertical_scopes: Optional[list[str]] = None
     force_vertical: Optional[bool] = None
 
 
@@ -227,6 +231,7 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         "widget_tokens_revoked_before": branding.get("widget_tokens_revoked_before"),
         "excluded": bool(branding.get("excluded", False)),
         "vertical_key": getattr(t, "vertical_key", None),
+        "vertical_scopes": branding.get("vertical_scopes") or [],
     }
 
 
@@ -292,9 +297,16 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_key")
     if not get_vertical_config(payload.vertical_key):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_key")
+    try:
+        scopes = validate_vertical_scopes(payload.vertical_key, payload.vertical_scopes)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_scopes")
+    if allowed_scopes(payload.vertical_key) and not scopes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_scopes")
     branding = {
         "allowed_widget_origins": payload.allowed_origins or [],
         "maintenance": payload.maintenance,
+        "vertical_scopes": scopes,
     }
     customer_code = _next_customer_code(db)
     tenant = Tenant(
@@ -380,13 +392,34 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
     if payload.maintenance is not None:
         branding["maintenance"] = bool(payload.maintenance)
         branding["maintenance_mode"] = bool(payload.maintenance)
-    updates = payload.model_dump(exclude_none=True, exclude={"allowed_origins", "maintenance", "force_vertical"})
+    updates = payload.model_dump(
+        exclude_none=True,
+        exclude={"allowed_origins", "maintenance", "force_vertical", "vertical_scopes"},
+    )
+
+    # Sub-vertical scopes (branding) – inmutables salvo `force_vertical`
+    if payload.vertical_scopes is not None:
+        current_vertical = updates.get("vertical_key") or getattr(tenant, "vertical_key", None)
+        if not current_vertical:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_key")
+        try:
+            scopes = validate_vertical_scopes(current_vertical, payload.vertical_scopes)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_scopes")
+        existing_scopes = branding.get("vertical_scopes") or []
+        if existing_scopes and scopes != existing_scopes and not payload.force_vertical:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vertical_scopes_immutable")
+        branding["vertical_scopes"] = scopes
     if "vertical_key" in updates:
         if not get_vertical_config(updates["vertical_key"]):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_key")
         if tenant.vertical_key and updates["vertical_key"] != tenant.vertical_key and not payload.force_vertical:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vertical_key_immutable")
         tenant.vertical_key = updates.pop("vertical_key")
+        if payload.force_vertical:
+            existing_scopes = branding.get("vertical_scopes") or []
+            if allowed_scopes(tenant.vertical_key) and not existing_scopes:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_scopes")
         try:
             created = provision_vertical_assets(db, tenant)
         except Exception:
@@ -531,7 +564,8 @@ def reset_tenant_flow_to_vertical_base(tenant_id: str, request: Request, db=Depe
     if not getattr(tenant, "vertical_key", None):
         raise HTTPException(status_code=400, detail="missing_vertical_key")
 
-    base = vertical_flow_base(getattr(tenant, "vertical_key", None))
+    branding = getattr(tenant, "branding", {}) or {}
+    base = vertical_flow_base(getattr(tenant, "vertical_key", None), branding.get("vertical_scopes") or [])
     if not isinstance(base, dict) or not base:
         raise HTTPException(status_code=400, detail="vertical_flow_base_not_found")
 
@@ -877,7 +911,23 @@ def issue_magic_login(tenant_id: str, payload: MagicLinkRequest, request: Reques
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
-    email = payload.email or tenant.contact_email
+    email = (payload.email or "").strip() or (tenant.contact_email or "").strip()
+    if not email:
+        # Fallback: si ya existe un usuario (OWNER/ADMIN) pero no hay contact_email, usar su email.
+        try:
+            preferred = (
+                db.query(User)
+                .filter(User.tenant_id == tenant.id)
+                .order_by(
+                    sa.case((User.role == UserRole.OWNER.value, 0), else_=1),
+                    User.created_at.asc(),
+                )
+                .first()
+            )
+        except Exception:
+            preferred = None
+        if preferred and getattr(preferred, "email", None):
+            email = str(preferred.email).strip()
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_email")
     user = db.query(User).filter(User.tenant_id == tenant.id, User.email == email).first()

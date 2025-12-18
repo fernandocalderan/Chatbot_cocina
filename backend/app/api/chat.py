@@ -35,7 +35,12 @@ from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
 from app.services.flow_templates import apply_materials
 from app.services.flow_resolver import resolve_runtime_flow
-from app.services.verticals import resolve_flow_id, get_vertical_config
+from app.services.verticals import (
+    resolve_flow_id,
+    get_vertical_config,
+    scope_defaults,
+    tenant_vertical_scopes,
+)
 from app.services.agenda_service import AgendaService
 from app.models.configs import Config
 from app.services.conversational_intelligence import is_doubt_text, is_question_text, resolve_block_text
@@ -616,6 +621,12 @@ def send_message(
         if db_state:
             vars_data = db_state.variables_json or {}
             vars_data.setdefault("tenant_id", tenant_id)
+            vars_data.setdefault("vertical_key", tenant_vertical_key)
+            selected_scopes = tenant_vertical_scopes(tenant)
+            if selected_scopes:
+                vars_data.setdefault("vertical_scopes", selected_scopes)
+            for k, v in (scope_defaults(tenant_vertical_key, selected_scopes) or {}).items():
+                vars_data.setdefault(k, v)
             state = {
                 "current_block": db_state.state
                 or flow_data.get("start_block", "start"),
@@ -623,10 +634,12 @@ def send_message(
             }
             session_mgr.save(session_id, state)
         else:
-            state = {
-                "current_block": flow_data.get("start_block", "start"),
-                "vars": {"tenant_id": tenant_id},
-            }
+            vars_data = {"tenant_id": tenant_id, "vertical_key": tenant_vertical_key}
+            selected_scopes = tenant_vertical_scopes(tenant)
+            if selected_scopes:
+                vars_data["vertical_scopes"] = selected_scopes
+            vars_data.update(scope_defaults(tenant_vertical_key, selected_scopes) or {})
+            state = {"current_block": flow_data.get("start_block", "start"), "vars": vars_data}
             session_mgr.save(session_id, state)
             try:
                 db_obj = DBSesion(
@@ -642,6 +655,12 @@ def send_message(
                 db.rollback()
     else:
         state.setdefault("vars", {}).setdefault("tenant_id", tenant_id)
+        state.setdefault("vars", {}).setdefault("vertical_key", tenant_vertical_key)
+        selected_scopes = tenant_vertical_scopes(tenant)
+        if selected_scopes:
+            state.setdefault("vars", {}).setdefault("vertical_scopes", selected_scopes)
+        for k, v in (scope_defaults(tenant_vertical_key, selected_scopes) or {}).items():
+            state.setdefault("vars", {}).setdefault(k, v)
 
     now_ts = time.time()
     ci_state = state.get("_ci") if isinstance(state.get("_ci"), dict) else {}

@@ -202,7 +202,20 @@ def _handle_api_error(resp: requests.Response, fallback_message: str = "No se pu
 
     # Si el token ya no es válido, forzar re-login sin ensuciar la UI.
     if status == 401 and "/auth/" not in url:
-        for k in ["token", "access_token", "must_set_password", "must_set_password_required"]:
+        for k in [
+            "token",
+            "access_token",
+            "must_set_password",
+            "must_set_password_required",
+            "tenant_id",
+            "_branding_loaded",
+            "tenant_name",
+            "tenant_language",
+            "tenant_logo_url",
+            "tenant_timezone",
+            "tenant_currency",
+            "customer_code",
+        ]:
             st.session_state.pop(k, None)
         st.session_state["_flash_message"] = "Necesitas iniciar sesión para continuar."
         try:
@@ -455,8 +468,20 @@ def _decode_jwt_payload(token: str | None) -> dict:
 def _maybe_set_tenant_from_token(token: str | None):
     if not token:
         return
-    if not st.session_state.get("tenant_id"):
-        payload = _decode_jwt_payload(token)
-        tid = payload.get("tenant_id") or TENANT_ID
-        if tid:
-            st.session_state["tenant_id"] = tid
+    payload = _decode_jwt_payload(token)
+    tid = payload.get("tenant_id") or TENANT_ID
+    if not tid:
+        return
+    prev = st.session_state.get("tenant_id")
+    st.session_state["tenant_id"] = tid
+    if prev and str(prev) != str(tid):
+        for k in [
+            "_branding_loaded",
+            "tenant_name",
+            "tenant_language",
+            "tenant_logo_url",
+            "tenant_timezone",
+            "tenant_currency",
+            "customer_code",
+        ]:
+            st.session_state.pop(k, None)

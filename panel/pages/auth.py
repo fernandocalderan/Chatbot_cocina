@@ -38,7 +38,8 @@ if mode == "Email y contraseña":
             if token:
                 st.session_state["token"] = token
                 st.session_state["access_token"] = token
-                st.session_state["tenant_id"] = tenant_input
+                # `api_client.login()` ya fija `tenant_id` desde el JWT; no sobrescribirlo
+                # con un valor manual (evita quedarse “enganchado” a un tenant por defecto).
                 st.session_state["must_set_password"] = False
                 st.session_state.pop("_api_error_shown", None)
                 st.success("Autenticación correcta")

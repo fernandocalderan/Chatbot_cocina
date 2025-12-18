@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test Widget</title>
+    <link rel="stylesheet" href="origin/v1/chat-widget.css" />
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans,
+          sans-serif;
+        margin: 24px;
+      }
+      code,
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .box {
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #e6e6e6;
+        background: #fafafa;
+        margin: 12px 0;
+      }
+      .error {
+        border-color: #f5c2c7;
+        background: #fff5f5;
+        color: #842029;
+      }
+      .ok {
+        border-color: #badbcc;
+        background: #f0fff5;
+        color: #0f5132;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Test Widget</h1>
+    <p>
+      Abre este archivo desde un servidor HTTP (no <code>file://</code>) para que el navegador
+      envíe <code>Origin</code>. Ejemplo:
+    </p>
+    <pre><code>python3 -m http.server 5173</code></pre>
+    <p>
+      Genera un token widget en SuperAdmin con <code>allowed_origin</code> igual al origen de esta
+      página (por ejemplo <code>http://localhost:5173</code>).
+    </p>
+
+    <div id="widget-root"></div>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const api = params.get("api") || "http://localhost:8100";
+      const widgetSrc =
+        params.get("src") || `${window.location.origin}/frontend-widget/dist/chat-widget.js`;
+
+      const tenant =
+        params.get("tenant") || window.localStorage.getItem("widget_tenant") || "";
+      const token = params.get("token") || window.localStorage.getItem("widget_token") || "";
+
+      if (tenant && token) {
+        window.localStorage.setItem("widget_tenant", tenant);
+        window.localStorage.setItem("widget_token", token);
+      }
+
+      function decodeJwtPayload(jwt) {
+        try {
+          const parts = String(jwt).split(".");
+          if (parts.length < 2) return null;
+          const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+          const json = atob(b64 + pad);
+          return JSON.parse(json);
+        } catch {
+          return null;
+        }
+      }
+
+      function box(msg, kind) {
+        const el = document.createElement("div");
+        el.className = `box ${kind || ""}`.trim();
+        el.textContent = msg;
+        document.body.insertBefore(el, document.getElementById("widget-root"));
+      }
+
+      if (!tenant || !token) {
+        const hint = [
+          "Faltan parámetros.",
+          "",
+          "Ejemplo:",
+          `${window.location.origin}${window.location.pathname}?tenant=<TENANT_ID>&token=<WIDGET_TOKEN>`,
+        ].join("\n");
+        const pre = document.createElement("pre");
+        pre.textContent = hint;
+        document.body.appendChild(pre);
+      } else {
+        const payload = decodeJwtPayload(token);
+        const allowedOrigin = payload && payload.allowed_origin;
+        if (allowedOrigin && allowedOrigin !== window.location.origin) {
+          box(
+            `El token fue emitido para allowed_origin=${allowedOrigin}, pero esta página está en ${window.location.origin}. Genera un token nuevo con ese allowed_origin o abre esta página desde ${allowedOrigin}.`,
+            "error"
+          );
+        } else {
+          box(`OK: origin=${window.location.origin} api=${api} src=${widgetSrc}`, "ok");
+        }
+
+        // Bundle nuevo por defecto; fallback al legacy empaquetado en /origin/v1.
+        const fallbackSrc = `${window.location.origin}/origin/v1/chat-widget.js`;
+
+        const bootWidget = (usedSrc) => {
+          if (!window.ChatWidget || typeof window.ChatWidget.init !== "function") {
+            box(`El script ${usedSrc} cargó, pero no expone ChatWidget.init`, "error");
+            return;
+          }
+          try {
+            window.ChatWidget.init({
+              apiUrl: api,
+              widgetToken: token,
+              tenantId: tenant,
+              language: params.get("lang") || params.get("language") || "es",
+              startOpen: params.get("startOpen") === "true" || params.get("start_open") === "true",
+            });
+            box(`Widget iniciado con ${usedSrc}`, "ok");
+          } catch (err) {
+            box(`Error al iniciar widget (${usedSrc}): ${err}`, "error");
+          }
+        };
+
+        const script = document.createElement("script");
+        script.async = true;
+        script.dataset.api = api;
+        script.dataset.tenant = tenant;
+        script.dataset.token = token;
+        script.onload = () => {
+          box(`Script cargado (${widgetSrc}).`, "ok");
+          bootWidget(widgetSrc);
+        };
+
+        script.onerror = () => {
+          if (widgetSrc !== fallbackSrc) {
+            // Reintenta con el bundle local incluido en el repo.
+            box(
+              `No se pudo cargar el script (${widgetSrc}). Probando con bundle local: ${fallbackSrc}`,
+              "error"
+            );
+            const retry = document.createElement("script");
+            retry.async = true;
+            retry.dataset.api = api;
+            retry.dataset.tenant = tenant;
+            retry.dataset.token = token;
+            retry.src = fallbackSrc;
+            retry.onload = () => {
+              box(`Script cargado (fallback ${fallbackSrc}).`, "ok");
+              bootWidget(fallbackSrc);
+            };
+            retry.onerror = () =>
+              box(
+                `Tampoco cargó el bundle local (${fallbackSrc}). Verifica que el archivo exista o usa el CDN/servidor de widget.`,
+                "error"
+              );
+            document.body.appendChild(retry);
+          } else {
+            box(
+              `No se pudo cargar el script del widget (${widgetSrc}). Verifica la URL (debería ser chat-widget.js o widget.js accesible).`,
+              "error"
+            );
+          }
+        };
+
+        script.src = widgetSrc;
+        document.body.appendChild(script);
+      }
+    </script>
+  </body>
+</html>

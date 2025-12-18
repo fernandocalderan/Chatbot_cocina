@@ -39,5 +39,55 @@
     "ai_intervention_enabled": true,
     "score_threshold": 70,
     "friction_seconds": 12
+  },
+  "scope_definitions": {
+    "dental": {
+      "label": "Dental",
+      "defaults": {"specialty": "dental"},
+      "flow_overrides": {
+        "version": "clinics_private__dental__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "fisioterapia": {
+      "label": "Fisioterapia",
+      "defaults": {"specialty": "fisio"},
+      "flow_overrides": {
+        "version": "clinics_private__fisioterapia__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "osteopatia": {
+      "label": "Osteopatía",
+      "defaults": {"specialty": "fisio"},
+      "flow_overrides": {
+        "version": "clinics_private__osteopatia__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "psicologia_privada": {
+      "label": "Psicología privada",
+      "defaults": {"specialty": "psicologia"},
+      "flow_overrides": {
+        "version": "clinics_private__psicologia_privada__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "podologia": {
+      "label": "Podología",
+      "defaults": {"specialty": "podologia"},
+      "flow_overrides": {
+        "version": "clinics_private__podologia__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    },
+    "rehabilitacion": {
+      "label": "Rehabilitación",
+      "defaults": {"specialty": "rehab"},
+      "flow_overrides": {
+        "version": "clinics_private__rehabilitacion__v1",
+        "blocks": {"service_type": {"next": "urgency"}}
+      }
+    }
   }
 }

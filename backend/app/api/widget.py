@@ -18,7 +18,7 @@ from app.services.agenda_service import AgendaService
 from app.services.plan_limits import require_active_subscription
 from app.services.flow_templates import apply_materials
 from app.services.flow_resolver import resolve_runtime_flow
-from app.services.verticals import resolve_flow_id
+from app.services.verticals import resolve_flow_id, scope_defaults, tenant_vertical_scopes
 from app.models.configs import Config
 
 try:
@@ -251,21 +251,27 @@ def create_widget_session(payload: WidgetSessionCreate, request: Request, db: Se
     if str(payload.tenant_id) != str(tenant_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_mismatch")
 
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+
     # Crear sesión backend-driven (id del backend, persistente).
     sess = DBSession(tenant_id=tenant_id, canal="web_widget", state=None, variables_json={})
     db.add(sess)
     db.commit()
     db.refresh(sess)
 
-    _merge_session_vars(
-        sess,
-        {
-            "tenant_id": str(tenant_id),
-            "channel": "web_widget",
-            "widget_state": "INICIADA",
-            "lead_id": None,
-        },
-    )
+    selected_scopes = tenant_vertical_scopes(tenant)
+    base_vars = {
+        "tenant_id": str(tenant_id),
+        "channel": "web_widget",
+        "widget_state": "INICIADA",
+        "lead_id": None,
+        "vertical_key": getattr(tenant, "vertical_key", None),
+        "vertical_scopes": selected_scopes or [],
+    }
+    base_vars.update(scope_defaults(getattr(tenant, "vertical_key", None), selected_scopes) or {})
+    _merge_session_vars(sess, base_vars)
     db.add(sess)
     db.commit()
 

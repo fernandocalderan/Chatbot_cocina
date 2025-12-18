@@ -1,7 +1,25 @@
 import os
+import base64
+import json
 import streamlit as st
 
 from api_client import get_tenant_config
+
+
+def _decode_jwt_payload_unverified(token: str | None) -> dict:
+    if not token:
+        return {}
+    try:
+        parts = str(token).split(".")
+        if len(parts) < 2:
+            return {}
+        payload_b64 = parts[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        raw = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def ensure_login(*, allow_when_must_set_password: bool = False) -> str | None:
@@ -19,10 +37,17 @@ def ensure_login(*, allow_when_must_set_password: bool = False) -> str | None:
                 st.stop()
         st.stop()
     default_tid = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
-    if token and not st.session_state.get("tenant_id"):
-        st.session_state["tenant_id"] = default_tid
-    if not st.session_state.get("tenant_id"):
-        # Prefill tenant_id for the session if not set yet
+    if token:
+        # Cuando ya hay sesión, el tenant_id debe venir del JWT (evita quedar “enganchado”
+        # al tenant por defecto al cambiar de usuario/tenant).
+        payload = _decode_jwt_payload_unverified(token)
+        token_tid = payload.get("tenant_id")
+        if token_tid:
+            st.session_state["tenant_id"] = token_tid
+        elif not st.session_state.get("tenant_id"):
+            st.session_state["tenant_id"] = default_tid
+    elif not st.session_state.get("tenant_id"):
+        # Antes de iniciar sesión, prefill para mejorar UX.
         st.session_state["tenant_id"] = default_tid
     if token:
         # Hidrata branding/config del tenant 1 vez por sesión (idioma, tz, moneda, nombre).

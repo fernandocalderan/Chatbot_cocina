@@ -347,7 +347,20 @@ elif selected_key == "seguridad":
         logout_confirm = st.checkbox("Confirmo que quiero cerrar sesión", value=False)
     with c[1]:
         if st.button("Salir", use_container_width=True, disabled=not logout_confirm):
-            for k in ["token", "access_token", "must_set_password", "must_set_password_required"]:
+            for k in [
+                "token",
+                "access_token",
+                "must_set_password",
+                "must_set_password_required",
+                "tenant_id",
+                "_branding_loaded",
+                "tenant_name",
+                "tenant_language",
+                "tenant_logo_url",
+                "tenant_timezone",
+                "tenant_currency",
+                "customer_code",
+            ]:
                 st.session_state.pop(k, None)
             st.success("Sesión cerrada.")
             st.switch_page("pages/auth.py")

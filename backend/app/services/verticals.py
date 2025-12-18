@@ -24,6 +24,7 @@ _VERTICAL_FLOW_BASE_FILENAME = "flow_base.json"
 CONFIG_TIPO_SEMANTIC_SCHEMA = "tenant_semantic_schema"
 CONFIG_TIPO_KPI_DEFAULTS = "tenant_kpi_defaults"
 CONFIG_TIPO_AI_CONFIG = "tenant_ai_config"
+TENANT_BRANDING_SCOPES_KEY = "vertical_scopes"
 
 
 def _vertical_dir(vertical_key: str) -> Path:
@@ -93,6 +94,13 @@ def list_verticals() -> list[dict[str, Any]]:
     for key in _registry_keys():
         cfg = get_vertical_config(key)
         label = cfg.get("label") or key.replace("_", " ").title()
+        defs = vertical_scope_definitions(key)
+        scope_cfg = cfg.get("scope") if isinstance(cfg.get("scope"), dict) else {}
+        included = scope_cfg.get("included") if isinstance(scope_cfg.get("included"), list) else []
+        scope_items = []
+        for s in [str(x) for x in included if x]:
+            entry = defs.get(s) if isinstance(defs, dict) else None
+            scope_items.append({"key": s, "label": (entry.get("label") if isinstance(entry, dict) else None) or s})
         vdir = _vertical_dir(key)
         files = {
             "metadata.json": (vdir / _VERTICAL_METADATA_FILENAME).exists(),
@@ -112,6 +120,7 @@ def list_verticals() -> list[dict[str, Any]]:
                 "flow_ids": cfg.get("flow_ids") if isinstance(cfg.get("flow_ids"), list) else None,
                 "promise_commercial": cfg.get("promise_commercial"),
                 "scope": cfg.get("scope") if isinstance(cfg.get("scope"), dict) else None,
+                "scope_items": scope_items or None,
                 "locks": cfg.get("locks") if isinstance(cfg.get("locks"), dict) else None,
                 "conversational_intelligence": cfg.get("conversational_intelligence")
                 if isinstance(cfg.get("conversational_intelligence"), dict)
@@ -170,6 +179,81 @@ def get_vertical_config(vertical_key: str | None) -> dict[str, Any]:
         return cfg if isinstance(cfg, dict) else {}
     merged = dict(cfg) if isinstance(cfg, dict) else {}
     merged.update(meta)
+    return merged
+
+
+def _normalize_scopes(raw: object) -> list[str]:
+    if not raw:
+        return []
+    scopes: list[str] = []
+    if isinstance(raw, str):
+        scopes = [raw]
+    elif isinstance(raw, list):
+        scopes = [str(s) for s in raw if s]
+    elif isinstance(raw, tuple):
+        scopes = [str(s) for s in raw if s]
+    else:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in scopes:
+        key = str(s).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def vertical_scope_definitions(vertical_key: str | None) -> dict[str, Any]:
+    cfg = get_vertical_config(vertical_key)
+    defs = cfg.get("scope_definitions") if isinstance(cfg, dict) else None
+    return defs if isinstance(defs, dict) else {}
+
+
+def allowed_scopes(vertical_key: str | None) -> list[str]:
+    cfg = get_vertical_config(vertical_key)
+    scope_cfg = cfg.get("scope") if isinstance(cfg, dict) else None
+    included = scope_cfg.get("included") if isinstance(scope_cfg, dict) else None
+    if isinstance(included, list) and included:
+        return [str(s) for s in included if s]
+    return sorted([k for k in vertical_scope_definitions(vertical_key).keys() if k])
+
+
+def validate_vertical_scopes(vertical_key: str | None, scopes: object) -> list[str]:
+    normalized = _normalize_scopes(scopes)
+    allowed = set(allowed_scopes(vertical_key))
+    if not allowed:
+        return [] if not normalized else normalized
+    invalid = [s for s in normalized if s not in allowed]
+    if invalid:
+        raise ValueError(f"invalid_vertical_scopes: {', '.join(invalid)}")
+    return normalized
+
+
+def tenant_vertical_scopes(tenant: Tenant | None) -> list[str]:
+    if not tenant:
+        return []
+    branding = getattr(tenant, "branding", {}) or {}
+    return _normalize_scopes(branding.get(TENANT_BRANDING_SCOPES_KEY))
+
+
+def scope_defaults(vertical_key: str | None, scopes: object) -> dict[str, Any]:
+    normalized = _normalize_scopes(scopes)
+    if len(normalized) != 1:
+        return {}
+    entry = vertical_scope_definitions(vertical_key).get(normalized[0])
+    defaults = entry.get("defaults") if isinstance(entry, dict) else None
+    return defaults if isinstance(defaults, dict) else {}
+
+
+def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = _deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
+        else:
+            merged[k] = v
     return merged
 
 
@@ -242,11 +326,29 @@ def vertical_kpi_defaults(vertical_key: str | None) -> dict[str, Any] | None:
         return None
     return _read_json(_vertical_dir(str(vertical_key)) / _VERTICAL_KPI_DEFAULTS_FILENAME)
 
-
-def vertical_flow_base(vertical_key: str | None) -> dict[str, Any] | None:
+def vertical_flow_base(vertical_key: str | None, scopes: object = None) -> dict[str, Any] | None:
     if not vertical_key:
         return None
-    return _read_json(_vertical_dir(str(vertical_key)) / _VERTICAL_FLOW_BASE_FILENAME)
+    vdir = _vertical_dir(str(vertical_key))
+    base = _read_json(vdir / _VERTICAL_FLOW_BASE_FILENAME)
+    if not isinstance(base, dict):
+        return None
+    chosen = _normalize_scopes(scopes)
+    if len(chosen) != 1:
+        return base
+    scope_key = chosen[0]
+    scope_path = vdir / f"flow_scope_{scope_key}.json"
+    if scope_path.exists():
+        scoped = _read_json(scope_path)
+        if isinstance(scoped, dict):
+            return scoped
+    entry = vertical_scope_definitions(vertical_key).get(scope_key)
+    if not isinstance(entry, dict):
+        return base
+    overrides = entry.get("flow_overrides")
+    if isinstance(overrides, dict) and overrides:
+        return _deep_merge_dicts(base, overrides)
+    return base
 
 
 def provision_vertical_materials(db, tenant: Tenant) -> dict | None:
@@ -385,7 +487,7 @@ def provision_vertical_assets(db, tenant: Tenant) -> dict[str, Any] | None:
             .first()
         )
         if not existing_flow:
-            flow = vertical_flow_base(tenant.vertical_key)
+            flow = vertical_flow_base(tenant.vertical_key, tenant_vertical_scopes(tenant))
             if flow:
                 new_flow = FlowVersioned(
                     tenant_id=tenant.id,

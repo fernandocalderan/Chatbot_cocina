@@ -48,7 +48,18 @@ async def add_request_context(request: Request, call_next: Callable):
         limits.append((f"rl:ip:{client_ip}:widget", settings.rate_limit_widget_per_ip))
     # Límite para operaciones admin (protege panel superadmin)
     if path.startswith("/v1/admin"):
-        limits.append((f"rl:admin:{client_ip}", 30))
+        roles = getattr(request.state, "roles", None) or []
+        token_type = str(getattr(request.state, "token_type", "") or "").upper()
+        x_api_key = request.headers.get("x-api-key") or request.headers.get("X-Api-Key")
+        is_admin_auth = bool(
+            ("SUPER_ADMIN" in roles)
+            or token_type == "ADMIN"
+            or (settings.admin_api_token and x_api_key == settings.admin_api_token)
+        )
+        if is_admin_auth:
+            limits.append((f"rl:admin:{client_ip}", settings.rate_limit_admin_per_min))
+        else:
+            limits.append((f"rl:admin_unauth:{client_ip}", settings.rate_limit_admin_unauth_per_min))
     # Límite estricto para endpoints sensibles (reservas)
     if path == "/v1/appointments/book":
         limits.append((f"rl:tenant:{tenant_id or 'anon'}:appt", 10))

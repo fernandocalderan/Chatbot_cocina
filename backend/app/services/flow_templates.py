@@ -38,14 +38,77 @@ def load_flow_template(
     plan_value: str | None = None,
     *,
     vertical_key: str | None = None,
+    scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     # Source-of-truth for vertical tenants: `app/verticals/<vertical_key>/flow_base.json`
     chosen_vertical = (str(vertical_key).strip() if vertical_key else "") or _DEFAULT_VERTICAL_KEY
-    v_path = _VERTICALS_DIR / chosen_vertical / "flow_base.json"
+    v_dir = _VERTICALS_DIR / chosen_vertical
+    v_path = v_dir / "flow_base.json"
     if v_path.exists():
-        with v_path.open(encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        base: dict[str, Any] = {}
+        try:
+            with v_path.open(encoding="utf-8") as f:
+                base_raw = json.load(f)
+            base = base_raw if isinstance(base_raw, dict) else {}
+        except Exception:
+            base = {}
+
+        def _normalize_scopes(raw: object) -> list[str]:
+            if not raw:
+                return []
+            if isinstance(raw, list):
+                items = [str(s).strip() for s in raw if s]
+            elif isinstance(raw, tuple):
+                items = [str(s).strip() for s in raw if s]
+            elif isinstance(raw, str):
+                items = [raw.strip()]
+            else:
+                return []
+            out: list[str] = []
+            seen: set[str] = set()
+            for s in items:
+                if not s or s in seen:
+                    continue
+                seen.add(s)
+                out.append(s)
+            return out
+
+        def _deep_merge(base_obj: Any, override_obj: Any) -> Any:
+            if not isinstance(base_obj, dict) or not isinstance(override_obj, dict):
+                return override_obj
+            merged = dict(base_obj)
+            for k, v in override_obj.items():
+                if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                    merged[k] = _deep_merge(merged.get(k), v)
+                else:
+                    merged[k] = v
+            return merged
+
+        chosen_scopes = _normalize_scopes(scopes)
+        if len(chosen_scopes) == 1:
+            scope_key = chosen_scopes[0]
+            scope_path = v_dir / f"flow_scope_{scope_key}.json"
+            if scope_path.exists():
+                try:
+                    with scope_path.open(encoding="utf-8") as f:
+                        data = json.load(f)
+                    return data if isinstance(data, dict) else base
+                except Exception:
+                    return base
+
+            meta_path = v_dir / "metadata.json"
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+            except Exception:
+                meta = {}
+            defs = meta.get("scope_definitions") if isinstance(meta, dict) else None
+            entry = defs.get(scope_key) if isinstance(defs, dict) else None
+            overrides = entry.get("flow_overrides") if isinstance(entry, dict) else None
+            if isinstance(overrides, dict) and overrides:
+                merged = _deep_merge(base, overrides)
+                return merged if isinstance(merged, dict) else base
+
+        return base
 
     if not _ALLOW_LEGACY_FLOW_FILES:
         return {}

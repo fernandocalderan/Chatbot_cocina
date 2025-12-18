@@ -212,6 +212,28 @@ with tabs[1]:
                     disabled=True,
                     key=f"vertical-label-{t['id']}",
                 )
+                scope_items = (vertical_by_key.get(current_vertical) or {}).get("scope_items") or []
+                scope_labels = {
+                    str(it.get("key")): (it.get("label") or it.get("key"))
+                    for it in scope_items
+                    if isinstance(it, dict) and it.get("key")
+                }
+                scope_keys = list(scope_labels.keys())
+                current_scopes = t.get("vertical_scopes") or []
+                if scope_keys:
+                    selected_scopes = st.multiselect(
+                        "Scopes (sub-verticals)",
+                        scope_keys,
+                        default=[s for s in current_scopes if s in scope_keys] or [],
+                        format_func=lambda k: scope_labels.get(k, k),
+                        key=f"scopes-{t['id']}",
+                        help="Selecciona 1 o más scopes para alinear el flujo base del vertical.",
+                    )
+                else:
+                    selected_scopes = []
+            else:
+                current_vertical = None
+                selected_scopes = []
 
             st.markdown("**Plan y Billing**")
             cols = st.columns(3)
@@ -258,6 +280,7 @@ with tabs[1]:
                     "ia_enabled": use_ia,
                     "use_ia": use_ia,
                     "billing_status": billing_status,
+                    "vertical_scopes": selected_scopes,
                 }
                 if new_vertical and new_vertical != current_vertical:
                     payload["vertical_key"] = new_vertical
@@ -296,13 +319,23 @@ with tabs[1]:
                             st.error(res)
             with st.expander("Magic link (acceso tenant)", expanded=False):
                 ml_email = st.text_input("Email destino", value=t.get("contact_email") or "", key=f"ml-email-{t['id']}")
-                if st.button("Generar magic link", key=f"ml-btn-{t['id']}"):
+                ml_email_clean = (ml_email or "").strip()
+                if st.button("Generar magic link", key=f"ml-btn-{t['id']}", disabled=not ml_email_clean):
                     res = issue_magic_link(token, t["id"], ml_email.strip() or None, api_key=api_key)
                     if res.get("token"):
                         st.code(res["token"], language="text")
                         st.success(f"Enlace enviado/emitido para {res.get('email')}")
                     else:
-                        st.error(res)
+                        if (
+                            isinstance(res.get("error"), str)
+                            and res.get("status_code") == 400
+                            and "missing_email" in res.get("error", "")
+                        ):
+                            st.warning("Falta el email. Rellena “Email destino” o guarda un email de contacto en el tenant.")
+                        else:
+                            st.error(res)
+                if not ml_email_clean:
+                    st.caption("Rellena un email para generar el magic link.")
 
             st.markdown("**Flow (estructura)**")
             with st.expander("Editar flow publicado (solo admin)", expanded=False):
@@ -452,6 +485,26 @@ with tabs[3]:
                 missing = [fname for fname, ok in files.items() if not ok]
                 if missing:
                     st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
+            scope_items = selected_vertical.get("scope_items") or []
+            scope_labels = {
+                str(it.get("key")): (it.get("label") or it.get("key"))
+                for it in scope_items
+                if isinstance(it, dict) and it.get("key")
+            }
+            scope_keys = list(scope_labels.keys())
+            if scope_keys:
+                st.caption("Selecciona 1 o más sub-verticals (scopes) para este tenant.")
+                selected_scopes_new = st.multiselect(
+                    "Scopes (sub-verticals)",
+                    scope_keys,
+                    default=[scope_keys[0]] if scope_keys else [],
+                    format_func=lambda k: scope_labels.get(k, k),
+                    key="create-tenant-scopes",
+                )
+            else:
+                selected_scopes_new = []
+        else:
+            selected_scopes_new = []
         origins_new = st.text_input("Allowed origins (coma)")
         limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
         maint_new = st.checkbox("Mantenimiento inicial", value=False)
@@ -468,6 +521,7 @@ with tabs[3]:
                 "use_ia": use_ia_new,
                 "ia_enabled": use_ia_new,
                 "vertical_key": vertical_key,
+                "vertical_scopes": selected_scopes_new,
             }
             res = create_tenant(token, payload, api_key=api_key)
             if res and "id" in res:

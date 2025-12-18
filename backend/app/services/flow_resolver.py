@@ -8,6 +8,7 @@ from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
 from app.services.flow_templates import load_flow_template
 from app.services.verticals import provision_vertical_assets
+from app.services.verticals import tenant_vertical_scopes
 
 
 def _latest_published_flow(db: Session, tenant_id: str) -> FlowVersioned | None:
@@ -86,4 +87,5 @@ def resolve_runtime_flow(
         flow_id_override,
         plan_value=plan_value,
         vertical_key=str(vertical_key) if vertical_key else None,
+        scopes=tenant_vertical_scopes(tenant),
     )
