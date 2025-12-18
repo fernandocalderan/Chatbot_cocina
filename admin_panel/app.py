@@ -42,6 +42,10 @@ load_styles()
 st.title("Opunnence — SuperAdmin")
 st.caption("Control global de tenants, dominios y tokens del widget.")
 
+with st.sidebar:
+    st.page_link("app.py", label="Inicio", icon="🏠")
+    st.page_link("pages/widget_tester.py", label="Widget tester 💬", icon="🧪")
+
 admin_api_key = resolve_admin_api_key()
 
 

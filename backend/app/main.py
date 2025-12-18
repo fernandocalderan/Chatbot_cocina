@@ -82,6 +82,11 @@ def _load_allowed_origins() -> list[str]:
                 "http://localhost:5174",
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
+                # Streamlit panels (admin/tenant) en local
+                "http://localhost:8501",
+                "http://127.0.0.1:8501",
+                "http://localhost:8502",
+                "http://127.0.0.1:8502",
             ]
         )
     # Deduplicate while preserving order
