@@ -72,10 +72,12 @@ def estimate_cost_eur(model: str, tokens_in: int, tokens_out: int) -> float:
 
 PLAN_LIMITS = {
     "BASE": {
-        "max_ia_cost": 0.0,  # IA deshabilitada en Base
+        # BASE: IA mínima (captación + cualificación ligera)
+        "max_ia_cost": 5.0,
         "max_sessions": 200,
         "features": {
-            "ia_enabled": False,
+            "ia_enabled": True,
+            "ai_level_max": "low",
             "billing_portal": True,
         },
     },
@@ -84,6 +86,7 @@ PLAN_LIMITS = {
         "max_sessions": 2000,
         "features": {
             "ia_enabled": True,
+            "ai_level_max": "medium",
             "billing_portal": True,
         },
     },
@@ -92,6 +95,7 @@ PLAN_LIMITS = {
         "max_sessions": 10000,
         "features": {
             "ia_enabled": True,
+            "ai_level_max": "high",
             "billing_portal": True,
         },
     },

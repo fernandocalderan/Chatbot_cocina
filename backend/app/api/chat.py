@@ -584,7 +584,7 @@ def send_message(
         auto_cfg = materials.get("automation") if isinstance(materials.get("automation"), dict) else {}
         ai_level = str(auto_cfg.get("ai_level") or "").lower()
         saving_mode = bool(auto_cfg.get("saving_mode") or False)
-        if saving_mode or ai_level in {"off", "low"}:
+        if saving_mode or ai_level in {"off"}:
             use_ai_intent = False
     ai_extractor = (
         AIExtractor(settings.openai_api_key, settings.ai_model)

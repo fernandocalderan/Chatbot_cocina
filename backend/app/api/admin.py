@@ -16,6 +16,8 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.middleware.authz import require_role
 from app.models.ia_usage import IAUsage
+from app.models.configs import Config
+from app.models.flows import Flow as FlowVersioned
 from app.models.leads import Lead
 from app.models.tenants import Tenant, UsageMode
 from app.models.users import UserRole, User
@@ -28,9 +30,13 @@ from app.services.verticals import (
     get_vertical_config,
     provision_vertical_assets,
     get_vertical_bundle,
+    resolve_flow_id,
+    vertical_flow_base,
 )
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
+from app.services.flow_resolver import resolve_runtime_flow
+from app.services.flow_templates import apply_materials
 from app.core.logger import LOG_DIR
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -168,6 +174,26 @@ class TenantExclude(BaseModel):
 
 class MagicLinkRequest(BaseModel):
     email: Optional[str] = None
+
+
+CONFIG_TIPO_MATERIALS = "tenant_flow_materials"
+
+
+def _load_published_materials(db, tenant_id: str) -> dict | None:
+    try:
+        rows = (
+            db.query(Config)
+            .filter(Config.tenant_id == tenant_id, Config.tipo == CONFIG_TIPO_MATERIALS)
+            .order_by(Config.version.desc(), Config.updated_at.desc())
+            .all()
+        )
+    except Exception:
+        return None
+    for row in rows:
+        payload = row.payload_json or {}
+        if str(payload.get("status") or "").upper() == "PUBLISHED":
+            return payload if isinstance(payload, dict) else None
+    return None
 
 
 def _serialize_tenant(t: Tenant) -> dict[str, Any]:
@@ -394,6 +420,167 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
         meta=payload.model_dump(exclude_none=True),
     )
     return _serialize_tenant(tenant)
+
+
+@router.get("/tenants/{tenant_id}/flow", dependencies=[Depends(_ensure_super_admin())])
+def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+
+    materials = _load_published_materials(db, str(tenant.id))
+    flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
+    flow_id_override = resolve_flow_id(flow_id_override, getattr(tenant, "vertical_key", None))
+
+    plan_value = getattr(tenant, "plan", "base")
+    if hasattr(plan_value, "value"):
+        plan_value = plan_value.value
+
+    flow_data = resolve_runtime_flow(
+        db=db,
+        tenant=tenant,
+        flow_id_override=flow_id_override,
+        plan_value=str(plan_value or "base").lower(),
+    )
+    flow_data = apply_materials(flow_data, materials)
+
+    published = None
+    try:
+        row = (
+            db.query(FlowVersioned)
+            .filter(FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published")
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+        if row:
+            published = {
+                "flow_id": str(row.id),
+                "version": row.version,
+                "published_at": row.published_at.isoformat() if row.published_at else None,
+                "vertical_key": getattr(row, "vertical_key", None),
+            }
+    except Exception:
+        published = None
+
+    return {
+        "tenant_id": str(tenant.id),
+        "vertical_key": getattr(tenant, "vertical_key", None),
+        "flow_mode": getattr(tenant, "flow_mode", None),
+        "active_flow_id": str(getattr(tenant, "active_flow_id")) if getattr(tenant, "active_flow_id", None) else None,
+        "published": published,
+        "flow": flow_data if isinstance(flow_data, dict) else {},
+    }
+
+
+@router.post("/tenants/{tenant_id}/flow", dependencies=[Depends(_ensure_super_admin())])
+def publish_tenant_flow(tenant_id: str, payload: dict, request: Request, db=Depends(get_db)):
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(status_code=400, detail="invalid_payload")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+
+    latest = (
+        db.query(FlowVersioned)
+        .filter(FlowVersioned.tenant_id == tenant.id)
+        .order_by(FlowVersioned.version.desc())
+        .first()
+    )
+    next_version = (latest.version + 1) if latest else 1
+    now = datetime.datetime.now(datetime.timezone.utc)
+    new_flow = FlowVersioned(
+        tenant_id=tenant.id,
+        vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        version=next_version,
+        schema_json=payload,
+        estado="published",
+        published_at=now,
+    )
+    db.add(new_flow)
+    db.flush()
+    try:
+        tenant.active_flow_id = new_flow.id
+        tenant.flow_mode = "VERTICAL"
+        db.add(tenant)
+    except Exception:
+        pass
+    db.commit()
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.flow.publish",
+        entity="flow",
+        entity_id=str(new_flow.id),
+        tenant_id=str(tenant.id),
+        meta={"version": new_flow.version, "vertical_key": getattr(tenant, "vertical_key", None)},
+    )
+    return {
+        "tenant_id": str(tenant.id),
+        "flow_id": str(new_flow.id),
+        "version": new_flow.version,
+        "estado": new_flow.estado,
+        "published_at": new_flow.published_at.isoformat() if new_flow.published_at else None,
+    }
+
+
+@router.post("/tenants/{tenant_id}/flow/reset", dependencies=[Depends(_ensure_super_admin())])
+def reset_tenant_flow_to_vertical_base(tenant_id: str, request: Request, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    if not getattr(tenant, "vertical_key", None):
+        raise HTTPException(status_code=400, detail="missing_vertical_key")
+
+    base = vertical_flow_base(getattr(tenant, "vertical_key", None))
+    if not isinstance(base, dict) or not base:
+        raise HTTPException(status_code=400, detail="vertical_flow_base_not_found")
+
+    try:
+        provision_vertical_assets(db, tenant)
+    except Exception:
+        db.rollback()
+
+    latest = (
+        db.query(FlowVersioned)
+        .filter(FlowVersioned.tenant_id == tenant.id)
+        .order_by(FlowVersioned.version.desc())
+        .first()
+    )
+    next_version = (latest.version + 1) if latest else 1
+    now = datetime.datetime.now(datetime.timezone.utc)
+    new_flow = FlowVersioned(
+        tenant_id=tenant.id,
+        vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        version=next_version,
+        schema_json=base,
+        estado="published",
+        published_at=now,
+    )
+    db.add(new_flow)
+    db.flush()
+    try:
+        tenant.active_flow_id = new_flow.id
+        tenant.flow_mode = "VERTICAL"
+        db.add(tenant)
+    except Exception:
+        pass
+    db.commit()
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.flow.reset_to_vertical_base",
+        entity="flow",
+        entity_id=str(new_flow.id),
+        tenant_id=str(tenant.id),
+        meta={"version": new_flow.version, "vertical_key": getattr(tenant, "vertical_key", None)},
+    )
+    return {
+        "tenant_id": str(tenant.id),
+        "flow_id": str(new_flow.id),
+        "version": new_flow.version,
+        "estado": new_flow.estado,
+        "published_at": new_flow.published_at.isoformat() if new_flow.published_at else None,
+    }
 
 
 @router.post("/tenants/{tenant_id}/maintenance", dependencies=[Depends(_ensure_super_admin())])

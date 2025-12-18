@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 from pathlib import Path
 
@@ -13,9 +14,12 @@ from api_client import (
     admin_recent_errors,
     admin_alerts,
     exclude_tenant,
+    get_tenant_flow,
     issue_magic_link,
     list_tenants,
     list_verticals,
+    publish_tenant_flow,
+    reset_tenant_flow,
     resolve_admin_api_key,
     revoke_widget_tokens,
     toggle_maintenance,
@@ -299,6 +303,44 @@ with tabs[1]:
                         st.success(f"Enlace enviado/emitido para {res.get('email')}")
                     else:
                         st.error(res)
+
+            st.markdown("**Flow (estructura)**")
+            with st.expander("Editar flow publicado (solo admin)", expanded=False):
+                st.caption("Esto cambia la estructura del flujo. Recomendado solo para soporte/ajustes avanzados.")
+                state_key = f"_tenant_flow_json_{t['id']}"
+                if st.button("Cargar flow", key=f"flow-load-{t['id']}"):
+                    out = get_tenant_flow(token, t["id"], api_key=api_key) or {}
+                    if out.get("error"):
+                        st.error(out)
+                    else:
+                        flow_obj = out.get("flow") if isinstance(out, dict) else {}
+                        st.session_state[state_key] = json.dumps(flow_obj or {}, ensure_ascii=False, indent=2)
+                        st.success("Flow cargado en el editor.")
+                flow_text = st.text_area(
+                    "Flow JSON",
+                    value=st.session_state.get(state_key) or "{}",
+                    height=260,
+                    key=f"flow-json-area-{t['id']}",
+                )
+                cflow1, cflow2 = st.columns(2)
+                if cflow1.button("Publicar flow", key=f"flow-publish-{t['id']}"):
+                    try:
+                        parsed = json.loads(flow_text or "{}")
+                    except Exception as exc:
+                        st.error(f"JSON inválido: {exc}")
+                        parsed = None
+                    if isinstance(parsed, dict) and parsed:
+                        res = publish_tenant_flow(token, t["id"], parsed, api_key=api_key)
+                        if res.get("error"):
+                            st.error(res)
+                        else:
+                            st.success(f"Publicado v{res.get('version')} ({res.get('flow_id')})")
+                if cflow2.button("Reset a base del vertical", key=f"flow-reset-{t['id']}"):
+                    res = reset_tenant_flow(token, t["id"], api_key=api_key)
+                    if res.get("error"):
+                        st.error(res)
+                    else:
+                        st.success(f"Reseteado v{res.get('version')} ({res.get('flow_id')})")
 
             st.markdown("**Estado y seguridad**")
             with st.expander("Excluir tenant", expanded=False):

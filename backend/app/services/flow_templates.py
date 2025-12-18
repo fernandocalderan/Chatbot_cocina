@@ -8,8 +8,9 @@ from typing import Any
 
 _VERTICALS_DIR = Path(__file__).resolve().parent.parent / "verticals"
 
-_ALLOW_LEGACY_FLOW_FILES = os.getenv("ALLOW_LEGACY_FLOW_FILES") == "1" or os.getenv("DISABLE_DB") == "1"
+_ALLOW_LEGACY_FLOW_FILES = os.getenv("ALLOW_LEGACY_FLOW_FILES") == "1"
 _FLOW_DIR = Path(__file__).resolve().parent.parent / "flows"
+_DEFAULT_VERTICAL_KEY = os.getenv("DEFAULT_VERTICAL_KEY") or "kitchens"
 
 _PLAN_TO_FLOW = {
     "base": "base_plan_fixed",
@@ -19,7 +20,7 @@ _PLAN_TO_FLOW = {
 
 
 def list_flow_templates(allowed_ids: set[str] | None = None) -> list[dict[str, str]]:
-    # Deprecado: los flows ya no se exponen desde `app/flows` (solo migración).
+    # Deprecado: los flows ya no se exponen desde `app/flows` (solo migración controlada).
     if not _ALLOW_LEGACY_FLOW_FILES:
         return []
     items = []
@@ -39,12 +40,12 @@ def load_flow_template(
     vertical_key: str | None = None,
 ) -> dict[str, Any]:
     # Source-of-truth for vertical tenants: `app/verticals/<vertical_key>/flow_base.json`
-    if vertical_key:
-        v_path = _VERTICALS_DIR / str(vertical_key).strip() / "flow_base.json"
-        if v_path.exists():
-            with v_path.open(encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
+    chosen_vertical = (str(vertical_key).strip() if vertical_key else "") or _DEFAULT_VERTICAL_KEY
+    v_path = _VERTICALS_DIR / chosen_vertical / "flow_base.json"
+    if v_path.exists():
+        with v_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
 
     if not _ALLOW_LEGACY_FLOW_FILES:
         return {}

@@ -11,29 +11,35 @@ from app.services.verticals import provision_vertical_assets
 
 
 def _latest_published_flow(db: Session, tenant_id: str) -> FlowVersioned | None:
-    return (
-        db.query(FlowVersioned)
-        .filter(FlowVersioned.tenant_id == tenant_id, FlowVersioned.estado == "published")
-        .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-        .first()
-    )
+    try:
+        return (
+            db.query(FlowVersioned)
+            .filter(FlowVersioned.tenant_id == tenant_id, FlowVersioned.estado == "published")
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+    except Exception:
+        return None
 
 
 def _active_or_latest_published_flow(db: Session, tenant: Tenant) -> FlowVersioned | None:
     tenant_id = str(getattr(tenant, "id"))
     active_id = getattr(tenant, "active_flow_id", None)
     if active_id:
-        row = (
-            db.query(FlowVersioned)
-            .filter(
-                FlowVersioned.id == active_id,
-                FlowVersioned.tenant_id == tenant_id,
-                FlowVersioned.estado == "published",
+        try:
+            row = (
+                db.query(FlowVersioned)
+                .filter(
+                    FlowVersioned.id == active_id,
+                    FlowVersioned.tenant_id == tenant_id,
+                    FlowVersioned.estado == "published",
+                )
+                .first()
             )
-            .first()
-        )
-        if row:
-            return row
+            if row:
+                return row
+        except Exception:
+            return None
 
     row = _latest_published_flow(db, tenant_id)
     if row and not active_id:

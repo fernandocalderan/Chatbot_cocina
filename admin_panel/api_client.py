@@ -217,3 +217,37 @@ def issue_magic_link(token: str | None, tenant_id: str, email: str | None = None
         timeout=10,
     )
     return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
+def get_tenant_flow(token: str | None, tenant_id: str, api_key: str | None = None):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def publish_tenant_flow(token: str | None, tenant_id: str, flow_payload: dict, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow",
+        json=flow_payload,
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=30,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def reset_tenant_flow(token: str | None, tenant_id: str, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow/reset",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}

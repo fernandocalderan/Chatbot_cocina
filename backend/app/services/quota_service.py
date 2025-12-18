@@ -68,6 +68,10 @@ class QuotaService:
             # Plan sin IA o deshabilitado explícitamente → seguir operando sin IA pero señalizar upgrade
             mode = UsageMode.SAVING
             reason = "ia_disabled"
+        elif limit_eur != float("inf") and float(limit_eur) <= 0:
+            # Límite explícito 0 → tratar como IA deshabilitada (no bloquear el tenant)
+            mode = UsageMode.SAVING
+            reason = "ia_disabled_limit"
         else:
             if limit_eur != float("inf"):
                 if spent >= limit_eur:

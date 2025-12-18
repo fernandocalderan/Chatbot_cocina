@@ -2,43 +2,16 @@
   "kitchens": {
     "label": "Cocinas & Reformas",
     "default_flow_id": "kitchens_base_v1",
-    "flow_ids": ["kitchens_base_v1"],
-    "vertical_prompt": "Asistente experto en cocinas y reformas. Enfocado en captar, cualificar y guiar proyectos de cocina."
+    "flow_ids": ["kitchens_base_v1"]
   },
   "clinics_private": {
     "label": "Clínicas Privadas",
     "default_flow_id": "clinics_private_base_v1",
-    "flow_ids": ["clinics_private_base_v1"],
-    "vertical_prompt": "Asistente profesional de clínica privada. Orienta y agenda citas sin diagnósticos ni consejos médicos."
+    "flow_ids": ["clinics_private_base_v1"]
   },
   "home_services": {
     "label": "Home Services",
     "default_flow_id": "home_services_base_v1",
-    "flow_ids": ["home_services_base_v1"],
-    "vertical_prompt": "Asistente profesional de servicios para el hogar. Filtra urgencia y orienta hacia visita/presupuesto sin prometer precios."
-  },
-  "legal_services": {
-    "label": "Legal Services",
-    "default_flow_id": "base_plan_fixed",
-    "flow_ids": ["base_plan_fixed"],
-    "vertical_prompt": "Asistente experto en servicios legales orientado a captar y cualificar clientes."
-  },
-  "real_estate": {
-    "label": "Real Estate",
-    "default_flow_id": "base_plan_fixed",
-    "flow_ids": ["base_plan_fixed"],
-    "vertical_prompt": "Asistente experto en inmobiliaria para captar, calificar y agendar visitas."
-  },
-  "medical": {
-    "label": "Medical",
-    "default_flow_id": "base_plan_fixed",
-    "flow_ids": ["base_plan_fixed"],
-    "vertical_prompt": "Asistente experto en servicios medicos para captar pacientes y priorizar consultas."
-  },
-  "custom": {
-    "label": "Custom",
-    "default_flow_id": "base_plan_fixed",
-    "flow_ids": ["base_plan_fixed"],
-    "vertical_prompt": "Asistente experto en el sector del negocio, enfocado en captar y cualificar clientes."
+    "flow_ids": ["home_services_base_v1"]
   }
 }

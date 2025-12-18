@@ -13,6 +13,7 @@ from app.middleware.authz import require_any_role
 from app.models.configs import Config
 from app.models.tenants import Tenant
 from app.services.flow_templates import list_flow_templates
+from app.services.pricing import get_plan_limits
 from app.services.verticals import list_flow_templates_for_vertical, allowed_flow_ids
 
 
@@ -60,13 +61,49 @@ def _normalize_materials(payload: dict) -> dict:
             "tone": content.get("tone") or "serio",
         },
         "automation": {
-            "ai_level": automation.get("ai_level") or "medium",
+            "ai_level": automation.get("ai_level") or "low",
             "saving_mode": bool(automation.get("saving_mode") or False),
             "human_fallback": bool(automation.get("human_fallback") if "human_fallback" in automation else True),
             "max_response_seconds": automation.get("max_response_seconds") or 8,
             "ai_steps": automation.get("ai_steps") or [],
         },
     }
+
+
+def _cap_automation_by_plan(plan: object, automation: dict) -> dict:
+    limits = get_plan_limits(plan if isinstance(plan, str) else getattr(plan, "value", None))
+    features = limits.get("features") if isinstance(limits.get("features"), dict) else {}
+    ia_enabled = bool(features.get("ia_enabled", True))
+    max_level = str(features.get("ai_level_max") or "low").lower()
+    order = ["off", "low", "medium", "high"]
+    requested = str(automation.get("ai_level") or "low").lower()
+    if requested not in order:
+        requested = "low"
+    if max_level not in order:
+        max_level = "low"
+
+    if not ia_enabled:
+        automation["ai_level"] = "off"
+        automation["ai_steps"] = []
+        automation["saving_mode"] = True
+        return automation
+
+    max_idx = order.index(max_level)
+    req_idx = order.index(requested)
+    automation["ai_level"] = order[min(req_idx, max_idx)]
+
+    allowed_steps_by_level = {
+        "low": {"intent_extraction"},
+        "medium": {"intent_extraction", "ai_reply", "ai_extract"},
+        "high": {"intent_extraction", "ai_reply", "ai_extract", "ai_generate"},
+    }
+    level_for_steps = automation.get("ai_level") if automation.get("ai_level") != "off" else "low"
+    allowed = allowed_steps_by_level.get(str(level_for_steps), allowed_steps_by_level["low"])
+    steps = automation.get("ai_steps") if isinstance(automation.get("ai_steps"), list) else []
+    automation["ai_steps"] = [s for s in steps if isinstance(s, str) and s in allowed]
+    if automation.get("ai_level") == "off":
+        automation["ai_steps"] = []
+    return automation
 
 
 def _load_latest_materials(db: Session, tenant_id: str, status_filter: str | None = None) -> dict | None:
@@ -207,6 +244,8 @@ def save_materials_draft(
     current_draft = _load_latest_materials(db, tenant_id, status_filter="DRAFT")
     next_ver = current_draft.get("version") if current_draft else _next_version(db, tenant_id)
     normalized = _normalize_materials(payload.model_dump())
+    if isinstance(normalized.get("automation"), dict):
+        normalized["automation"] = _cap_automation_by_plan(getattr(tenant, "plan", None), normalized["automation"])
     normalized["status"] = "DRAFT"
     normalized["updated_at"] = datetime.now(timezone.utc).isoformat()
 

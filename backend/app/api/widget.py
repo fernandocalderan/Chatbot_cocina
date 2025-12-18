@@ -175,7 +175,7 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
         "visual": visual,
         "tokens": tokens,
         "messages": messages,
-        "automation": automation or {"ai_level": "medium", "saving_mode": False, "human_fallback": True},
+        "automation": automation or {"ai_level": "low", "saving_mode": False, "human_fallback": True},
         "flow_id": flow_id or flow_data.get("version") or "default",
         "tenant": visual_payload.get("tenant"),
     }

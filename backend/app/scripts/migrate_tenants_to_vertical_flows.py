@@ -10,17 +10,11 @@ from app.db.session import SessionLocal
 from app.models.configs import Config
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
-from app.services.flow_templates import apply_materials
+from app.services.flow_templates import apply_materials, load_flow_template
 from app.services.verticals import get_vertical_config, provision_vertical_assets
 
 
 CONFIG_TIPO_MATERIALS = "tenant_flow_materials"
-
-_PLAN_TO_FLOW = {
-    "base": "base_plan_fixed",
-    "pro": "pro_plan_fixed",
-    "elite": "elite_plan_fixed",
-}
 
 
 def _norm_plan(plan) -> str:
@@ -41,20 +35,6 @@ def _load_published_materials(db: Session, tenant_id: str) -> dict | None:
         if str(payload.get("status") or "").upper() == "PUBLISHED":
             return payload if isinstance(payload, dict) else None
     return None
-
-
-def _load_legacy_flow_file(flow_id: str | None, plan_value: str) -> dict:
-    import json
-    from pathlib import Path
-
-    flows_dir = Path(__file__).resolve().parent.parent / "flows"
-    chosen = (flow_id or "").strip() or _PLAN_TO_FLOW.get(plan_value, "base_plan_fixed")
-    path = flows_dir / f"{chosen}.json"
-    if not path.exists():
-        path = flows_dir / "base_plan_fixed.json"
-    with path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, dict) else {}
 
 
 def _latest_published_flow(db: Session, tenant_id: str) -> FlowVersioned | None:
@@ -90,8 +70,12 @@ def _ensure_active_flow_id(db: Session, tenant: Tenant) -> bool:
 def _create_published_flow_from_legacy(db: Session, tenant: Tenant) -> FlowVersioned | None:
     plan_value = _norm_plan(getattr(tenant, "plan", None))
     materials = _load_published_materials(db, str(tenant.id))
-    flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
-    base = _load_legacy_flow_file(flow_id_override, plan_value)
+    vertical_key = getattr(tenant, "vertical_key", None)
+    base = load_flow_template(
+        None,
+        plan_value=plan_value,
+        vertical_key=str(vertical_key) if vertical_key else None,
+    )
     base = apply_materials(base, materials)
     now = datetime.now(timezone.utc)
     latest = (

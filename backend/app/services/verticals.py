@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import app.db.session as db_session
 from app.models.configs import Config
 from app.models.tenants import Tenant
-from app.services.flow_templates import list_flow_templates
 
 
 _VERTICALS_DIR = Path(__file__).resolve().parent.parent / "verticals"
 _REGISTRY_PATH = _VERTICALS_DIR / "registry.json"
-_FLOW_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "flows"
+_DEFAULT_VERTICAL_KEY = os.getenv("DEFAULT_VERTICAL_KEY") or "kitchens"
 
 _VERTICAL_PROMPT_FILENAME = "prompt_vertical.txt"
 _VERTICAL_PROMPT_EXTENSION_FILENAME = "prompt_vertical_extension.txt"
@@ -102,11 +102,8 @@ def list_verticals() -> list[dict[str, Any]]:
             "semantic_schema.json": (vdir / _VERTICAL_SEMANTIC_SCHEMA_FILENAME).exists(),
             "kpi_defaults.json": (vdir / _VERTICAL_KPI_DEFAULTS_FILENAME).exists(),
         }
-        flow_tpl = cfg.get("default_flow_id")
-        flow_template_exists = bool(files.get("flow_base.json")) or (
-            bool(flow_tpl) and (_FLOW_TEMPLATES_DIR / f"{flow_tpl}.json").exists()
-        )
-        flow_source = "verticals" if bool(files.get("flow_base.json")) else "flows"
+        flow_template_exists = bool(files.get("flow_base.json"))
+        flow_source = "verticals" if flow_template_exists else "none"
         items.append(
             {
                 "key": key,
@@ -177,7 +174,8 @@ def get_vertical_config(vertical_key: str | None) -> dict[str, Any]:
 
 
 def allowed_flow_ids(vertical_key: str | None) -> list[str]:
-    cfg = get_vertical_config(vertical_key)
+    effective_key = vertical_key or _DEFAULT_VERTICAL_KEY
+    cfg = get_vertical_config(effective_key)
     flow_ids = cfg.get("flow_ids")
     if isinstance(flow_ids, list) and flow_ids:
         return [str(f) for f in flow_ids]
@@ -186,7 +184,8 @@ def allowed_flow_ids(vertical_key: str | None) -> list[str]:
 
 
 def default_flow_id(vertical_key: str | None) -> str | None:
-    cfg = get_vertical_config(vertical_key)
+    effective_key = vertical_key or _DEFAULT_VERTICAL_KEY
+    cfg = get_vertical_config(effective_key)
     default_id = cfg.get("default_flow_id")
     if default_id:
         return str(default_id)
@@ -204,18 +203,15 @@ def resolve_flow_id(flow_id: str | None, vertical_key: str | None) -> str | None
 
 
 def list_flow_templates_for_vertical(vertical_key: str | None) -> list[dict[str, str]]:
-    allowed = set(allowed_flow_ids(vertical_key))
-    items = list_flow_templates(allowed_ids=allowed if allowed else None)
-    if items:
-        return items
-    # Si el vertical vive en `app/verticals/<key>/flow_base.json`, puede no existir
-    # como template global en `app/flows/`. En ese caso, devolvemos un placeholder.
-    cfg = get_vertical_config(vertical_key)
+    # Para verticals, los templates provienen de `app/verticals/<key>/flow_base.json`.
+    # `app/flows/*.json` queda como legacy/migración y no se usa en runtime.
+    effective_key = vertical_key or _DEFAULT_VERTICAL_KEY
+    cfg = get_vertical_config(effective_key)
     flow_id = cfg.get("default_flow_id")
-    if flow_id and (_vertical_dir(str(vertical_key)) / _VERTICAL_FLOW_BASE_FILENAME).exists():
-        label = cfg.get("label") or str(vertical_key).replace("_", " ").title()
+    if flow_id and (_vertical_dir(str(effective_key)) / _VERTICAL_FLOW_BASE_FILENAME).exists():
+        label = cfg.get("label") or str(effective_key).replace("_", " ").title()
         return [{"id": str(flow_id), "label": f"{label} (Base)"}]
-    return items
+    return []
 
 
 def vertical_prompt(vertical_key: str | None) -> str | None:
@@ -277,7 +273,7 @@ def provision_vertical_materials(db, tenant: Tenant) -> dict | None:
             "tone": "serio",
         },
         "automation": {
-            "ai_level": "medium",
+            "ai_level": "low",
             "saving_mode": False,
             "human_fallback": True,
             "max_response_seconds": 8,

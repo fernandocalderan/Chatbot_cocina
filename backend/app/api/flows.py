@@ -6,13 +6,35 @@ from sqlalchemy.orm import Session
 from app.api.auth import oauth2_scheme, require_auth
 from app.middleware.authz import require_any_role
 from app.api.deps import get_db, get_tenant_id
+from app.models.configs import Config
 from app.models.flow import Scoring
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
-from app.services.flow_templates import load_flow_template
+from app.services.flow_resolver import resolve_runtime_flow
+from app.services.flow_templates import apply_materials, load_flow_template
+from app.services.verticals import provision_vertical_assets, resolve_flow_id
 from app.api.deps import DummySession
 
 router = APIRouter(prefix="/flows", tags=["flows"])
+
+CONFIG_TIPO_MATERIALS = "tenant_flow_materials"
+
+
+def _load_published_materials(db: Session, tenant_id: str) -> dict | None:
+    try:
+        rows = (
+            db.query(Config)
+            .filter(Config.tenant_id == tenant_id, Config.tipo == CONFIG_TIPO_MATERIALS)
+            .order_by(Config.version.desc(), Config.updated_at.desc())
+            .all()
+        )
+    except Exception:
+        return None
+    for row in rows:
+        payload = row.payload_json or {}
+        if str(payload.get("status") or "").upper() == "PUBLISHED":
+            return payload if isinstance(payload, dict) else None
+    return None
 
 
 @router.get("/current", dependencies=[Depends(require_auth)])
@@ -29,15 +51,19 @@ def get_current_flow(
             "published_at": None,
             "flow": data if isinstance(data, dict) else {},
         }
-    tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
-    # Buscar la versión publicada más reciente para el tenant
-    flow = (
-        db.query(FlowVersioned)
-        .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
-        .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-        .first()
-    )
-    if flow:
+
+    # 1) Preferir flow publicado (no requiere Tenant para entornos de tests con DB stubs)
+    flow = None
+    try:
+        flow = (
+            db.query(FlowVersioned)
+            .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+    except Exception:
+        flow = None
+    if flow and isinstance(flow.schema_json, dict):
         return {
             "tenant_id": current_tenant,
             "flow_id": str(flow.id),
@@ -46,21 +72,35 @@ def get_current_flow(
             "published_at": flow.published_at.isoformat() if flow.published_at else None,
             "flow": flow.schema_json,
         }
-    # Para tenants con vertical, intentamos provisionar (idempotente) y volver a consultar.
-    if tenant and getattr(tenant, "vertical_key", None):
-        try:
-            from app.services.verticals import provision_vertical_assets
 
+    tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
+    if not tenant:
+        data = load_flow_template(None, plan_value="base")
+        return {
+            "tenant_id": current_tenant,
+            "flow_id": None,
+            "version": data.get("version") if isinstance(data, dict) else None,
+            "estado": "fallback",
+            "published_at": None,
+            "flow": data if isinstance(data, dict) else {},
+        }
+
+    # 2) Si hay vertical y no existe flow, intentar provisionar (idempotente)
+    if getattr(tenant, "vertical_key", None):
+        try:
             provision_vertical_assets(db, tenant)
         except Exception:
             pass
-        flow = (
-            db.query(FlowVersioned)
-            .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
-            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-            .first()
-        )
-        if flow:
+        try:
+            flow = (
+                db.query(FlowVersioned)
+                .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
+                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+                .first()
+            )
+        except Exception:
+            flow = None
+        if flow and isinstance(flow.schema_json, dict):
             return {
                 "tenant_id": current_tenant,
                 "flow_id": str(flow.id),
@@ -70,7 +110,28 @@ def get_current_flow(
                 "flow": flow.schema_json,
             }
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="flow_not_provisioned")
+    # 3) Fallback: resolver runtime desde verticals + aplicar materiales publicados.
+    materials = _load_published_materials(db, current_tenant)
+    flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
+    flow_id_override = resolve_flow_id(flow_id_override, getattr(tenant, "vertical_key", None))
+    plan_value = getattr(tenant, "plan", "base")
+    if hasattr(plan_value, "value"):
+        plan_value = plan_value.value
+    flow_data = resolve_runtime_flow(
+        db=db,
+        tenant=tenant,
+        flow_id_override=flow_id_override,
+        plan_value=str(plan_value or "base").lower(),
+    )
+    flow_data = apply_materials(flow_data, materials)
+    return {
+        "tenant_id": current_tenant,
+        "flow_id": None,
+        "version": None,
+        "estado": "fallback",
+        "published_at": None,
+        "flow": flow_data if isinstance(flow_data, dict) else {},
+    }
 
 
 @router.get("/scoring", dependencies=[Depends(require_auth)])
