@@ -49,8 +49,21 @@ def _normalize_visual(payload: dict) -> dict:
 def _normalize_materials(payload: dict) -> dict:
     content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
     automation = payload.get("automation") if isinstance(payload.get("automation"), dict) else {}
+    raw_files = payload.get("knowledge_files")
+    if raw_files is None and isinstance(content, dict):
+        raw_files = content.get("knowledge_files")
+    knowledge_files: list[str] = []
+    if isinstance(raw_files, list):
+        seen: set[str] = set()
+        for x in raw_files:
+            fid = str(x).strip()
+            if not fid or fid in seen:
+                continue
+            seen.add(fid)
+            knowledge_files.append(fid)
     return {
         "flow_id": payload.get("flow_id"),
+        "knowledge_files": knowledge_files[:50],
         "content": {
             "welcome": content.get("welcome") or "",
             "questions": content.get("questions") or {},
@@ -176,6 +189,7 @@ class MaterialsDraftInput(BaseModel):
     content: dict[str, Any] | None = None
     automation: dict[str, Any] | None = None
     visual: dict[str, Any] | None = None
+    knowledge_files: list[str] | None = None
 
 
 @router.get("/materials", dependencies=[Depends(require_any_role("OWNER", "ADMIN"))])

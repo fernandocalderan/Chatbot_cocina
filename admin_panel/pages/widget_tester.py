@@ -106,7 +106,7 @@ with col_token:
         value=(allowed[0] if allowed else panel_origin_default),
         help="En este panel, el widget corre bajo el origen del admin panel (normalmente http://localhost:8501).",
     )
-    ttl = st.slider("TTL minutos", min_value=15, max_value=120, value=60, step=15)
+    ttl = st.slider("TTL minutos", min_value=15, max_value=60, value=60, step=15)
     token_state_key = f"_widget_token_{tenant['id']}"
     token_input = st.text_area(
         "Token widget (pegar uno existente)",

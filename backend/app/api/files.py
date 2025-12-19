@@ -11,7 +11,14 @@ from app.api.deps import get_db, get_tenant_id
 from app.core.config import get_settings
 from app.models.files import FileAsset
 from app.models.leads import Lead
+from app.models.tenants import Tenant
 from app.services.file_service import FileService
+from app.services.file_text_extractor import (
+    extract_image_text_via_openai,
+    extract_pdf_text,
+    preview,
+    write_extracted_text,
+)
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -80,6 +87,15 @@ async def upload_file(
         "session_id": session_id,
     }
 
+    # Extracción básica para PDFs (sin IA) para poder usarlo como material/KB.
+    if file.content_type == "application/pdf":
+        extracted = extract_pdf_text(dest_path)
+        out_path = write_extracted_text(dest_path, extracted)
+        if out_path:
+            meta["extracted_text_key"] = str(out_path.relative_to(base_dir))
+            meta["extracted_preview"] = preview(extracted)
+            meta["extracted_method"] = "pypdf"
+
     try:
         asset = FileAsset(
             tenant_id=tenant_id,
@@ -103,7 +119,97 @@ async def upload_file(
         "s3_key": s3_key,
         "content_type": file.content_type,
         "size_bytes": len(content),
+        "extracted": bool(meta.get("extracted_text_key")),
     }
+
+
+@router.get("", dependencies=[Depends(require_auth)])
+def list_files(
+    session_id: str | None = None,
+    lead_id: str | None = None,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    q = db.query(FileAsset).filter(FileAsset.tenant_id == tenant_id)
+    if session_id:
+        q = q.filter(FileAsset.meta["session_id"].astext == session_id)  # type: ignore[index]
+    if lead_id:
+        q = q.filter(FileAsset.lead_id == lead_id)
+    rows = q.order_by(FileAsset.created_at.desc()).limit(200).all()
+    items = []
+    for r in rows:
+        meta = r.meta or {}
+        items.append(
+            {
+                "file_id": str(r.id),
+                "lead_id": str(r.lead_id) if r.lead_id else None,
+                "s3_key": r.s3_key,
+                "content_type": r.tipo,
+                "original_filename": meta.get("original_filename"),
+                "size_bytes": meta.get("size_bytes"),
+                "session_id": meta.get("session_id"),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "extracted_text_key": meta.get("extracted_text_key"),
+                "extracted_preview": meta.get("extracted_preview"),
+                "extracted_method": meta.get("extracted_method"),
+            }
+        )
+    return {"items": items}
+
+
+@router.post("/{file_id}/extract", dependencies=[Depends(require_auth)])
+def extract_file_text(
+    file_id: str,
+    use_ai: bool = False,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    asset = db.query(FileAsset).filter(FileAsset.id == file_id, FileAsset.tenant_id == tenant_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="file_not_found")
+
+    settings = get_settings()
+    base_dir = Path(settings.storage_dir)
+    file_path = base_dir / str(asset.s3_key)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="storage_file_not_found")
+
+    meta = asset.meta or {}
+    content_type = str(asset.tipo or meta.get("content_type") or "")
+
+    extracted = ""
+    method = None
+    if content_type == "application/pdf":
+        extracted = extract_pdf_text(file_path)
+        method = "pypdf"
+    elif content_type in {"image/png", "image/jpeg"} and use_ai:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="tenant_not_found")
+        extracted = extract_image_text_via_openai(
+            file_path,
+            content_type=content_type,
+            tenant=tenant,
+            tenant_id=str(tenant_id),
+            db=db,
+            session_id=str(meta.get("session_id") or "") or None,
+        )
+        method = "openai_vision"
+
+    out_path = write_extracted_text(file_path, extracted)
+    if out_path:
+        meta["extracted_text_key"] = str(out_path.relative_to(base_dir))
+        meta["extracted_preview"] = preview(extracted)
+        meta["extracted_method"] = method
+        asset.meta = meta
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+        return {"file_id": str(asset.id), "extracted": True, "method": method, "preview": meta.get("extracted_preview")}
+
+    raise HTTPException(status_code=400, detail="extraction_not_available")
 
 
 @router.get("/{lead_id}/comercial.pdf", dependencies=[Depends(require_auth)])

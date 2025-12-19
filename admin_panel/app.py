@@ -208,6 +208,41 @@ with tabs[1]:
         code = t.get("customer_code") or "N/D"
         with st.expander(f"{t.get('name')} — {t.get('plan')} — {code} — {t.get('id')}"):
             st.text_input("Código comercial", value=code, disabled=True, key=f"code-{t['id']}")
+
+            st.markdown("**Contacto y dirección**")
+            c1, c2 = st.columns(2)
+            contact_email = c1.text_input(
+                "Email de contacto",
+                value=t.get("contact_email") or "",
+                key=f"contact-email-{t['id']}",
+            )
+            contact_phone = c2.text_input(
+                "Teléfono de contacto",
+                value=t.get("contact_phone") or "",
+                key=f"contact-phone-{t['id']}",
+            )
+            a1, a2, a3, a4 = st.columns(4)
+            address_street = a1.text_input(
+                "Calle/Av",
+                value=t.get("address_street") or "",
+                key=f"addr-street-{t['id']}",
+            )
+            address_number = a2.text_input(
+                "Número",
+                value=t.get("address_number") or "",
+                key=f"addr-number-{t['id']}",
+            )
+            address_postal = a3.text_input(
+                "Código postal",
+                value=t.get("address_postal_code") or "",
+                key=f"addr-postal-{t['id']}",
+            )
+            address_city = a4.text_input(
+                "Población",
+                value=t.get("address_city") or "",
+                key=f"addr-city-{t['id']}",
+            )
+
             if vertical_keys:
                 current_vertical = t.get("vertical_key") or vertical_keys[0]
                 st.text_input(
@@ -263,6 +298,12 @@ with tabs[1]:
             )
             origins = st.text_area("Allowed origins (coma)", value=",".join(t.get("allowed_origins") or []), key=f"origins-{t['id']}")
             use_ia = st.checkbox("IA habilitada", value=bool(t.get("ia_enabled", True)), key=f"use-ia-{t['id']}")
+            custom_flow_enabled = st.checkbox(
+                "Flujo personalizado activo",
+                value=bool(t.get("custom_flow_enabled") or False),
+                key=f"custom-flow-enabled-{t['id']}",
+                help="Si está desactivado, el widget usa el flujo base (vertical + scopes). Si está activado, usa el flow publicado.",
+            )
             new_vertical = None
             force_vertical = False
             if vertical_keys:
@@ -277,6 +318,12 @@ with tabs[1]:
 
             if st.button("Guardar", key=f"save-{t['id']}"):
                 payload = {
+                    "contact_email": contact_email.strip() or None,
+                    "contact_phone": contact_phone.strip() or None,
+                    "address_street": address_street.strip() or None,
+                    "address_number": address_number.strip() or None,
+                    "address_postal_code": address_postal.strip() or None,
+                    "address_city": address_city.strip() or None,
                     "plan": new_plan,
                     "ia_monthly_limit_eur": new_limit,
                     "allowed_origins": [o.strip() for o in origins.split(",") if o.strip()],
@@ -285,6 +332,7 @@ with tabs[1]:
                     "use_ia": use_ia,
                     "billing_status": billing_status,
                     "vertical_scopes": selected_scopes,
+                    "custom_flow_enabled": custom_flow_enabled,
                 }
                 if new_vertical and new_vertical != current_vertical:
                     payload["vertical_key"] = new_vertical
@@ -350,9 +398,9 @@ with tabs[1]:
                     if out.get("error"):
                         st.error(out)
                     else:
-                        flow_obj = out.get("flow") if isinstance(out, dict) else {}
+                        flow_obj = out.get("custom_flow") if isinstance(out, dict) else {}
                         st.session_state[state_key] = json.dumps(flow_obj or {}, ensure_ascii=False, indent=2)
-                        st.success("Flow cargado en el editor.")
+                        st.success("Flujo personalizado cargado en el editor.")
                 flow_text = st.text_area(
                     "Flow JSON",
                     value=st.session_state.get(state_key) or "{}",
@@ -378,6 +426,25 @@ with tabs[1]:
                         st.error(res)
                     else:
                         st.success(f"Reseteado v{res.get('version')} ({res.get('flow_id')})")
+
+                with st.expander("Ver base/effective (solo lectura)", expanded=False):
+                    preview_key = f"_tenant_flow_preview_{t['id']}"
+                    if st.button("Cargar vista", key=f"flow-preview-{t['id']}"):
+                        out = get_tenant_flow(token, t["id"], api_key=api_key) or {}
+                        st.session_state[preview_key] = out
+                    out = st.session_state.get(preview_key) or {}
+                    if not out:
+                        st.caption("Pulsa “Cargar vista” para ver base/effective.")
+                    elif out.get("error"):
+                        st.error(out)
+                    else:
+                        st.caption(
+                            f"custom_flow_enabled={bool(out.get('custom_flow_enabled'))} | scopes={out.get('scopes') or []}"
+                        )
+                        st.markdown("**Base flow (vertical + scopes)**")
+                        st.json(out.get("base_flow") or {})
+                        st.markdown("**Effective flow (lo que usa el widget)**")
+                        st.json(out.get("effective_flow") or {})
 
             st.markdown("**Estado y seguridad**")
             with st.expander("Excluir tenant", expanded=False):
@@ -474,61 +541,79 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("Crear tenant")
-    with st.form("create-tenant-form"):
-        name = st.text_input("Nombre")
-        contact = st.text_input("Email contacto")
-        plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"])
-        vertical_key = st.selectbox("Vertical", vertical_keys or ["kitchens"], format_func=lambda v: vertical_labels.get(v, v))
-        selected_vertical = vertical_by_key.get(vertical_key) if vertical_key else None
-        if isinstance(selected_vertical, dict):
-            promise = selected_vertical.get("promise_commercial")
-            if promise:
-                st.caption(f"Promesa: {promise}")
-            files = selected_vertical.get("files") or {}
-            if isinstance(files, dict):
-                missing = [fname for fname, ok in files.items() if not ok]
-                if missing:
-                    st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
-            scope_items = selected_vertical.get("scope_items") or []
-            scope_labels = {
-                str(it.get("key")): (it.get("label") or it.get("key"))
-                for it in scope_items
-                if isinstance(it, dict) and it.get("key")
-            }
-            scope_keys = list(scope_labels.keys())
-            if scope_keys:
-                st.caption("Selecciona 1 o más sub-verticals (scopes) para este tenant.")
-                selected_scopes_new = st.multiselect(
-                    "Scopes (sub-verticals)",
-                    scope_keys,
-                    default=[scope_keys[0]] if scope_keys else [],
-                    format_func=lambda k: scope_labels.get(k, k),
-                    key="create-tenant-scopes",
-                )
-            else:
-                selected_scopes_new = []
+    st.caption("Los campos de vertical/scopes se actualizan automáticamente (sin form) para evitar problemas de cascada.")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        name = st.text_input("Nombre comercial", key="ct-name")
+        contact = st.text_input("Email de contacto", key="ct-email")
+        phone = st.text_input("Teléfono de contacto", key="ct-phone")
+        plan = st.selectbox("Plan", ["BASE", "PRO", "ELITE"], key="ct-plan")
+        vertical_key = st.selectbox(
+            "Vertical",
+            vertical_keys or ["kitchens"],
+            format_func=lambda v: vertical_labels.get(v, v),
+            key="ct-vertical",
+        )
+    with col_b:
+        st.markdown("**Dirección completa**")
+        addr_street = st.text_input("Calle/Av", key="ct-addr-street")
+        addr_number = st.text_input("Número", key="ct-addr-number")
+        addr_postal = st.text_input("Código postal", key="ct-addr-postal")
+        addr_city = st.text_input("Población", key="ct-addr-city")
+        origins_new = st.text_input("Allowed origins (coma)", key="ct-origins")
+        limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0, key="ct-limit")
+        maint_new = st.checkbox("Mantenimiento inicial", value=False, key="ct-maint")
+        use_ia_new = st.checkbox("IA habilitada", value=True, key="ct-ia")
+
+    selected_scopes_new: list[str] = []
+    selected_vertical = vertical_by_key.get(vertical_key) if vertical_key else None
+    if isinstance(selected_vertical, dict):
+        promise = selected_vertical.get("promise_commercial")
+        if promise:
+            st.caption(f"Promesa: {promise}")
+        files = selected_vertical.get("files") or {}
+        if isinstance(files, dict):
+            missing = [fname for fname, ok in files.items() if not ok]
+            if missing:
+                st.warning(f"Vertical incompleto (faltan: {', '.join(missing)})")
+        scope_items = selected_vertical.get("scope_items") or []
+        scope_labels = {
+            str(it.get("key")): (it.get("label") or it.get("key"))
+            for it in scope_items
+            if isinstance(it, dict) and it.get("key")
+        }
+        scope_keys = list(scope_labels.keys())
+        if scope_keys:
+            st.caption("Selecciona 1 o más scopes (sub-verticals) — opciones dependen del vertical.")
+            scopes_key = f"ct-scopes-{vertical_key}"
+            selected_scopes_new = st.multiselect(
+                "Scopes (sub-verticals)",
+                scope_keys,
+                default=st.session_state.get(scopes_key) or [scope_keys[0]],
+                format_func=lambda k: scope_labels.get(k, k),
+                key=scopes_key,
+            )
+
+    if st.button("Crear", use_container_width=True, key="ct-submit"):
+        payload = {
+            "name": name,
+            "contact_email": contact or None,
+            "contact_phone": phone or None,
+            "address_street": addr_street or None,
+            "address_number": addr_number or None,
+            "address_postal_code": addr_postal or None,
+            "address_city": addr_city or None,
+            "plan": plan,
+            "ia_monthly_limit_eur": limit,
+            "allowed_origins": [o.strip() for o in origins_new.split(",") if o.strip()],
+            "maintenance": maint_new,
+            "use_ia": use_ia_new,
+            "ia_enabled": use_ia_new,
+            "vertical_key": vertical_key,
+            "vertical_scopes": selected_scopes_new,
+        }
+        res = create_tenant(token, payload, api_key=api_key)
+        if res and "id" in res:
+            st.success(f"Tenant creado: {res['id']}")
         else:
-            selected_scopes_new = []
-        origins_new = st.text_input("Allowed origins (coma)")
-        limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0)
-        maint_new = st.checkbox("Mantenimiento inicial", value=False)
-        use_ia_new = st.checkbox("IA habilitada", value=True)
-        submitted = st.form_submit_button("Crear")
-        if submitted:
-            payload = {
-                "name": name,
-                "contact_email": contact or None,
-                "plan": plan,
-                "ia_monthly_limit_eur": limit,
-                "allowed_origins": [o.strip() for o in origins_new.split(",") if o.strip()],
-                "maintenance": maint_new,
-                "use_ia": use_ia_new,
-                "ia_enabled": use_ia_new,
-                "vertical_key": vertical_key,
-                "vertical_scopes": selected_scopes_new,
-            }
-            res = create_tenant(token, payload, api_key=api_key)
-            if res and "id" in res:
-                st.success(f"Tenant creado: {res['id']}")
-            else:
-                st.error(res)
+            st.error(res)

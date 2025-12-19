@@ -41,6 +41,7 @@ def _normalize_origin(origin: str) -> str | None:
 
 def _serialize_config(tenant: Tenant) -> dict:
     branding = getattr(tenant, "branding", {}) or {}
+    address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
     currency = branding.get("currency") or branding.get("Currency") or "EUR"
     allowed = (
         branding.get("allowed_widget_origins")
@@ -55,6 +56,9 @@ def _serialize_config(tenant: Tenant) -> dict:
         "tenant_id": str(tenant.id),
         "customer_code": getattr(tenant, "customer_code", None),
         "name": tenant.name,
+        "contact_email": tenant.contact_email,
+        "contact_phone": branding.get("contact_phone") or branding.get("contactPhone") or None,
+        "address": address or {},
         "logo_url": getattr(tenant, "logo_url", None),
         "theme": getattr(tenant, "theme", None) or "orange",
         "language": tenant.idioma_default or "es",

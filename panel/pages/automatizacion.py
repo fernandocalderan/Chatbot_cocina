@@ -16,6 +16,9 @@ from api_client import (
     save_automation_materials,
     publish_automation_materials,
     rollback_automation_materials,
+    list_files,
+    upload_tenant_file,
+    extract_tenant_file,
 )
 from utils import load_styles, empty_state, metric_card, render_quota_banner, pill
 
@@ -103,8 +106,9 @@ if selected_key == "flujo":
     current = draft or published or {}
     content = current.get("content") if isinstance(current.get("content"), dict) else {}
     automation = current.get("automation") if isinstance(current.get("automation"), dict) else {}
+    knowledge_files_current = current.get("knowledge_files") if isinstance(current.get("knowledge_files"), list) else []
 
-    tabs = st.tabs(["Visual", "Cómo habla", "Automatización", "Flujo activo"])
+    tabs = st.tabs(["Visual", "Cómo habla", "Automatización", "Flujo activo", "Archivos"])
 
     with tabs[0]:
         st.markdown("### Visual del widget")
@@ -194,6 +198,76 @@ if selected_key == "flujo":
             selected_flow = st.text_input("Flow ID", value=current_flow)
         st.info("Los cambios afectan solo nuevas conversaciones. Las sesiones activas no se alteran.")
 
+    with tabs[4]:
+        st.markdown("### Archivos (materiales de aprendizaje)")
+        st.caption(
+            "Sube PDFs/imagenes y selecciona cuáles puede usar la IA como contexto. "
+            "PDFs: extracción automática. Imágenes: usa ‘Extraer con IA’."
+        )
+
+        uploaded = st.file_uploader("Subir archivo", type=["pdf", "png", "jpg", "jpeg"], key="kb-upload")
+        if uploaded is not None and st.button("Subir", key="kb-upload-btn"):
+            with st.spinner("Subiendo…"):
+                res = upload_tenant_file(uploaded)
+            if isinstance(res, dict) and res.get("file_id"):
+                st.success("Archivo subido.")
+                st.rerun()
+            else:
+                st.error(res)
+
+        files = list_files() or []
+        file_by_id = {f.get("file_id"): f for f in files if isinstance(f, dict) and f.get("file_id")}
+        file_ids = list(file_by_id.keys())
+
+        if not file_ids:
+            empty_state("Sin archivos", "Sube un PDF o una imagen para usarla como material.", icon="📎")
+        else:
+            def _label(fid: str) -> str:
+                f = file_by_id.get(fid) or {}
+                name = f.get("original_filename") or fid
+                ctype = f.get("content_type") or ""
+                return f"{name} ({ctype})"
+
+            kb_default = [fid for fid in knowledge_files_current if fid in file_by_id]
+            selected_kb = st.multiselect(
+                "Archivos usados por IA (knowledge base)",
+                options=file_ids,
+                default=kb_default,
+                format_func=_label,
+                key="kb-files",
+            )
+
+            st.markdown("#### Estado de extracción")
+            use_ai_images = st.toggle("Usar IA para extraer texto de imágenes", value=True, key="kb-use-ai-images")
+            for fid in selected_kb:
+                f = file_by_id.get(fid) or {}
+                extracted_key = f.get("extracted_text_key")
+                extracted_method = f.get("extracted_method") or "n/d"
+                ctype = str(f.get("content_type") or "")
+                with st.expander(_label(fid), expanded=False):
+                    st.caption(f"ID: `{fid}`")
+                    if extracted_key:
+                        st.success(f"Extracción OK ({extracted_method})")
+                        if f.get("extracted_preview"):
+                            st.text_area(
+                                "Preview (recorte)",
+                                value=str(f.get("extracted_preview") or ""),
+                                height=140,
+                                disabled=True,
+                                key=f"kb-preview-{fid}",
+                            )
+                    else:
+                        st.warning("Sin extracción todavía.")
+                        can_ai = ctype in {"image/png", "image/jpeg"} and use_ai_images
+                        if st.button("Extraer ahora", key=f"kb-extract-{fid}"):
+                            with st.spinner("Extrayendo…"):
+                                res = extract_tenant_file(fid, use_ai=bool(can_ai))
+                            if isinstance(res, dict) and res.get("extracted"):
+                                st.success("Extracción completada.")
+                                st.rerun()
+                            else:
+                                st.error(res)
+
     st.divider()
     c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
     if c1.button("Guardar borrador", use_container_width=True):
@@ -218,6 +292,7 @@ if selected_key == "flujo":
 
         payload = {
             "flow_id": selected_flow,
+            "knowledge_files": st.session_state.get("kb-files") or knowledge_files_current or [],
             "content": {
                 "welcome": welcome,
                 "closing": closing,

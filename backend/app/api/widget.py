@@ -262,11 +262,20 @@ def create_widget_session(payload: WidgetSessionCreate, request: Request, db: Se
     db.refresh(sess)
 
     selected_scopes = tenant_vertical_scopes(tenant)
+    branding = getattr(tenant, "branding", {}) or {}
+    address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
     base_vars = {
         "tenant_id": str(tenant_id),
         "channel": "web_widget",
         "widget_state": "INICIADA",
         "lead_id": None,
+        "tenant_name": getattr(tenant, "name", None),
+        "tenant_contact_email": getattr(tenant, "contact_email", None),
+        "tenant_contact_phone": branding.get("contact_phone") or branding.get("contactPhone") or None,
+        "tenant_address_street": address.get("street") if isinstance(address, dict) else None,
+        "tenant_address_number": address.get("number") if isinstance(address, dict) else None,
+        "tenant_address_postal_code": address.get("postal_code") if isinstance(address, dict) else None,
+        "tenant_address_city": address.get("city") if isinstance(address, dict) else None,
         "vertical_key": getattr(tenant, "vertical_key", None),
         "vertical_scopes": selected_scopes or [],
     }

@@ -110,13 +110,24 @@ def get_application() -> FastAPI:
     # CORS
     origins = _load_allowed_origins()
     if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        # En local, permitir cualquier origin para evitar reinicios al añadir nuevos domains.
+        if settings.environment == "local":
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=origins,
+                allow_origin_regex=".*",
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+        else:
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=origins,
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
 
     app.middleware("http")(resolve_tenant)
     app.middleware("http")(maintenance_guard)

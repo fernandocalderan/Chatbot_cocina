@@ -12,7 +12,7 @@ from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
 from app.services.flow_resolver import resolve_runtime_flow
 from app.services.flow_templates import apply_materials, load_flow_template
-from app.services.verticals import provision_vertical_assets, resolve_flow_id
+from app.services.verticals import provision_vertical_assets, resolve_flow_id, tenant_custom_flow_enabled
 from app.api.deps import DummySession
 
 router = APIRouter(prefix="/flows", tags=["flows"])
@@ -52,27 +52,6 @@ def get_current_flow(
             "flow": data if isinstance(data, dict) else {},
         }
 
-    # 1) Preferir flow publicado (no requiere Tenant para entornos de tests con DB stubs)
-    flow = None
-    try:
-        flow = (
-            db.query(FlowVersioned)
-            .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
-            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-            .first()
-        )
-    except Exception:
-        flow = None
-    if flow and isinstance(flow.schema_json, dict):
-        return {
-            "tenant_id": current_tenant,
-            "flow_id": str(flow.id),
-            "version": flow.version,
-            "estado": flow.estado,
-            "published_at": flow.published_at.isoformat() if flow.published_at else None,
-            "flow": flow.schema_json,
-        }
-
     tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
     if not tenant:
         data = load_flow_template(None, plan_value="base")
@@ -85,8 +64,35 @@ def get_current_flow(
             "flow": data if isinstance(data, dict) else {},
         }
 
-    # 2) Si hay vertical y no existe flow, intentar provisionar (idempotente)
+    # 1) Preferir flow publicado SOLO si el custom flow está habilitado
+    # (cuando está deshabilitado, el runtime usa el flujo base de vertical+scopes).
+    custom_enabled = True
     if getattr(tenant, "vertical_key", None):
+        custom_enabled = tenant_custom_flow_enabled(tenant)
+
+    if custom_enabled:
+        flow = None
+        try:
+            flow = (
+                db.query(FlowVersioned)
+                .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
+                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+                .first()
+            )
+        except Exception:
+            flow = None
+        if flow and isinstance(flow.schema_json, dict):
+            return {
+                "tenant_id": current_tenant,
+                "flow_id": str(flow.id),
+                "version": flow.version,
+                "estado": flow.estado,
+                "published_at": flow.published_at.isoformat() if flow.published_at else None,
+                "flow": flow.schema_json,
+            }
+
+    # 2) Si hay vertical y no existe flow, intentar provisionar (idempotente)
+    if getattr(tenant, "vertical_key", None) and custom_enabled:
         try:
             provision_vertical_assets(db, tenant)
         except Exception:

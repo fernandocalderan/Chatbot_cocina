@@ -17,6 +17,11 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 class TenantCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     contact_email: Optional[str] = Field(None, max_length=320)
+    contact_phone: Optional[str] = Field(None, max_length=64)
+    address_street: Optional[str] = Field(None, max_length=255)
+    address_number: Optional[str] = Field(None, max_length=64)
+    address_postal_code: Optional[str] = Field(None, max_length=32)
+    address_city: Optional[str] = Field(None, max_length=128)
     plan: Optional[str] = Field("BASE", description="Plan inicial BASE/PRO/ELITE")
     timezone: Optional[str] = Field("Europe/Madrid", max_length=64)
     idioma_default: Optional[str] = Field("es", max_length=10)
@@ -43,6 +48,20 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_409_CONFLICT, detail="tenant_name_exists"
         )
 
+    branding = {}
+    phone = (payload.contact_phone or "").strip() or None
+    if phone:
+        branding["contact_phone"] = phone
+    address = {
+        "street": (payload.address_street or "").strip() or None,
+        "number": (payload.address_number or "").strip() or None,
+        "postal_code": (payload.address_postal_code or "").strip() or None,
+        "city": (payload.address_city or "").strip() or None,
+    }
+    address = {k: v for k, v in address.items() if v}
+    if address:
+        branding["address"] = address
+
     tenant = Tenant(
         id=tenant_id,
         name=payload.name,
@@ -51,6 +70,7 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         timezone=payload.timezone or "Europe/Madrid",
         idioma_default=payload.idioma_default or "es",
         vertical_key=payload.vertical_key,
+        branding=branding,
         flow_mode="VERTICAL",
     )
     db.add(tenant)

@@ -25,6 +25,7 @@ CONFIG_TIPO_SEMANTIC_SCHEMA = "tenant_semantic_schema"
 CONFIG_TIPO_KPI_DEFAULTS = "tenant_kpi_defaults"
 CONFIG_TIPO_AI_CONFIG = "tenant_ai_config"
 TENANT_BRANDING_SCOPES_KEY = "vertical_scopes"
+TENANT_BRANDING_CUSTOM_FLOW_ENABLED_KEY = "custom_flow_enabled"
 
 
 def _vertical_dir(vertical_key: str) -> Path:
@@ -236,6 +237,17 @@ def tenant_vertical_scopes(tenant: Tenant | None) -> list[str]:
         return []
     branding = getattr(tenant, "branding", {}) or {}
     return _normalize_scopes(branding.get(TENANT_BRANDING_SCOPES_KEY))
+
+
+def tenant_custom_flow_enabled(tenant: Tenant | None) -> bool:
+    """
+    Cuando es False, el runtime ignora flows publicados en DB y usa el flujo base (vertical + scope).
+    Se guarda en `tenants.branding.custom_flow_enabled` (sin migración).
+    """
+    if not tenant:
+        return False
+    branding = getattr(tenant, "branding", {}) or {}
+    return bool(branding.get(TENANT_BRANDING_CUSTOM_FLOW_ENABLED_KEY) or False)
 
 
 def scope_defaults(vertical_key: str | None, scopes: object) -> dict[str, Any]:

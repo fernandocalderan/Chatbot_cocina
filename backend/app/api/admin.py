@@ -31,6 +31,7 @@ from app.services.verticals import (
     provision_vertical_assets,
     get_vertical_bundle,
     resolve_flow_id,
+    tenant_vertical_scopes,
     allowed_scopes,
     validate_vertical_scopes,
     vertical_flow_base,
@@ -38,7 +39,7 @@ from app.services.verticals import (
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
 from app.services.flow_resolver import resolve_runtime_flow
-from app.services.flow_templates import apply_materials
+from app.services.flow_templates import apply_materials, load_flow_template
 from app.core.logger import LOG_DIR
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -138,6 +139,11 @@ class AdminOIDCInput(BaseModel):
 class TenantBase(BaseModel):
     name: str
     contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    address_street: Optional[str] = None
+    address_number: Optional[str] = None
+    address_postal_code: Optional[str] = None
+    address_city: Optional[str] = None
     plan: str = "BASE"
     ia_monthly_limit_eur: Optional[float] = None
     usage_limit_monthly: Optional[float] = None
@@ -146,6 +152,7 @@ class TenantBase(BaseModel):
     ia_enabled: Optional[bool] = None
     vertical_key: Optional[str] = None
     vertical_scopes: list[str] = Field(default_factory=list)
+    custom_flow_enabled: Optional[bool] = None
 
 
 class TenantCreate(TenantBase):
@@ -155,6 +162,11 @@ class TenantCreate(TenantBase):
 class TenantUpdate(BaseModel):
     name: Optional[str] = None
     contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    address_street: Optional[str] = None
+    address_number: Optional[str] = None
+    address_postal_code: Optional[str] = None
+    address_city: Optional[str] = None
     plan: Optional[str] = None
     ia_monthly_limit_eur: Optional[float] = None
     usage_limit_monthly: Optional[float] = None
@@ -165,6 +177,7 @@ class TenantUpdate(BaseModel):
     vertical_key: Optional[str] = None
     vertical_scopes: Optional[list[str]] = None
     force_vertical: Optional[bool] = None
+    custom_flow_enabled: Optional[bool] = None
 
 
 class WidgetTokenRequest(BaseModel):
@@ -202,11 +215,18 @@ def _load_published_materials(db, tenant_id: str) -> dict | None:
 
 def _serialize_tenant(t: Tenant) -> dict[str, Any]:
     branding = getattr(t, "branding", {}) or {}
+    address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
     return {
         "id": str(t.id),
         "customer_code": getattr(t, "customer_code", None),
         "name": t.name,
         "contact_email": t.contact_email,
+        "contact_phone": branding.get("contact_phone") or branding.get("contactPhone") or None,
+        "address": address or {},
+        "address_street": address.get("street") if isinstance(address, dict) else None,
+        "address_number": address.get("number") if isinstance(address, dict) else None,
+        "address_postal_code": address.get("postal_code") if isinstance(address, dict) else None,
+        "address_city": address.get("city") if isinstance(address, dict) else None,
         "plan": t.plan,
         "billing_status": getattr(t, "billing_status", None),
         "plan_changed_at": branding.get("plan_changed_at"),
@@ -232,6 +252,7 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         "excluded": bool(branding.get("excluded", False)),
         "vertical_key": getattr(t, "vertical_key", None),
         "vertical_scopes": branding.get("vertical_scopes") or [],
+        "custom_flow_enabled": bool(branding.get("custom_flow_enabled") or False),
     }
 
 
@@ -303,11 +324,25 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_vertical_scopes")
     if allowed_scopes(payload.vertical_key) and not scopes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing_vertical_scopes")
+    address = {
+        "street": (payload.address_street or "").strip() or None,
+        "number": (payload.address_number or "").strip() or None,
+        "postal_code": (payload.address_postal_code or "").strip() or None,
+        "city": (payload.address_city or "").strip() or None,
+    }
+    address = {k: v for k, v in address.items() if v}
     branding = {
         "allowed_widget_origins": payload.allowed_origins or [],
         "maintenance": payload.maintenance,
         "vertical_scopes": scopes,
     }
+    if payload.custom_flow_enabled is not None:
+        branding["custom_flow_enabled"] = bool(payload.custom_flow_enabled)
+    phone = (payload.contact_phone or "").strip() or None
+    if phone:
+        branding["contact_phone"] = phone
+    if address:
+        branding["address"] = address
     customer_code = _next_customer_code(db)
     tenant = Tenant(
         customer_code=customer_code,
@@ -389,12 +424,62 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
     previous_plan = tenant.plan
     if payload.allowed_origins is not None:
         branding["allowed_widget_origins"] = payload.allowed_origins
+    if payload.custom_flow_enabled is not None:
+        branding["custom_flow_enabled"] = bool(payload.custom_flow_enabled)
     if payload.maintenance is not None:
         branding["maintenance"] = bool(payload.maintenance)
         branding["maintenance_mode"] = bool(payload.maintenance)
+    # Contacto/dirección (branding)
+    if payload.contact_phone is not None:
+        phone = str(payload.contact_phone).strip()
+        if phone:
+            branding["contact_phone"] = phone
+        else:
+            branding.pop("contact_phone", None)
+            branding.pop("contactPhone", None)
+    address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
+    if payload.address_street is not None:
+        v = str(payload.address_street).strip()
+        if v:
+            address["street"] = v
+        else:
+            address.pop("street", None)
+    if payload.address_number is not None:
+        v = str(payload.address_number).strip()
+        if v:
+            address["number"] = v
+        else:
+            address.pop("number", None)
+    if payload.address_postal_code is not None:
+        v = str(payload.address_postal_code).strip()
+        if v:
+            address["postal_code"] = v
+        else:
+            address.pop("postal_code", None)
+    if payload.address_city is not None:
+        v = str(payload.address_city).strip()
+        if v:
+            address["city"] = v
+        else:
+            address.pop("city", None)
+    if address:
+        branding["address"] = address
+    else:
+        branding.pop("address", None)
     updates = payload.model_dump(
         exclude_none=True,
-        exclude={"allowed_origins", "maintenance", "force_vertical", "vertical_scopes"},
+        exclude={
+            "allowed_origins",
+            "maintenance",
+            "force_vertical",
+            "vertical_scopes",
+            "custom_flow_enabled",
+            "contact_phone",
+            "address_street",
+            "address_number",
+            "address_postal_code",
+            "address_city",
+        },
     )
 
     # Sub-vertical scopes (branding) – inmutables salvo `force_vertical`
@@ -469,6 +554,15 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
 
+    branding = getattr(tenant, "branding", {}) or {}
+    custom_flow_enabled = bool(branding.get("custom_flow_enabled") or False)
+    scopes = tenant_vertical_scopes(tenant)
+
+    if getattr(tenant, "vertical_key", None):
+        base_flow = vertical_flow_base(getattr(tenant, "vertical_key", None), scopes) or {}
+    else:
+        base_flow = load_flow_template(flow_id_override, plan_value=str(plan_value or "base").lower()) or {}
+
     flow_data = resolve_runtime_flow(
         db=db,
         tenant=tenant,
@@ -477,15 +571,31 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
     )
     flow_data = apply_materials(flow_data, materials)
 
+    custom_flow: dict = {}
     published = None
     try:
-        row = (
-            db.query(FlowVersioned)
-            .filter(FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published")
-            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-            .first()
-        )
+        active_id = getattr(tenant, "active_flow_id", None)
+        row = None
+        if active_id:
+            row = (
+                db.query(FlowVersioned)
+                .filter(
+                    FlowVersioned.id == active_id,
+                    FlowVersioned.tenant_id == tenant.id,
+                    FlowVersioned.estado == "published",
+                )
+                .first()
+            )
+        if not row:
+            row = (
+                db.query(FlowVersioned)
+                .filter(FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published")
+                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+                .first()
+            )
         if row:
+            if isinstance(row.schema_json, dict):
+                custom_flow = row.schema_json
             published = {
                 "flow_id": str(row.id),
                 "version": row.version,
@@ -501,7 +611,12 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
         "flow_mode": getattr(tenant, "flow_mode", None),
         "active_flow_id": str(getattr(tenant, "active_flow_id")) if getattr(tenant, "active_flow_id", None) else None,
         "published": published,
-        "flow": flow_data if isinstance(flow_data, dict) else {},
+        "custom_flow_enabled": custom_flow_enabled,
+        "scopes": scopes,
+        "base_flow": base_flow if isinstance(base_flow, dict) else {},
+        "custom_flow": custom_flow if isinstance(custom_flow, dict) else {},
+        "effective_flow": flow_data if isinstance(flow_data, dict) else {},
+        "flow": flow_data if isinstance(flow_data, dict) else {},  # compat
     }
 
 
@@ -534,6 +649,9 @@ def publish_tenant_flow(tenant_id: str, payload: dict, request: Request, db=Depe
     try:
         tenant.active_flow_id = new_flow.id
         tenant.flow_mode = "VERTICAL"
+        branding = getattr(tenant, "branding", {}) or {}
+        branding["custom_flow_enabled"] = True
+        tenant.branding = branding
         db.add(tenant)
     except Exception:
         pass
@@ -595,6 +713,9 @@ def reset_tenant_flow_to_vertical_base(tenant_id: str, request: Request, db=Depe
     try:
         tenant.active_flow_id = new_flow.id
         tenant.flow_mode = "VERTICAL"
+        branding = getattr(tenant, "branding", {}) or {}
+        branding["custom_flow_enabled"] = False
+        tenant.branding = branding
         db.add(tenant)
     except Exception:
         pass

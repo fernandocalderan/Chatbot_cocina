@@ -3,6 +3,7 @@ from enum import Enum
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
+from sqlalchemy.ext.mutable import MutableDict
 
 from app.db.base import Base
 
@@ -48,10 +49,10 @@ class Tenant(Base):
     stripe_customer_id = sa.Column(sa.String(255), nullable=True)
     stripe_subscription_id = sa.Column(sa.String(255), nullable=True)
     flags_ia = sa.Column(
-        pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+        MutableDict.as_mutable(pg.JSONB), nullable=False, server_default=sa.text("'{}'::jsonb")
     )
     branding = sa.Column(
-        pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+        MutableDict.as_mutable(pg.JSONB), nullable=False, server_default=sa.text("'{}'::jsonb")
     )
     workdays = sa.Column(pg.ARRAY(sa.Integer), nullable=True)
     opening_hours = sa.Column(pg.JSONB, nullable=True)

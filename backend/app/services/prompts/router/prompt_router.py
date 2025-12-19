@@ -44,12 +44,17 @@ class PromptRouter:
         if not tenant_config:
             return prompt
         vertical_prompt = tenant_config.get("vertical_prompt")
-        if not vertical_prompt:
+        vp = str(vertical_prompt).strip() if vertical_prompt else ""
+        knowledge = tenant_config.get("knowledge_base")
+        kb = str(knowledge).strip() if knowledge else ""
+        prefix_parts: list[str] = []
+        if vp:
+            prefix_parts.append(vp)
+        if kb:
+            prefix_parts.append("Materiales del negocio (archivos cargados):\n" + kb)
+        if not prefix_parts:
             return prompt
-        vp = str(vertical_prompt).strip()
-        if not vp:
-            return prompt
-        return f"{vp}\n\n{prompt}"
+        return f"{'\n\n'.join(prefix_parts)}\n\n{prompt}"
 
     # ---------- EXTRACCIÓN ESTRUCTURADA ----------
 

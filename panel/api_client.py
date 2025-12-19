@@ -453,6 +453,57 @@ def rollback_automation_materials(version: int):
     return api_post("/tenant/automation/materials/rollback", {"version": version}) or {}
 
 
+def list_files(session_id: str | None = None, lead_id: str | None = None):
+    qs = []
+    if session_id:
+        qs.append(f"session_id={session_id}")
+    if lead_id:
+        qs.append(f"lead_id={lead_id}")
+    path = "/files"
+    if qs:
+        path = f"{path}?{'&'.join(qs)}"
+    data = api_get(path)
+    if isinstance(data, dict) and isinstance(data.get("items"), list):
+        return data.get("items") or []
+    return []
+
+
+def upload_tenant_file(file_obj, *, session_id: str | None = None, lead_id: str | None = None):
+    """
+    file_obj: objeto retornado por st.file_uploader.
+    """
+    client = _client()
+    qs = []
+    if session_id:
+        qs.append(("session_id", session_id))
+    if lead_id:
+        qs.append(("lead_id", lead_id))
+    url = f"{client.api_url}{API_PREFIX}/files/upload"
+    headers = client.headers()
+    files = {"file": (getattr(file_obj, "name", "upload.bin"), file_obj.getvalue(), getattr(file_obj, "type", None) or "application/octet-stream")}
+    try:
+        resp = requests.post(url, headers=headers, params=qs or None, files=files, timeout=30)
+    except requests.RequestException as exc:
+        return {"status_code": 0, "detail": str(exc)}
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp, fallback_message="No se pudo subir el archivo.")
+
+
+def extract_tenant_file(file_id: str, *, use_ai: bool = False):
+    client = _client()
+    url = f"{client.api_url}{API_PREFIX}/files/{file_id}/extract"
+    headers = client.headers()
+    params = {"use_ai": "1"} if use_ai else None
+    try:
+        resp = requests.post(url, headers=headers, params=params, timeout=60)
+    except requests.RequestException as exc:
+        return {"status_code": 0, "detail": str(exc)}
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp, fallback_message="No se pudo extraer el texto del archivo.")
+
+
 def _decode_jwt_payload(token: str | None) -> dict:
     if not token or "." not in token:
         return {}

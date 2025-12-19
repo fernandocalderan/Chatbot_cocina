@@ -8,6 +8,7 @@ from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
 from app.services.flow_templates import load_flow_template
 from app.services.verticals import provision_vertical_assets
+from app.services.verticals import tenant_custom_flow_enabled
 from app.services.verticals import tenant_vertical_scopes
 
 
@@ -65,15 +66,25 @@ def resolve_runtime_flow(
 ) -> dict[str, Any]:
     """
     Runtime flow resolver:
-    1) Usa el flow publicado del tenant (tabla `flows`) si existe.
-    2) Si el tenant tiene `vertical_key` y no hay flow publicado, intenta provisionar una vez (idempotente).
-    3) Fallback conservador: carga template desde verticals/ o legacy app/flows (según `load_flow_template`).
+    1) Si el tenant es vertical y `custom_flow_enabled` es False -> usar SIEMPRE el flujo base (vertical + scopes).
+    2) Si hay flujo publicado (tabla `flows`) y el custom está habilitado -> usarlo.
+    3) Si el tenant tiene `vertical_key` y no hay flow publicado, intenta provisionar una vez (idempotente).
+    4) Fallback conservador: carga template desde verticals/ o legacy app/flows (según `load_flow_template`).
     """
+    vertical_key = getattr(tenant, "vertical_key", None)
+    if vertical_key and not tenant_custom_flow_enabled(tenant):
+        return load_flow_template(
+            flow_id_override,
+            plan_value=plan_value,
+            vertical_key=str(vertical_key) if vertical_key else None,
+            scopes=tenant_vertical_scopes(tenant),
+        )
+
     flow_row = _active_or_latest_published_flow(db, tenant)
     if flow_row and isinstance(flow_row.schema_json, dict):
         return flow_row.schema_json
 
-    if getattr(tenant, "vertical_key", None):
+    if vertical_key:
         try:
             provision_vertical_assets(db, tenant)
         except Exception:
@@ -82,7 +93,6 @@ def resolve_runtime_flow(
         if flow_row and isinstance(flow_row.schema_json, dict):
             return flow_row.schema_json
 
-    vertical_key = getattr(tenant, "vertical_key", None)
     return load_flow_template(
         flow_id_override,
         plan_value=plan_value,

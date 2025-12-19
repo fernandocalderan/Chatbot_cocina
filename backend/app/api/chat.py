@@ -627,6 +627,18 @@ def send_message(
                 vars_data.setdefault("vertical_scopes", selected_scopes)
             for k, v in (scope_defaults(tenant_vertical_key, selected_scopes) or {}).items():
                 vars_data.setdefault(k, v)
+            branding = getattr(tenant, "branding", {}) or {}
+            address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
+            vars_data.setdefault("tenant_name", getattr(tenant, "name", None))
+            vars_data.setdefault("tenant_contact_email", getattr(tenant, "contact_email", None))
+            vars_data.setdefault(
+                "tenant_contact_phone",
+                branding.get("contact_phone") or branding.get("contactPhone") or None,
+            )
+            vars_data.setdefault("tenant_address_street", address.get("street") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_number", address.get("number") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_postal_code", address.get("postal_code") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_city", address.get("city") if isinstance(address, dict) else None)
             state = {
                 "current_block": db_state.state
                 or flow_data.get("start_block", "start"),
@@ -639,6 +651,18 @@ def send_message(
             if selected_scopes:
                 vars_data["vertical_scopes"] = selected_scopes
             vars_data.update(scope_defaults(tenant_vertical_key, selected_scopes) or {})
+            branding = getattr(tenant, "branding", {}) or {}
+            address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
+            vars_data.setdefault("tenant_name", getattr(tenant, "name", None))
+            vars_data.setdefault("tenant_contact_email", getattr(tenant, "contact_email", None))
+            vars_data.setdefault(
+                "tenant_contact_phone",
+                branding.get("contact_phone") or branding.get("contactPhone") or None,
+            )
+            vars_data.setdefault("tenant_address_street", address.get("street") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_number", address.get("number") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_postal_code", address.get("postal_code") if isinstance(address, dict) else None)
+            vars_data.setdefault("tenant_address_city", address.get("city") if isinstance(address, dict) else None)
             state = {"current_block": flow_data.get("start_block", "start"), "vars": vars_data}
             session_mgr.save(session_id, state)
             try:
@@ -661,6 +685,18 @@ def send_message(
             state.setdefault("vars", {}).setdefault("vertical_scopes", selected_scopes)
         for k, v in (scope_defaults(tenant_vertical_key, selected_scopes) or {}).items():
             state.setdefault("vars", {}).setdefault(k, v)
+        branding = getattr(tenant, "branding", {}) or {}
+        address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
+        state.setdefault("vars", {}).setdefault("tenant_name", getattr(tenant, "name", None))
+        state.setdefault("vars", {}).setdefault("tenant_contact_email", getattr(tenant, "contact_email", None))
+        state.setdefault("vars", {}).setdefault(
+            "tenant_contact_phone",
+            branding.get("contact_phone") or branding.get("contactPhone") or None,
+        )
+        state.setdefault("vars", {}).setdefault("tenant_address_street", address.get("street") if isinstance(address, dict) else None)
+        state.setdefault("vars", {}).setdefault("tenant_address_number", address.get("number") if isinstance(address, dict) else None)
+        state.setdefault("vars", {}).setdefault("tenant_address_postal_code", address.get("postal_code") if isinstance(address, dict) else None)
+        state.setdefault("vars", {}).setdefault("tenant_address_city", address.get("city") if isinstance(address, dict) else None)
 
     now_ts = time.time()
     ci_state = state.get("_ci") if isinstance(state.get("_ci"), dict) else {}
