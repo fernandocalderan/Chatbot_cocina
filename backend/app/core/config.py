@@ -1,13 +1,30 @@
 from functools import lru_cache
+import os
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _resolve_env_file() -> str | None:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return None
+    if os.getenv("DISABLE_DOTENV") == "1":
+        return None
+    candidate = Path(__file__).resolve().parents[3] / ".env"
+    if candidate.exists():
+        return str(candidate)
+    return ".env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", env_prefix="", extra="ignore", case_sensitive=False
+        env_file=_resolve_env_file(),
+        env_file_encoding="utf-8",
+        env_prefix="",
+        extra="ignore",
+        case_sensitive=False,
     )
 
     app_name: str = "Cocinas Assistant API"

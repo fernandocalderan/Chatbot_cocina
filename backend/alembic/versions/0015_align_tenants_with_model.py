@@ -17,6 +17,10 @@ depends_on = None
 
 
 def upgrade():
+    # Crear ENUMs que se usan en ALTER TABLE/ADD COLUMN (Postgres no los autocrea en este caso).
+    usage_mode_enum = sa.Enum("ACTIVE", "SAVING", "LOCKED", name="usage_mode")
+    usage_mode_enum.create(op.get_bind(), checkfirst=True)
+
     # ---------- SCHEDULING / AVAILABILITY ----------
     op.add_column(
         "tenants",
@@ -36,7 +40,7 @@ def upgrade():
         "tenants",
         sa.Column(
             "usage_mode",
-            sa.Enum("ACTIVE", "SAVING", "LOCKED", name="usage_mode"),
+            usage_mode_enum,
             nullable=False,
             server_default="ACTIVE",
         ),
@@ -100,3 +104,9 @@ def downgrade():
     op.drop_column("tenants", "opening_hours")
     op.drop_column("tenants", "slot_duration")
     op.drop_column("tenants", "workdays")
+
+    # Intentar limpiar el ENUM si ya no se usa (idempotente)
+    try:
+        sa.Enum("ACTIVE", "SAVING", "LOCKED", name="usage_mode").drop(op.get_bind(), checkfirst=True)
+    except Exception:
+        pass

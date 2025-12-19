@@ -2,6 +2,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
+import sqlalchemy as sa
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
@@ -21,6 +22,29 @@ settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
+
+
+def _ensure_alembic_version_width(connection) -> None:
+    """
+    Alembic crea `alembic_version.version_num` como VARCHAR(32) por defecto.
+    Este repo usa ids de revisión más largos (p.ej. `0012_add_ia_enabled_and_usage_fields`),
+    lo que rompe migraciones en una DB limpia.
+    """
+    try:
+        if getattr(connection.dialect, "name", "") != "postgresql":
+            return
+        # Importante: usar AUTOCOMMIT aquí. Si abrimos una transacción implícita antes
+        # de `context.begin_transaction()`, Alembic puede entrar en un nested txn y
+        # al cerrar la conexión se revierte todo (migraciones no persisten).
+        ac = connection.execution_options(isolation_level="AUTOCOMMIT")
+        ac.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL);"
+        )
+        ac.exec_driver_sql(
+            "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);"
+        )
+    except Exception:
+        return
 
 
 def run_migrations_offline() -> None:
@@ -45,6 +69,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        _ensure_alembic_version_width(connection)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

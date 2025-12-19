@@ -19,6 +19,27 @@ router = APIRouter(prefix="/flows", tags=["flows"])
 
 CONFIG_TIPO_MATERIALS = "tenant_flow_materials"
 
+def _load_latest_published_flow(db: Session, tenant_id: str) -> dict | None:
+    try:
+        flow = (
+            db.query(FlowVersioned)
+            .filter(FlowVersioned.tenant_id == tenant_id, FlowVersioned.estado == "published")
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+    except Exception:
+        return None
+    if not flow or not isinstance(getattr(flow, "schema_json", None), dict):
+        return None
+    return {
+        "tenant_id": tenant_id,
+        "flow_id": str(flow.id),
+        "version": flow.version,
+        "estado": flow.estado,
+        "published_at": flow.published_at.isoformat() if flow.published_at else None,
+        "flow": flow.schema_json,
+    }
+
 
 def _load_published_materials(db: Session, tenant_id: str) -> dict | None:
     try:
@@ -54,6 +75,9 @@ def get_current_flow(
 
     tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
     if not tenant:
+        latest = _load_latest_published_flow(db, current_tenant)
+        if latest:
+            return latest
         data = load_flow_template(None, plan_value="base")
         return {
             "tenant_id": current_tenant,
@@ -71,25 +95,9 @@ def get_current_flow(
         custom_enabled = tenant_custom_flow_enabled(tenant)
 
     if custom_enabled:
-        flow = None
-        try:
-            flow = (
-                db.query(FlowVersioned)
-                .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
-                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-                .first()
-            )
-        except Exception:
-            flow = None
-        if flow and isinstance(flow.schema_json, dict):
-            return {
-                "tenant_id": current_tenant,
-                "flow_id": str(flow.id),
-                "version": flow.version,
-                "estado": flow.estado,
-                "published_at": flow.published_at.isoformat() if flow.published_at else None,
-                "flow": flow.schema_json,
-            }
+        latest = _load_latest_published_flow(db, current_tenant)
+        if latest:
+            return latest
 
     # 2) Si hay vertical y no existe flow, intentar provisionar (idempotente)
     if getattr(tenant, "vertical_key", None) and custom_enabled:
@@ -97,24 +105,9 @@ def get_current_flow(
             provision_vertical_assets(db, tenant)
         except Exception:
             pass
-        try:
-            flow = (
-                db.query(FlowVersioned)
-                .filter(FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published")
-                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-                .first()
-            )
-        except Exception:
-            flow = None
-        if flow and isinstance(flow.schema_json, dict):
-            return {
-                "tenant_id": current_tenant,
-                "flow_id": str(flow.id),
-                "version": flow.version,
-                "estado": flow.estado,
-                "published_at": flow.published_at.isoformat() if flow.published_at else None,
-                "flow": flow.schema_json,
-            }
+        latest = _load_latest_published_flow(db, current_tenant)
+        if latest:
+            return latest
 
     # 3) Fallback: resolver runtime desde verticals + aplicar materiales publicados.
     materials = _load_published_materials(db, current_tenant)
