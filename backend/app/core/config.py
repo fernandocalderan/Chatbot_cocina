@@ -1,6 +1,7 @@
 from functools import lru_cache
 import os
 from pathlib import Path
+import sys
 from typing import Literal
 
 from pydantic import AliasChoices, Field
@@ -8,14 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _resolve_env_file() -> str | None:
-    if os.getenv("PYTEST_CURRENT_TEST"):
+    # Evitar cargar dotenv durante tests (incluye fase de import/colección).
+    if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST"):
         return None
     if os.getenv("DISABLE_DOTENV") == "1":
         return None
-    candidate = Path(__file__).resolve().parents[3] / ".env"
-    if candidate.exists():
-        return str(candidate)
-    return ".env"
+    backend_env = Path(__file__).resolve().parents[2] / ".env"
+    if backend_env.exists():
+        return str(backend_env)
+    root_env = Path(__file__).resolve().parents[3] / ".env"
+    if root_env.exists():
+        return str(root_env)
+    return None
 
 
 class Settings(BaseSettings):
