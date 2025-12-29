@@ -1,11 +1,24 @@
+import sys
+from pathlib import Path
+
 import os
 import json
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-st.set_page_config(page_title="Widget Tester", page_icon="💬", layout="wide")
+from admin_panel.ui import init_page, render_impersonation_banner, render_sidebar_nav, require_admin_context
+
+
+init_page(title="Widget Tester", icon="🧪")
+
+ctx = require_admin_context()
+render_sidebar_nav(show_tools=False)
+render_impersonation_banner()
 
 
 def _api_base():
@@ -28,10 +41,22 @@ def _get_api_key():
     return st.session_state.get("_api_key") or os.getenv("ADMIN_API_TOKEN") or ""
 
 
-def _request(method: str, path: str, *, api_key: str, json_body=None, api_base: str | None = None):
+def _request(
+    method: str,
+    path: str,
+    *,
+    api_key: str | None = None,
+    token: str | None = None,
+    json_body=None,
+    api_base: str | None = None,
+):
     base = api_base or _api_base()
     url = f"{base.rstrip('/')}{path}"
-    headers = {"x-api-key": api_key} if api_key else {}
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         resp = requests.request(method, url, headers=headers, json=json_body, timeout=10)
         if resp.status_code >= 400:
@@ -42,8 +67,8 @@ def _request(method: str, path: str, *, api_key: str, json_body=None, api_base: 
 
 
 @st.cache_data(ttl=30)
-def _load_tenants(api_key: str, api_base: str):
-    resp = _request("GET", "/v1/admin/tenants", api_key=api_key, api_base=api_base)
+def _load_tenants(api_key: str | None, token: str | None, api_base: str):
+    resp = _request("GET", "/v1/admin/tenants", api_key=api_key, token=token, api_base=api_base)
     if isinstance(resp, list):
         return resp
     if isinstance(resp, dict):
@@ -51,12 +76,13 @@ def _load_tenants(api_key: str, api_base: str):
     return []
 
 
-def _issue_widget_token(api_key: str, tenant_id: str, origin: str, ttl: int):
+def _issue_widget_token(api_key: str | None, token: str | None, tenant_id: str, origin: str, ttl: int):
     payload = {"allowed_origin": origin, "ttl_minutes": ttl}
     return _request(
         "POST",
         f"/v1/admin/tenants/{tenant_id}/widget-token",
         api_key=api_key,
+        token=token,
         json_body=payload,
     )
 
@@ -66,22 +92,48 @@ st.caption(
     "Genera un token, configura tenant/origen y prueba el widget (burbuja + flujo) sin salir del panel."
 )
 
+PRESETS = {
+    "Auto": {},
+    "Local": {
+        "api_base": "http://localhost:8100",
+        "widget_src": "http://localhost:5173/frontend-widget/dist/chat-widget.js",
+    },
+    "Staging": {
+        "api_base": os.getenv("STAGING_API_BASE") or "",
+        "widget_src": os.getenv("STAGING_WIDGET_CDN_URL") or "",
+    },
+    "Prod": {
+        "api_base": os.getenv("PROD_API_BASE") or "",
+        "widget_src": os.getenv("PROD_WIDGET_CDN_URL") or os.getenv("WIDGET_CDN_URL") or "",
+    },
+}
+
 with st.sidebar:
-    api_key = st.text_input("API key (ADMIN_API_TOKEN)", value=_get_api_key(), type="password")
+    preset = st.selectbox("Preset", list(PRESETS.keys()), index=0)
+    if preset != "Auto":
+        cfg = PRESETS.get(preset) or {}
+        if cfg.get("api_base"):
+            st.session_state["_api_base_override"] = cfg["api_base"]
+        if cfg.get("widget_src"):
+            st.session_state["_widget_src_override"] = cfg["widget_src"]
+
+    default_api_key = ctx.api_key or _get_api_key()
+    api_key = st.text_input("API key (opcional)", value=default_api_key or "", type="password")
     st.session_state["_api_key"] = api_key
     api_base = st.text_input("API base", value=_api_base())
     st.session_state["_api_base_override"] = api_base
     widget_src = st.text_input(
         "Widget JS (CDN/local)",
-        value=_widget_src(),
+        value=(st.session_state.get("_widget_src_override") or _widget_src()),
         help="Orden recomendado: CDN o build local (frontend-widget/dist/chat-widget.js).",
     )
 
-if not api_key:
-    st.warning("Introduce un API key de admin para continuar.")
+if not api_key and not ctx.token:
+    st.warning("Introduce un API key o inicia sesión con OIDC para continuar.")
     st.stop()
 
-tenants = _load_tenants(api_key, api_base)
+with st.spinner("Cargando tenants…"):
+    tenants = _load_tenants(api_key or None, ctx.token, api_base)
 if not tenants:
     st.error("No se pudieron cargar tenants. Revisa API base/API key.")
     st.stop()
@@ -115,13 +167,32 @@ with col_token:
         key="widget_token_area",
     )
     if st.button("Generar token nuevo", use_container_width=True):
-        res = _issue_widget_token(api_key, tenant["id"], origin, ttl)
+        res = _issue_widget_token(api_key or None, ctx.token, tenant["id"], origin, ttl)
         if isinstance(res, dict) and res.get("token"):
             token_input = res["token"]
             st.session_state[token_state_key] = token_input
             st.success("Token generado.")
         else:
             st.error(res)
+
+    allowed_origins = tenant.get("allowed_origins") or []
+    if origin and origin not in allowed_origins:
+        st.warning("El origen no está en `allowed_origins` del tenant. El widget puede fallar por CORS.")
+        if st.button("Añadir origen al tenant", use_container_width=True):
+            new_list = list(dict.fromkeys([*allowed_origins, origin]))
+            upd = _request(
+                "PATCH",
+                f"/v1/admin/tenants/{tenant['id']}",
+                api_key=api_key or None,
+                token=ctx.token,
+                json_body={"allowed_origins": new_list},
+                api_base=api_base,
+            )
+            if isinstance(upd, dict) and upd.get("error"):
+                st.error(upd)
+            else:
+                st.success("Origen añadido. Recarga tenants para ver el cambio.")
+                st.cache_data.clear()
 
 if not token_input:
     st.info("Genera o pega un token para probar el widget.")

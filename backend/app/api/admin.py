@@ -1,6 +1,7 @@
 import datetime
 import secrets
 import hashlib
+import uuid
 from typing import Any, Optional
 
 import jwt
@@ -22,6 +23,7 @@ from app.models.leads import Lead
 from app.models.tenants import Tenant, UsageMode
 from app.models.users import UserRole, User
 from app.models.login_tokens import LoginToken
+from app.models.audits import AuditLog
 from app.services.key_manager import KeyManager
 from app.services.oidc_admin import validate_admin_id_token, OIDCValidationError
 from app.services.template_service import TemplateService
@@ -41,6 +43,9 @@ from app.services.email_service import send_magic_link
 from app.services.flow_resolver import resolve_runtime_flow
 from app.services.flow_templates import apply_materials, load_flow_template
 from app.core.logger import LOG_DIR
+from app.services.vertical_admin import create_vertical as admin_create_vertical
+from app.services.vertical_admin import read_vertical_file as admin_read_vertical_file
+from app.services.vertical_admin import update_vertical_file as admin_update_vertical_file
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -134,6 +139,19 @@ def _send_magic_link_email(email: str, token: str, expires_at: datetime.datetime
 
 class AdminOIDCInput(BaseModel):
     id_token: str
+
+
+class AdminVerticalCreate(BaseModel):
+    key: str = Field(..., min_length=2, max_length=64)
+    label: str | None = Field(default=None, max_length=120)
+    default_flow_id: str | None = Field(default=None, max_length=120)
+    flow_base: dict[str, Any] | None = None
+
+
+class AdminVerticalFileUpdate(BaseModel):
+    kind: str = Field(..., description="json | text | flow_scope")
+    content: Any
+    validate_content: bool = Field(default=True, validation_alias="validate")
 
 
 class TenantBase(BaseModel):
@@ -283,6 +301,75 @@ def get_vertical_admin(vertical_key: str):
     if not data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vertical_not_found")
     return data
+
+
+@router.post("/verticals", dependencies=[Depends(_ensure_super_admin())])
+def create_vertical_admin(payload: AdminVerticalCreate, request: Request):
+    try:
+        out = admin_create_vertical(
+            vertical_key=payload.key,
+            label=payload.label,
+            default_flow_id=payload.default_flow_id,
+            initial_flow=payload.flow_base if isinstance(payload.flow_base, dict) else None,
+        )
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="vertical_exists")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="vertical.create",
+        entity="vertical",
+        entity_id=str(out.get("key")),
+        tenant_id=None,
+        meta={"key": out.get("key"), "label": out.get("label"), "default_flow_id": out.get("default_flow_id")},
+    )
+    return get_vertical_bundle(out.get("key"))
+
+
+@router.put("/verticals/{vertical_key}/files/{filename}", dependencies=[Depends(_ensure_super_admin())])
+def update_vertical_file_admin(
+    vertical_key: str,
+    filename: str,
+    payload: AdminVerticalFileUpdate,
+    request: Request,
+):
+    try:
+        info = admin_update_vertical_file(
+            vertical_key=vertical_key,
+            filename=filename,
+            kind=str(payload.kind or "").strip().lower(),
+            content=payload.content,
+            validate=bool(payload.validate_content),
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="vertical_not_found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="vertical.file.update",
+        entity="vertical",
+        entity_id=str(vertical_key),
+        tenant_id=None,
+        meta={"vertical_key": vertical_key, "filename": info.get("filename"), "kind": info.get("kind")},
+    )
+    return get_vertical_bundle(vertical_key)
+
+
+@router.get("/verticals/{vertical_key}/files/{filename}", dependencies=[Depends(_ensure_super_admin())])
+def read_vertical_file_admin(vertical_key: str, filename: str):
+    try:
+        return admin_read_vertical_file(vertical_key=vertical_key, filename=filename)
+    except FileNotFoundError as exc:
+        msg = str(exc)
+        if "vertical_not_found" in msg:
+            raise HTTPException(status_code=404, detail="vertical_not_found")
+        raise HTTPException(status_code=404, detail="file_not_found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/auth/login")
@@ -620,6 +707,38 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
     }
 
 
+@router.get("/tenants/{tenant_id}/flow/versions", dependencies=[Depends(_ensure_super_admin())])
+def list_tenant_flow_versions(
+    tenant_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    include_schema: bool = Query(False),
+    db=Depends(get_db),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    q = (
+        db.query(FlowVersioned)
+        .filter(FlowVersioned.tenant_id == tenant.id)
+        .order_by(FlowVersioned.version.desc())
+        .limit(limit)
+    )
+    out = []
+    for row in q.all():
+        item = {
+            "flow_id": str(row.id),
+            "version": row.version,
+            "estado": row.estado,
+            "published_at": row.published_at.isoformat() if row.published_at else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "rollback_to_version": row.rollback_to_version,
+        }
+        if include_schema:
+            item["schema_json"] = row.schema_json if isinstance(row.schema_json, dict) else {}
+        out.append(item)
+    return {"tenant_id": str(tenant.id), "items": out}
+
+
 @router.post("/tenants/{tenant_id}/flow", dependencies=[Depends(_ensure_super_admin())])
 def publish_tenant_flow(tenant_id: str, payload: dict, request: Request, db=Depends(get_db)):
     if not isinstance(payload, dict) or not payload:
@@ -920,6 +1039,43 @@ def recent_errors():
     except Exception:
         return {"items": []}
     items.reverse()
+    return {"items": items}
+
+
+@router.get("/audits/recent", dependencies=[Depends(_ensure_super_admin())])
+def admin_audits_recent(
+    tenant_id: Optional[str] = Query(None, max_length=64),
+    action_prefix: Optional[str] = Query(None, max_length=100),
+    actor: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(50, ge=1, le=200),
+    db=Depends(get_db),
+):
+    q = db.query(AuditLog)
+    if tenant_id:
+        try:
+            tid = uuid.UUID(tenant_id)
+            q = q.filter(AuditLog.tenant_id == tid)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid_tenant_id")
+    if action_prefix:
+        q = q.filter(AuditLog.action.ilike(f"{action_prefix}%"))
+    if actor:
+        q = q.filter(AuditLog.actor.ilike(f"%{actor}%"))
+    rows = q.order_by(AuditLog.created_at.desc()).limit(limit).all()
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": row.id,
+                "tenant_id": str(row.tenant_id),
+                "action": row.action,
+                "entity": row.entity,
+                "entity_id": row.entity_id,
+                "actor": row.actor,
+                "metadata": row.meta_data or {},
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
     return {"items": items}
 
 

@@ -146,6 +146,50 @@ def get_vertical(token: str | None, vertical_key: str, api_key: str | None = Non
     return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
 
 
+def create_vertical_admin(token: str | None, payload: dict, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/verticals",
+        json=payload,
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
+def update_vertical_file_admin(
+    token: str | None,
+    vertical_key: str,
+    filename: str,
+    *,
+    kind: str,
+    content,
+    validate: bool = True,
+    api_key: str | None = None,
+):
+    resp = requests.put(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}/files/{filename}",
+        json={"kind": kind, "content": content, "validate": validate},
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=30,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
+def read_vertical_file_admin(
+    token: str | None,
+    vertical_key: str,
+    filename: str,
+    *,
+    api_key: str | None = None,
+):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}/files/{filename}",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
 def admin_health(token: str | None, api_key: str | None = None):
     resp = requests.get(
         f"{API_BASE}/v1/admin/health",
@@ -251,3 +295,49 @@ def reset_tenant_flow(token: str | None, tenant_id: str, api_key: str | None = N
     if resp.ok:
         return resp.json()
     return {"error": resp.text, "status_code": resp.status_code}
+
+
+def list_tenant_flow_versions(
+    token: str | None,
+    tenant_id: str,
+    *,
+    limit: int = 20,
+    include_schema: bool = False,
+    api_key: str | None = None,
+):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow/versions",
+        headers=_headers(token, api_key or _admin_api_key()),
+        params={"limit": limit, "include_schema": include_schema},
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"items": [], "error": resp.text, "status_code": resp.status_code}
+
+
+def admin_audits_recent(
+    token: str | None,
+    *,
+    tenant_id: str | None = None,
+    action_prefix: str | None = None,
+    actor: str | None = None,
+    limit: int = 50,
+    api_key: str | None = None,
+):
+    params: dict[str, object] = {"limit": limit}
+    if tenant_id:
+        params["tenant_id"] = tenant_id
+    if action_prefix:
+        params["action_prefix"] = action_prefix
+    if actor:
+        params["actor"] = actor
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/audits/recent",
+        headers=_headers(token, api_key or _admin_api_key()),
+        params=params,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"items": [], "error": resp.text, "status_code": resp.status_code}

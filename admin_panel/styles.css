@@ -1,14 +1,33 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
 :root {
+  /* Opunnence DS (B2B premium, low cognitive load) */
   --primary: #6B5B95;
+  --primary-soft: #EDE9FE;
+  --success-bg: #E7F6EC;
+  --success-fg: #1B5E20;
+  --warning-bg: #FFF4E5;
+  --warning-fg: #B45309;
+  --danger-bg: #FEE2E2;
+  --danger-fg: #B91C1C;
+
   --bg: #F7F8FA;
+  --sidebar: #364152;
+  --sidebar-text: #F9FAFB;
   --panel: #FFFFFF;
   --text: #111827;
   --muted: #6B7280;
   --border: #E5E7EB;
   --shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
+  --shadow-hover: 0 14px 34px rgba(17, 24, 39, 0.10);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
 }
+
+/* Hide Streamlit multipage nav (we render our own) */
+div[data-testid="stSidebarNav"] { display: none !important; }
 
 .stApp {
   background-color: var(--bg);
@@ -16,44 +35,115 @@
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.stMarkdown h1 { font-size: 30px; font-weight: 600; color: var(--text); }
-.stMarkdown h2 { font-size: 24px; font-weight: 600; color: var(--text); }
-.stMarkdown h3 { font-size: 18px; font-weight: 500; color: var(--text); }
+section.main > div {
+  padding-top: 10px;
+}
 
+/* Sidebar */
+.stSidebar { background-color: var(--sidebar); color: var(--sidebar-text); }
+section[data-testid="stSidebar"] { background-color: var(--sidebar) !important; }
+.stSidebar a, .stSidebar button { color: var(--sidebar-text) !important; }
+.stSidebar, .stSidebar * { color: var(--sidebar-text) !important; }
+.stSidebar svg { fill: var(--sidebar-text) !important; }
+
+/* Sidebar page links */
+.stSidebar div[data-testid="stPageLink"] a {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.10) !important;
+  color: var(--sidebar-text) !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.stSidebar div[data-testid="stPageLink"] a,
+.stSidebar div[data-testid="stPageLink"] a * {
+  color: var(--sidebar-text) !important;
+  fill: var(--sidebar-text) !important;
+  opacity: 1 !important;
+}
+.stSidebar div[data-testid="stPageLink"] a:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(249, 250, 251, 0.18) !important;
+}
+.stSidebar div[data-testid="stPageLink"] a[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(249, 250, 251, 0.26) !important;
+  box-shadow: inset 4px 0 0 0 rgba(237, 233, 254, 0.92);
+  font-weight: 600 !important;
+}
+
+/* Typography */
+.stMarkdown h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.stMarkdown h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.015em; color: var(--text); }
+.stMarkdown h3 { font-size: 18px; font-weight: 500; color: var(--text); }
+.stCaption, .stMarkdown small { font-size: 12px; color: var(--muted); }
+
+/* Inputs */
+.stTextInput label, .stTextArea label { color: var(--text); font-weight: 600; }
+.stTextInput input, .stTextArea textarea {
+  color: var(--text) !important;
+  background: var(--panel) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+/* Buttons */
 .stButton > button {
   background-color: var(--primary);
   color: #FFFFFF;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 0.5rem 0.9rem;
   font-weight: 600;
   box-shadow: 0 6px 14px rgba(17, 24, 39, 0.10);
+  transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
 }
+.stButton > button:hover {
+  box-shadow: 0 10px 22px rgba(17, 24, 39, 0.14);
+  transform: translateY(-1px);
+}
+.stButton > button:disabled { opacity: 0.6; box-shadow: none; transform: none; }
 
-.metric-card,
+/* Cards */
 .op-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow);
   padding: 14px 16px;
+  transition: box-shadow .12s ease, transform .12s ease;
 }
+.op-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-1px); }
+.op-card-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+.op-card-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.op-card-subtitle { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
-.metric-card .title {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted);
+/* Pills */
+.op-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
   font-weight: 600;
+  font-size: 12px;
+  border: 1px solid transparent;
 }
+.op-pill--success { background: var(--success-bg); color: var(--success-fg); }
+.op-pill--warning { background: var(--warning-bg); color: var(--warning-fg); }
+.op-pill--danger  { background: var(--danger-bg);  color: var(--danger-fg); }
+.op-pill--info    { background: var(--primary-soft); color: #4C1D95; }
 
-.metric-card .value {
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--primary);
+/* Alerts */
+div[data-testid="stAlert"] {
+  background: #fff !important;
+  border: 1px solid var(--border) !important;
+  border-left: 4px solid var(--primary) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow) !important;
 }
-
-.metric-card .subtitle {
-  font-size: 13px;
-  color: var(--muted);
-}
+div[data-testid="stAlert"] p, div[data-testid="stAlert"] span { color: var(--text) !important; }
