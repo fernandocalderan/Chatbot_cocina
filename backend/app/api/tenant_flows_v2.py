@@ -13,7 +13,14 @@ from app.middleware.authz import require_any_role
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
 from app.services.flow_resolver import resolve_runtime_flow
-from app.services.verticals import resolve_flow_id, tenant_vertical_scopes, vertical_flow_base
+from app.services.verticals import (
+    build_vertical_subflow_filename,
+    parse_vertical_router_routes_filename,
+    resolve_flow_id,
+    tenant_vertical_scopes,
+    vertical_flow_base,
+    vertical_list_subflows,
+)
 from app.models.configs import Config
 from app.services.ia_usage_service import IAQuotaExceeded
 from app.services.flow_generation import generate_flow_draft
@@ -63,14 +70,60 @@ def _router_and_routes_for_tenant(db: Session, tenant: Tenant) -> tuple[dict, di
     router_cfg = cfg.get("router") if isinstance(cfg.get("router"), dict) else None
     if not isinstance(router_cfg, dict):
         return None, None, None
-    routes_file = str(router_cfg.get("routes_file") or "").strip()
     vertical_key = getattr(tenant, "vertical_key", None)
-    if not routes_file or not vertical_key:
+    if not vertical_key:
         return None, None, None
-    routes_payload = vertical_read_asset_json(str(vertical_key), routes_file)
-    if not isinstance(routes_payload, dict):
-        return None, None, None
+    routes_file = str(router_cfg.get("routes_file") or "").strip()
+    routes_payload: dict = {}
+    if routes_file:
+        loaded = vertical_read_asset_json(str(vertical_key), routes_file)
+        routes_payload = loaded if isinstance(loaded, dict) else {}
     return flow, router_cfg, routes_payload
+
+
+def _router_scope_for_tenant(tenant: Tenant, router_cfg: dict) -> str | None:
+    scope_key = str(router_cfg.get("scope") or "").strip().lower() or None
+    if scope_key:
+        return scope_key
+    routes_file = str(router_cfg.get("routes_file") or "").strip()
+    parsed = parse_vertical_router_routes_filename(routes_file) if routes_file else None
+    if isinstance(parsed, dict) and parsed.get("scope"):
+        return str(parsed["scope"]).strip().lower()
+    scopes = tenant_vertical_scopes(tenant)
+    return str(scopes[0]).strip().lower() if scopes else None
+
+
+def _subflow_enabled(payload: dict) -> bool:
+    cfg = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+    meta = cfg.get("subflow") if isinstance(cfg.get("subflow"), dict) else {}
+    if meta.get("disabled") is True:
+        return False
+    if meta.get("enabled") is False:
+        return False
+    return True
+
+
+def _resolve_subflow_file(
+    *,
+    vertical_key: str,
+    scope_key: str | None,
+    save_to: str,
+    key: str,
+    routes_payload: dict,
+) -> tuple[str | None, str | None]:
+    # 1) Colección abierta del scope por convención de nombre
+    if scope_key:
+        filename = build_vertical_subflow_filename(scope=scope_key, save_to=save_to, key=key)
+        payload = vertical_read_asset_json(vertical_key, filename)
+        if isinstance(payload, dict) and isinstance(payload.get("blocks"), dict) and payload.get("blocks") and _subflow_enabled(payload):
+            return filename, str(payload.get("version") or "") or None
+
+    # 2) Compat/alias: mapping legacy (si existe)
+    file_from_routes, subflow_id = _subflow_file_from_routes(routes_payload, key)
+    if isinstance(file_from_routes, str) and file_from_routes.strip():
+        return file_from_routes.strip(), subflow_id
+
+    return None, None
 
 
 def _subflow_file_from_routes(routes_payload: dict, key: str) -> tuple[str | None, str | None]:
@@ -584,33 +637,70 @@ def list_subflows(
     if not flow:
         return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
 
+    vertical_key = getattr(tenant, "vertical_key", None)
+    if not vertical_key:
+        return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
+
+    save_to = str(router_cfg.get("save_to") or "").strip()
+    if not save_to:
+        return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
+
+    scope_key = _router_scope_for_tenant(tenant, router_cfg)
     labels = _router_labels(flow, router_cfg)
-    routes = routes_payload.get("routes") if isinstance(routes_payload.get("routes"), dict) else {}
     overrides_payload = load_subflow_overrides_payload(db, str(tenant.id))
     overrides = overrides_payload.get("overrides") if isinstance(overrides_payload.get("overrides"), dict) else {}
 
     items: list[SubflowListItem] = []
-    for raw_key, picked in routes.items():
-        if not isinstance(raw_key, str) or not raw_key:
+
+    # Colección abierta de subflows del scope + save_to
+    discovered = vertical_list_subflows(str(vertical_key), scope=scope_key, save_to=str(save_to).strip().lower())
+    for entry in discovered:
+        key = _slugify_key(entry.get("key")) or str(entry.get("key") or "").strip()
+        file_str = str(entry.get("filename") or "").strip()
+        if not key or not file_str:
             continue
-        key = _slugify_key(raw_key) or raw_key
-        if isinstance(picked, str):
-            subflow_file, subflow_id = picked, None
-        elif isinstance(picked, dict):
-            subflow_file = picked.get("file") or picked.get("filename")
-            subflow_id = picked.get("subflow_id") or picked.get("flow_id")
-        else:
+        base = vertical_read_asset_json(str(vertical_key), file_str)
+        if not isinstance(base, dict) or not isinstance(base.get("blocks"), dict) or not base.get("blocks") or not _subflow_enabled(base):
             continue
-        if not isinstance(subflow_file, str) or not subflow_file.strip():
-            continue
-        file_str = subflow_file.strip()
+        cfg = base.get("config") if isinstance(base.get("config"), dict) else {}
+        sub_meta = cfg.get("subflow") if isinstance(cfg.get("subflow"), dict) else {}
+        label = labels.get(key) or sub_meta.get("label") or key
         has_ov = bool(isinstance(overrides, dict) and overrides.get(file_str))
         items.append(
             SubflowListItem(
                 key=key,
-                label=labels.get(key),
+                label=label,
                 file=file_str,
-                subflow_id=str(subflow_id) if subflow_id else None,
+                subflow_id=str(base.get("version") or "") or None,
+                has_overrides=has_ov,
+            )
+        )
+
+    # Compat: incluir también entradas del routes_file que apunten a archivos no canónicos
+    routes = routes_payload.get("routes") if isinstance(routes_payload.get("routes"), dict) else {}
+    for raw_key in list(routes.keys()):
+        if not isinstance(raw_key, str) or not raw_key:
+            continue
+        key = _slugify_key(raw_key) or raw_key
+        subflow_file, subflow_id = _subflow_file_from_routes(routes_payload, key)
+        if not subflow_file:
+            continue
+        file_str = str(subflow_file).strip()
+        if not file_str or any(i.key == key and i.file == file_str for i in items):
+            continue
+        base = vertical_read_asset_json(str(vertical_key), file_str)
+        if not isinstance(base, dict) or not isinstance(base.get("blocks"), dict) or not base.get("blocks") or not _subflow_enabled(base):
+            continue
+        cfg = base.get("config") if isinstance(base.get("config"), dict) else {}
+        sub_meta = cfg.get("subflow") if isinstance(cfg.get("subflow"), dict) else {}
+        label = labels.get(key) or sub_meta.get("label") or key
+        has_ov = bool(isinstance(overrides, dict) and overrides.get(file_str))
+        items.append(
+            SubflowListItem(
+                key=key,
+                label=label,
+                file=file_str,
+                subflow_id=str(subflow_id) if subflow_id else (str(base.get("version") or "") or None),
                 has_overrides=has_ov,
             )
         )
@@ -643,16 +733,26 @@ def get_subflow(
         raise HTTPException(status_code=404, detail="router_not_configured")
 
     key = _slugify_key(subflow_key) or subflow_key
-    subflow_file, subflow_id = _subflow_file_from_routes(routes_payload, key)
-    if not subflow_file:
-        raise HTTPException(status_code=404, detail="subflow_not_found")
-
     vertical_key = getattr(tenant, "vertical_key", None)
     if not vertical_key:
         raise HTTPException(status_code=400, detail="tenant_missing_vertical")
+    save_to = str(router_cfg.get("save_to") or "").strip().lower()
+    scope_key = _router_scope_for_tenant(tenant, router_cfg)
+    subflow_file, subflow_id = _resolve_subflow_file(
+        vertical_key=str(vertical_key),
+        scope_key=scope_key,
+        save_to=save_to,
+        key=key,
+        routes_payload=routes_payload,
+    )
+    if not subflow_file:
+        raise HTTPException(status_code=404, detail="subflow_not_found")
+
     base = vertical_read_asset_json(str(vertical_key), str(subflow_file))
     if not isinstance(base, dict) or not isinstance(base.get("blocks"), dict) or not base.get("blocks"):
         raise HTTPException(status_code=404, detail="subflow_file_not_found")
+    if not _subflow_enabled(base):
+        raise HTTPException(status_code=404, detail="subflow_disabled")
 
     overrides_payload = load_subflow_overrides_payload(db, str(tenant.id))
     ov_entry = get_overrides_for_file(overrides_payload, str(subflow_file))
@@ -687,17 +787,27 @@ def patch_subflow_block(
         raise HTTPException(status_code=404, detail="router_not_configured")
 
     key = _slugify_key(subflow_key) or subflow_key
-    subflow_file, _subflow_id = _subflow_file_from_routes(routes_payload, key)
-    if not subflow_file:
-        raise HTTPException(status_code=404, detail="subflow_not_found")
-
     vertical_key = getattr(tenant, "vertical_key", None)
     if not vertical_key:
         raise HTTPException(status_code=400, detail="tenant_missing_vertical")
+    save_to = str(router_cfg.get("save_to") or "").strip().lower()
+    scope_key = _router_scope_for_tenant(tenant, router_cfg)
+    subflow_file, _subflow_id = _resolve_subflow_file(
+        vertical_key=str(vertical_key),
+        scope_key=scope_key,
+        save_to=save_to,
+        key=key,
+        routes_payload=routes_payload,
+    )
+    if not subflow_file:
+        raise HTTPException(status_code=404, detail="subflow_not_found")
+
     base = vertical_read_asset_json(str(vertical_key), str(subflow_file))
     blocks = base.get("blocks") if isinstance(base, dict) else None
     if not isinstance(blocks, dict) or block_id not in blocks or not isinstance(blocks.get(block_id), dict):
         raise HTTPException(status_code=404, detail="block_not_found")
+    if isinstance(base, dict) and not _subflow_enabled(base):
+        raise HTTPException(status_code=404, detail="subflow_disabled")
     base_block = blocks[block_id]
 
     overrides_payload = load_subflow_overrides_payload(db, str(tenant.id))

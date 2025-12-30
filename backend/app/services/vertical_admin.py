@@ -328,7 +328,7 @@ def read_vertical_file(*, vertical_key: str, filename: str) -> dict[str, Any]:
     path = vdir / normalized_name
     if not path.exists():
         raise FileNotFoundError("file_not_found")
-    if allowed_kind in {"json", "flow_scope"}:
+    if allowed_kind in {"json", "flow_scope", "flow_subflow"}:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -341,3 +341,98 @@ def read_vertical_file(*, vertical_key: str, filename: str) -> dict[str, Any]:
             text = ""
         return {"filename": normalized_name, "kind": "text", "content": text}
     raise ValueError("invalid_filename")
+
+
+def list_vertical_files(*, vertical_key: str) -> dict[str, Any]:
+    """
+    Lista archivos editables/gestionables de un vertical.
+    Incluye subflows y router routes (aunque no estén referenciados por el router).
+    """
+    key = normalize_vertical_key(vertical_key)
+    vdir = _vertical_dir(key)
+    if not vdir.exists():
+        raise FileNotFoundError("vertical_not_found")
+
+    items: list[dict[str, Any]] = []
+    try:
+        for path in sorted(vdir.iterdir()):
+            if not path.is_file():
+                continue
+            name = path.name
+            try:
+                normalized, kind = _allowed_filename(name)
+            except Exception:
+                continue
+
+            info: dict[str, Any] = {
+                "filename": name,
+                "normalized_filename": normalized,
+                "kind": kind,
+                "size": int(path.stat().st_size),
+            }
+            if name != normalized:
+                info["is_canonical_name"] = False
+            else:
+                info["is_canonical_name"] = True
+
+            # Extra metadata for UI grouping
+            if name.startswith(_ROUTER_ROUTES_PREFIX) and name.endswith(".json"):
+                rest = name.removeprefix(_ROUTER_ROUTES_PREFIX).removesuffix(".json")
+                if "__" in rest:
+                    scope_raw, save_to_raw = rest.split("__", 1)
+                    info["router_routes"] = {
+                        "scope": str(scope_raw or "").strip().lower(),
+                        "save_to": str(save_to_raw or "").strip().lower(),
+                    }
+            if name.startswith(_SUBFLOW_PREFIX) and name.endswith(".json"):
+                rest = name.removeprefix(_SUBFLOW_PREFIX).removesuffix(".json")
+                parts = rest.split("__")
+                if len(parts) == 3:
+                    scope_raw, save_to_raw, subflow_key_raw = parts
+                    info["subflow"] = {
+                        "scope": str(scope_raw or "").strip().lower(),
+                        "save_to": str(save_to_raw or "").strip().lower(),
+                        "key": str(subflow_key_raw or "").strip().lower(),
+                    }
+            items.append(info)
+    except Exception:
+        pass
+
+    return {"vertical_key": key, "items": items}
+
+
+def delete_vertical_file(*, vertical_key: str, filename: str) -> dict[str, Any]:
+    """
+    Borra (por rename a .deleted.<ts>) archivos de scope/subflow/routes.
+    """
+    key = normalize_vertical_key(vertical_key)
+    vdir = _vertical_dir(key)
+    if not vdir.exists():
+        raise FileNotFoundError("vertical_not_found")
+
+    normalized_name, allowed_kind = _allowed_filename(filename)
+    # Solo permitir borrar assets "creables" del vertical: prompts scope, flows scope/subflow y routes.
+    can_delete = False
+    if allowed_kind in {"flow_scope", "flow_subflow"}:
+        can_delete = True
+    if normalized_name.startswith("prompt_scope_") and normalized_name.endswith(".txt"):
+        can_delete = True
+    if normalized_name.startswith(_ROUTER_ROUTES_PREFIX) and normalized_name.endswith(".json"):
+        can_delete = True
+    if not can_delete:
+        raise ValueError("delete_not_allowed")
+
+    path = vdir / normalized_name
+    if not path.exists():
+        raise FileNotFoundError("file_not_found")
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    deleted = path.with_name(f"{path.name}.deleted.{ts}")
+    try:
+        path.replace(deleted)
+    except Exception:
+        # Fallback a unlink si no se puede renombrar
+        try:
+            path.unlink()
+        except Exception as exc:
+            raise RuntimeError(str(exc) or "delete_failed") from exc
+    return {"filename": normalized_name, "deleted": True}

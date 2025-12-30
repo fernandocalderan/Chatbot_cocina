@@ -22,6 +22,8 @@ _VERTICAL_SEMANTIC_SCHEMA_FILENAME = "semantic_schema.json"
 _VERTICAL_KPI_DEFAULTS_FILENAME = "kpi_defaults.json"
 _VERTICAL_FLOW_BASE_FILENAME = "flow_base.json"
 _VERTICAL_FLOW_BASE_SCOPE_PREFIX = "flow_base_scope_"
+_VERTICAL_SUBFLOW_PREFIX = "subflow_scope_"
+_VERTICAL_ROUTER_ROUTES_PREFIX = "router_routes_scope_"
 
 CONFIG_TIPO_SEMANTIC_SCHEMA = "tenant_semantic_schema"
 CONFIG_TIPO_KPI_DEFAULTS = "tenant_kpi_defaults"
@@ -403,6 +405,83 @@ def vertical_read_asset_json(vertical_key: str | None, filename: str) -> dict[st
     path = vdir / name
     data = _read_json(path)
     return data if isinstance(data, dict) else None
+
+
+def parse_vertical_subflow_filename(filename: str) -> dict[str, str] | None:
+    """
+    Soporta: subflow_scope_<scope>__<save_to>__<key>.json
+    """
+    name = str(filename or "").strip()
+    if not name.startswith(_VERTICAL_SUBFLOW_PREFIX) or not name.endswith(".json"):
+        return None
+    rest = name.removeprefix(_VERTICAL_SUBFLOW_PREFIX).removesuffix(".json")
+    parts = rest.split("__")
+    if len(parts) != 3:
+        return None
+    scope_key, save_to, key = [str(p or "").strip().lower() for p in parts]
+    if not scope_key or not save_to or not key:
+        return None
+    if "/" in scope_key or "\\" in scope_key or "/" in save_to or "\\" in save_to or "/" in key or "\\" in key:
+        return None
+    return {"scope": scope_key, "save_to": save_to, "key": key}
+
+
+def build_vertical_subflow_filename(*, scope: str, save_to: str, key: str) -> str:
+    scope_norm = str(scope or "").strip().lower()
+    save_to_norm = str(save_to or "").strip().lower()
+    key_norm = str(key or "").strip().lower()
+    return f"{_VERTICAL_SUBFLOW_PREFIX}{scope_norm}__{save_to_norm}__{key_norm}.json"
+
+
+def parse_vertical_router_routes_filename(filename: str) -> dict[str, str] | None:
+    """
+    Soporta: router_routes_scope_<scope>__<save_to>.json
+    """
+    name = str(filename or "").strip()
+    if not name.startswith(_VERTICAL_ROUTER_ROUTES_PREFIX) or not name.endswith(".json"):
+        return None
+    rest = name.removeprefix(_VERTICAL_ROUTER_ROUTES_PREFIX).removesuffix(".json")
+    if "__" not in rest:
+        return None
+    scope_key, save_to = [str(p or "").strip().lower() for p in rest.split("__", 1)]
+    if not scope_key or not save_to:
+        return None
+    if "/" in scope_key or "\\" in scope_key or "/" in save_to or "\\" in save_to:
+        return None
+    return {"scope": scope_key, "save_to": save_to}
+
+
+def vertical_list_subflows(
+    vertical_key: str | None,
+    *,
+    scope: str | None = None,
+    save_to: str | None = None,
+) -> list[dict[str, str]]:
+    """
+    Lista subflows existentes como colección abierta del scope.
+    Devuelve items: {"filename","scope","save_to","key"}.
+    """
+    if not vertical_key:
+        return []
+    vdir = _vertical_dir(str(vertical_key))
+    if not vdir.exists():
+        return []
+    scope_norm = str(scope or "").strip().lower() or None
+    save_to_norm = str(save_to or "").strip().lower() or None
+    items: list[dict[str, str]] = []
+    try:
+        for path in sorted(vdir.glob(f"{_VERTICAL_SUBFLOW_PREFIX}*.json")):
+            meta = parse_vertical_subflow_filename(path.name)
+            if not meta:
+                continue
+            if scope_norm and meta["scope"] != scope_norm:
+                continue
+            if save_to_norm and meta["save_to"] != save_to_norm:
+                continue
+            items.append({"filename": path.name, **meta})
+    except Exception:
+        return items
+    return items
 
 
 def provision_vertical_materials(db, tenant: Tenant) -> dict | None:

@@ -10,7 +10,8 @@ Reconstruir el sistema de flujos para que **cada tenant** tenga un flujo **gener
 Para que el flujo se perciba “inteligente” **sin usar `condition`** (prohibido en v1 por seguridad), el recorrido se diseña con un patrón:
 
 - **Router flow** (por scope): solo clasifica intención inicial y termina en `end`.
-- **Motor (backend)**: al terminar el router, decide qué sub‑flow ejecutar según el valor guardado (`save_to`) y una tabla de mapeo (`routes_file`).
+- **Motor (backend)**: al terminar el router, lee la key guardada (`save_to`) y busca en la **colección abierta de sub‑flows del scope** (`subflows[key]`).  
+  - `routes_file` (si existe) es **opcional** y se considera compat/override (alias `key → file`), pero no “define” los sub‑flows.
 - **Sub‑flows**: conversaciones completas, humanas y contextuales, editables por humanos. No contienen decisiones ni efectos secundarios.
 
 Principios:
@@ -20,8 +21,8 @@ Principios:
 
 Estructura de assets por vertical:
 - `flow_base_scope_<scope>.json` → router del scope (flow completo).
-- `router_routes_scope_<scope>__<save_to>.json` → mapeo `intent_key → subflow_file` (fuera del flow JSON).
 - `subflow_scope_<scope>__<save_to>__<intent>.json` → sub‑flow (flow completo).
+- `router_routes_scope_<scope>__<save_to>.json` → (opcional) mapeo `key → subflow_file` para casos legacy/alias; no es dueño del catálogo.
 
 Personalización por tenant:
 - El tenant edita **textos y opciones** del router (draft/publish en DB).
@@ -238,7 +239,7 @@ Esto mantiene la idea de “vertical base protegida” sin impedir el objetivo d
   - (v1) NO disponible: no se edita `next`/ramas ni validaciones ni estructura. Solo textos y opciones.
 
 Editor de sub‑flows (v1):
-- Lista de sub‑flows disponibles (derivada de `routes_file` del router).
+- Lista de sub‑flows disponibles = **todos los sub‑flows existentes en el scope** (colección abierta), aunque el router todavía no los use.
 - Al elegir un sub‑flow:
   - lista de bloques con edición de `text` + `options[].label`.
   - cambios se aplican como override por tenant (persistente), sin modificar el asset del vertical.

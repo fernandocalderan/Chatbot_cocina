@@ -40,6 +40,8 @@ from app.services.verticals import (
     get_vertical_config,
     scope_defaults,
     tenant_vertical_scopes,
+    build_vertical_subflow_filename,
+    parse_vertical_router_routes_filename,
     vertical_read_asset_json,
 )
 from app.services.subflow_overrides import load_overrides_payload, get_overrides_for_file, apply_overrides_to_flow
@@ -169,12 +171,14 @@ def _router_cfg(flow_data: dict) -> dict | None:
         return None
     prefix = str(router.get("subflow_prefix") or "sf_")
     suffix = str(router.get("subflow_suffix") or "__inicio")
+    scope_key = str(router.get("scope") or "").strip().lower() or None
     return {
         "save_to": str(router.get("save_to")).strip(),
         "subflow_prefix": prefix,
         "subflow_suffix": suffix,
         "fallback_key": str(router.get("fallback_key") or "general").strip() or "general",
         "routes_file": str(router.get("routes_file") or "").strip() or None,
+        "scope": scope_key,
     }
 
 
@@ -1300,11 +1304,55 @@ def send_message(
         choice_val = vars_data.get(router_cfg["save_to"])
         choice_key = _slugify_key(choice_val) or router_cfg["fallback_key"]
 
-        # 1) Preferir routes_file (mapeo fuera del JSON)
+        # Resolver scope (el dueño de la colección de sub-flows)
+        scope_key = router_cfg.get("scope")
+        if not scope_key:
+            try:
+                scopes = tenant_vertical_scopes(tenant)
+                scope_key = scopes[0].strip().lower() if scopes else None
+            except Exception:
+                scope_key = None
+        if not scope_key and router_cfg.get("routes_file"):
+            parsed = parse_vertical_router_routes_filename(str(router_cfg.get("routes_file")))
+            scope_key = (parsed or {}).get("scope") if isinstance(parsed, dict) else None
+
+        def _subflow_enabled(payload: dict) -> bool:
+            cfg = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+            meta = cfg.get("subflow") if isinstance(cfg.get("subflow"), dict) else {}
+            if meta.get("disabled") is True:
+                return False
+            if meta.get("enabled") is False:
+                return False
+            return True
+
+        # 1) Preferir convención de colección abierta del scope: subflow_scope_<scope>__<save_to>__<key>.json
         subflow_file = None
         subflow_id = None
+        if tenant_vertical_key and scope_key:
+            candidate = build_vertical_subflow_filename(
+                scope=scope_key,
+                save_to=str(router_cfg["save_to"]).strip().lower(),
+                key=choice_key,
+            )
+            candidate_payload = vertical_read_asset_json(str(tenant_vertical_key), candidate)
+            if isinstance(candidate_payload, dict) and isinstance(candidate_payload.get("blocks"), dict) and candidate_payload.get("blocks") and _subflow_enabled(candidate_payload):
+                subflow_file = candidate
+                subflow_id = candidate_payload.get("version")
+            else:
+                fallback_key = _slugify_key(router_cfg.get("fallback_key")) or "general"
+                fallback_candidate = build_vertical_subflow_filename(
+                    scope=scope_key,
+                    save_to=str(router_cfg["save_to"]).strip().lower(),
+                    key=fallback_key,
+                )
+                fallback_payload = vertical_read_asset_json(str(tenant_vertical_key), fallback_candidate)
+                if isinstance(fallback_payload, dict) and isinstance(fallback_payload.get("blocks"), dict) and fallback_payload.get("blocks") and _subflow_enabled(fallback_payload):
+                    subflow_file = fallback_candidate
+                    subflow_id = fallback_payload.get("version")
+
+        # 2) Compat: routes_file (mapeo opcional fuera del JSON)
         routes_file = router_cfg.get("routes_file")
-        if tenant_vertical_key and routes_file:
+        if tenant_vertical_key and not subflow_file and routes_file:
             routes_payload = vertical_read_asset_json(str(tenant_vertical_key), str(routes_file))
             routes = routes_payload.get("routes") if isinstance(routes_payload, dict) else None
             default = routes_payload.get("default") if isinstance(routes_payload, dict) else None
@@ -1319,7 +1367,7 @@ def send_message(
                 subflow_file = picked.get("file") or picked.get("filename")
                 subflow_id = picked.get("subflow_id") or picked.get("flow_id")
 
-        # 2) Fallback: convención de nombre de bloque (legacy)
+        # 3) Fallback: convención de nombre de bloque (legacy)
         if not subflow_file and isinstance(flow_data.get("blocks"), dict):
             blocks_dict = flow_data.get("blocks") or {}
             candidate_id = f"{router_cfg['subflow_prefix']}{choice_key}{router_cfg['subflow_suffix']}"
@@ -1339,10 +1387,10 @@ def send_message(
                 session_mgr.save(session_id, state)
                 next_block_id = candidate_id
                 next_block = engine.get_block(candidate_id) or next_block
-        # 3) Si hay subflow_file, cargar subflow como flow independiente (first-class)
+        # 4) Si hay subflow_file, cargar subflow como flow independiente (first-class)
         if tenant_vertical_key and subflow_file:
             sub = vertical_read_asset_json(str(tenant_vertical_key), str(subflow_file))
-            if isinstance(sub, dict) and isinstance(sub.get("blocks"), dict) and sub.get("blocks"):
+            if isinstance(sub, dict) and isinstance(sub.get("blocks"), dict) and sub.get("blocks") and _subflow_enabled(sub):
                 try:
                     ov_payload = load_overrides_payload(db, str(tenant_id))
                     ov_entry = get_overrides_for_file(ov_payload, str(subflow_file))
@@ -1356,6 +1404,7 @@ def send_message(
                     "handoff_done": True,
                     "save_to": router_cfg["save_to"],
                     "choice": str(choice_val) if choice_val is not None else None,
+                    "scope": scope_key,
                     "routes_file": routes_file,
                     "mode": "subflow_file",
                     "subflow_id": str(subflow_id or sub.get("version") or "") or None,

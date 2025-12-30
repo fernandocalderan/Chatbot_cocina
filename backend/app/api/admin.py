@@ -44,6 +44,8 @@ from app.services.flow_resolver import resolve_runtime_flow
 from app.services.flow_templates import apply_materials, load_flow_template
 from app.core.logger import LOG_DIR
 from app.services.vertical_admin import create_vertical as admin_create_vertical
+from app.services.vertical_admin import delete_vertical_file as admin_delete_vertical_file
+from app.services.vertical_admin import list_vertical_files as admin_list_vertical_files
 from app.services.vertical_admin import read_vertical_file as admin_read_vertical_file
 from app.services.vertical_admin import update_vertical_file as admin_update_vertical_file
 from app.services.flow_generation import (
@@ -387,6 +389,14 @@ def update_vertical_file_admin(
     return get_vertical_bundle(vertical_key)
 
 
+@router.get("/verticals/{vertical_key}/files", dependencies=[Depends(_ensure_super_admin())])
+def list_vertical_files_admin(vertical_key: str):
+    try:
+        return admin_list_vertical_files(vertical_key=vertical_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="vertical_not_found")
+
+
 @router.get("/verticals/{vertical_key}/files/{filename}", dependencies=[Depends(_ensure_super_admin())])
 def read_vertical_file_admin(vertical_key: str, filename: str):
     try:
@@ -398,6 +408,32 @@ def read_vertical_file_admin(vertical_key: str, filename: str):
         raise HTTPException(status_code=404, detail="file_not_found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/verticals/{vertical_key}/files/{filename}", dependencies=[Depends(_ensure_super_admin())])
+def delete_vertical_file_admin(vertical_key: str, filename: str, request: Request):
+    try:
+        out = admin_delete_vertical_file(vertical_key=vertical_key, filename=filename)
+    except FileNotFoundError as exc:
+        msg = str(exc)
+        if "vertical_not_found" in msg:
+            raise HTTPException(status_code=404, detail="vertical_not_found")
+        raise HTTPException(status_code=404, detail="file_not_found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc) or "delete_failed")
+
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="vertical.file.delete",
+        entity="vertical",
+        entity_id=str(vertical_key),
+        tenant_id=None,
+        meta={"vertical_key": vertical_key, "filename": out.get("filename")},
+    )
+    return out
 
 
 @router.post("/verticals/{vertical_key}/flow-generator/preview", dependencies=[Depends(_ensure_super_admin())])

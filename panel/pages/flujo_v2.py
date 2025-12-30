@@ -580,7 +580,7 @@ st.caption("Opcional: personaliza los textos/opciones de cada sub-flow. La estru
 subflows_payload = _safe_dict(list_flow_v2_subflows())
 subflows_list = subflows_payload.get("subflows") if isinstance(subflows_payload.get("subflows"), list) else []
 if not subflows_list:
-    st.info("Este flujo no tiene router/sub-flows configurados (o no hay `routes_file`).")
+    st.info("Este flujo no tiene router/sub-flows configurados (o no hay sub-flows en el scope).")
 else:
     display_by_key: dict[str, str] = {}
     opt_keys: list[str] = []

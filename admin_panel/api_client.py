@@ -175,6 +175,15 @@ def update_vertical_file_admin(
     return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
 
 
+def list_vertical_files_admin(token: str | None, vertical_key: str, api_key: str | None = None):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}/files",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    return resp.json() if resp.ok else {"items": [], "error": resp.text, "status_code": resp.status_code}
+
+
 def read_vertical_file_admin(
     token: str | None,
     vertical_key: str,
@@ -186,6 +195,15 @@ def read_vertical_file_admin(
         f"{API_BASE}/v1/admin/verticals/{vertical_key}/files/{filename}",
         headers=_headers(token, api_key or _admin_api_key()),
         timeout=20,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
+def delete_vertical_file_admin(token: str | None, vertical_key: str, filename: str, api_key: str | None = None):
+    resp = requests.delete(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}/files/{filename}",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=30,
     )
     return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
 

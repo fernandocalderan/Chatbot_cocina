@@ -13,8 +13,10 @@ if str(REPO_ROOT) not in sys.path:
 from admin_panel.api_client import (
     create_vertical_admin,
     get_vertical,
+    list_vertical_files_admin,
     preview_vertical_flow_generator,
     read_vertical_file_admin,
+    delete_vertical_file_admin,
     update_vertical_file_admin,
 )
 from admin_panel.ui import can_write, ensure_vertical_catalog, init_page, render_impersonation_banner, render_sidebar_nav, require_admin_context
@@ -740,6 +742,7 @@ if selected_key:
                                         updated["config"] = {}
                                     updated["config"]["router"] = {
                                         "block_id": str(router_block_id),
+                                        "scope": str(scope_sel),
                                         "save_to": str(save_to or "").strip() or "intent",
                                         "mode": "handoff_end",
                                         "routes_file": routes_file,
@@ -844,6 +847,7 @@ if selected_key:
                                 routes_file = _routes_filename(scope_sel, str(save_to or "").strip() or "intent")
                                 updated["config"]["router"] = {
                                     "block_id": str(router_block_id),
+                                    "scope": str(scope_sel),
                                     "save_to": str(save_to or "").strip() or "intent",
                                     "mode": "handoff_end",
                                     "routes_file": routes_file,
@@ -865,6 +869,190 @@ if selected_key:
                                     st.rerun()
                             except Exception as exc:
                                 st.error(f"No se pudo guardar metadata: {exc}")
+
+                    # Sub-flows del scope: colección abierta (independiente del router)
+                    st.markdown("#### Sub-flows del scope (colección abierta)")
+                    st.caption(
+                        "El scope es dueño de los sub-flows. El router solo referencia una `key` (guardada en `save_to`). "
+                        "Los sub-flows pueden existir aunque el router no los use todavía."
+                    )
+
+                    subflows_save_to_default = str(cfg_router.get("save_to") or router_block.get("save_to") or "intent")
+                    subflows_save_to = st.text_input(
+                        "save_to (colección de sub-flows)",
+                        value=subflows_save_to_default,
+                        key=f"sf-save-to-{selected_key}-{scope_sel}",
+                        help="Agrupa sub-flows por variable de router. Puedes crear sub-flows aunque el router todavía no exista.",
+                    )
+                    save_to_norm = str(subflows_save_to or "").strip().lower() or "intent"
+                    files_payload = list_vertical_files_admin(ctx.token, selected_key, api_key=ctx.api_key)
+                    files_items = files_payload.get("items") if isinstance(files_payload, dict) else None
+                    if not isinstance(files_items, list):
+                        _show_api_error(files_payload, "No se pudieron listar archivos del vertical")
+                        files_items = []
+
+                    subflow_files_by_key: dict[str, str] = {}
+                    for it in files_items:
+                        if not isinstance(it, dict):
+                            continue
+                        sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
+                        if not isinstance(sf, dict):
+                            continue
+                        if str(sf.get("scope") or "").strip().lower() != str(scope_sel).strip().lower():
+                            continue
+                        if str(sf.get("save_to") or "").strip().lower() != save_to_norm:
+                            continue
+                        k = _slugify_subflow_key(sf.get("key"))
+                        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                        if k and fname:
+                            subflow_files_by_key.setdefault(k, fname)
+
+                    # Cobertura: keys que el router podría emitir
+                    router_option_keys = [
+                        _slugify_subflow_key(_option_id(o))
+                        for o in (router_block.get("options") or [])
+                        if _option_id(o)
+                    ]
+                    router_option_keys = [k for k in router_option_keys if k]
+                    missing_for_router = [k for k in router_option_keys if k not in subflow_files_by_key]
+                    if router_option_keys:
+                        st.caption(
+                            f"Keys en opciones del router: {len(router_option_keys)} · "
+                            f"sub-flows existentes: {len(subflow_files_by_key)} · "
+                            f"faltan: {len(missing_for_router)}"
+                        )
+
+                    c_new1, c_new2, c_new3 = st.columns([0.35, 0.45, 0.2])
+                    new_key = c_new1.text_input(
+                        "Nueva key",
+                        value="",
+                        key=f"sf-new-key-{selected_key}-{scope_sel}",
+                        help="Identificador del sub-flow (ej: `implantes`).",
+                    )
+                    new_label = c_new2.text_input(
+                        "Label (opcional)",
+                        value="",
+                        key=f"sf-new-label-{selected_key}-{scope_sel}",
+                    )
+                    if c_new3.button(
+                        "Crear sub-flow",
+                        use_container_width=True,
+                        key=f"sf-new-create-{selected_key}-{scope_sel}",
+                    ):
+                        try:
+                            sub_key = _slugify_subflow_key(new_key)
+                            sf_file = _subflow_filename(scope_sel, save_to_norm, sub_key)
+                            existing_sf = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
+                            exists = isinstance(existing_sf, dict) and isinstance(existing_sf.get("content"), dict)
+                            if exists:
+                                st.warning(f"Ya existe: `{sf_file}`")
+                            else:
+                                sf_flow = _subflow_skeleton(
+                                    vertical_key=selected_key,
+                                    scope_key=scope_sel,
+                                    save_to=save_to_norm,
+                                    subflow_key=sub_key,
+                                    label=new_label.strip() or None,
+                                    template_flow=flow_live,
+                                )
+                                out_sf = update_vertical_file_admin(
+                                    ctx.token,
+                                    selected_key,
+                                    sf_file,
+                                    kind="json",
+                                    content=sf_flow,
+                                    validate=True,
+                                    api_key=ctx.api_key,
+                                )
+                                if isinstance(out_sf, dict) and out_sf.get("error"):
+                                    _show_api_error(out_sf, f"No se pudo crear {sf_file}")
+                                else:
+                                    st.success(f"Sub-flow creado: `{sf_file}`")
+                                    st.rerun()
+                        except Exception as exc:
+                            st.error(f"No se pudo crear sub-flow: {exc}")
+
+                    upload_sf = st.file_uploader(
+                        "Subir JSON de sub-flow (flow completo)",
+                        type=["json"],
+                        key=f"sf-upload-{selected_key}-{scope_sel}",
+                        disabled=not write_enabled,
+                    )
+                    if upload_sf is not None and write_enabled:
+                        try:
+                            parsed = json.loads(upload_sf.getvalue().decode("utf-8"))
+                            sub_key = _slugify_subflow_key(new_key or "general")
+                            sf_file = _subflow_filename(scope_sel, save_to_norm, sub_key)
+                            normalized = _normalize_to_flow(parsed, filename=sf_file, template=flow_live)
+                            normalized.setdefault("config", {})
+                            if not isinstance(normalized.get("config"), dict):
+                                normalized["config"] = {}
+                            normalized["config"] = dict(normalized.get("config") or {})
+                            normalized["config"]["subflow"] = {
+                                "vertical_key": str(selected_key),
+                                "scope": str(scope_sel),
+                                "router_save_to": str(save_to_norm),
+                                "key": str(sub_key),
+                                "label": (new_label or "").strip() or None,
+                            }
+                            out_sf = update_vertical_file_admin(
+                                ctx.token,
+                                selected_key,
+                                sf_file,
+                                kind="json",
+                                content=normalized,
+                                validate=True,
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(out_sf, dict) and out_sf.get("error"):
+                                _show_api_error(out_sf, f"No se pudo guardar {sf_file}")
+                            else:
+                                st.success(f"Sub-flow subido: `{sf_file}`")
+                                st.rerun()
+                        except Exception as exc:
+                            st.error(f"No se pudo subir sub-flow: {exc}")
+
+                    sf_keys = sorted(subflow_files_by_key.keys())
+                    if not sf_keys:
+                        st.info("No hay sub-flows para este scope/save_to todavía.")
+                    else:
+                        sf_choice_key = st.selectbox(
+                            "Sub-flow",
+                            options=sf_keys,
+                            key=f"sf-scope-select-{selected_key}-{scope_sel}",
+                            format_func=lambda k: f"{k} → {subflow_files_by_key.get(k)}",
+                        )
+                        sf_file = subflow_files_by_key.get(sf_choice_key)
+                        if sf_file:
+                            sf_read = read_vertical_file_admin(ctx.token, selected_key, str(sf_file), api_key=ctx.api_key)
+                            sf_flow = sf_read.get("content") if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict) else {}
+                            _json_editor(
+                                vertical_key=selected_key,
+                                title=f"subflow {sf_choice_key}",
+                                filename=str(sf_file),
+                                value=sf_flow,
+                                template=None,
+                            )
+
+                            c_del1, c_del2 = st.columns([0.7, 0.3])
+                            confirm = c_del1.checkbox(
+                                f"Confirmar borrado de `{sf_file}`",
+                                value=False,
+                                key=f"sf-del-confirm-{selected_key}-{scope_sel}-{sf_choice_key}",
+                                disabled=not write_enabled,
+                            )
+                            if c_del2.button(
+                                "Borrar sub-flow",
+                                use_container_width=True,
+                                key=f"sf-del-{selected_key}-{scope_sel}-{sf_choice_key}",
+                                disabled=not write_enabled or not confirm,
+                            ):
+                                res_del = delete_vertical_file_admin(ctx.token, selected_key, str(sf_file), api_key=ctx.api_key)
+                                if isinstance(res_del, dict) and res_del.get("error"):
+                                    _show_api_error(res_del, f"No se pudo borrar {sf_file}")
+                                else:
+                                    st.success(f"Sub-flow borrado: `{sf_file}`")
+                                    st.rerun()
 
                     # Editor de subflows (si hay routes_file)
                     try:

@@ -2,6 +2,7 @@
 
 ## Reconstrucción de flujos personalizados
 - Documento de planificación: `docs/flow_rebuild_plan.md`.
+  - Modelo obligatorio: el **Scope** es dueño de una colección **abierta** de `subflow_scope_<scope>__<save_to>__<key>.json`; el router solo guarda la `key` en `save_to` y termina en `end` (el motor carga el sub-flow por key).
 
 ## Localhost (quickstart)
 - Levantar DB+Redis+API: `docker compose up -d --build`
