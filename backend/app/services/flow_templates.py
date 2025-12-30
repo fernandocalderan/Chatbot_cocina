@@ -85,16 +85,20 @@ def load_flow_template(
             return merged
 
         chosen_scopes = _normalize_scopes(scopes)
-        if len(chosen_scopes) == 1:
+        if chosen_scopes:
+            # Scope principal: el primero (los demás afectan prompts/KB, no estructura).
             scope_key = chosen_scopes[0]
-            scope_path = v_dir / f"flow_scope_{scope_key}.json"
-            if scope_path.exists():
-                try:
-                    with scope_path.open(encoding="utf-8") as f:
-                        data = json.load(f)
-                    return data if isinstance(data, dict) else base
-                except Exception:
-                    return base
+            for scope_path in (
+                v_dir / f"flow_base_scope_{scope_key}.json",
+                v_dir / f"flow_scope_{scope_key}.json",  # compat legacy
+            ):
+                if scope_path.exists():
+                    try:
+                        with scope_path.open(encoding="utf-8") as f:
+                            data = json.load(f)
+                        return data if isinstance(data, dict) else base
+                    except Exception:
+                        return base
 
             meta_path = v_dir / "metadata.json"
             try:

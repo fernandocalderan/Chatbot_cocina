@@ -221,21 +221,17 @@
         "es": "Para asignarte la clínica o agenda correcta, ¿en qué ciudad o código postal sería la cita?"
       },
       "save_to": "location",
-      "next": "cta_router"
+      "next": "route_after_location"
     },
-    "cta_router": {
-      "id": "cta_router",
-      "type": "condition",
-      "conditions": [
-        {
-          "if": "urgency == 'alta'",
-          "next": "appointment_offer"
-        },
-        {
-          "if": "",
-          "next": "info_before_booking"
-        }
-      ]
+    "route_after_location": {
+      "id": "route_after_location",
+      "type": "buttons",
+      "save_to": "urgency",
+      "next_map": {
+        "alta": "appointment_offer",
+        "default": "info_before_booking"
+      },
+      "next": "info_before_booking"
     },
     "info_before_booking": {
       "id": "info_before_booking",

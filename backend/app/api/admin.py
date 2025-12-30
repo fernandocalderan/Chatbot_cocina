@@ -46,6 +46,10 @@ from app.core.logger import LOG_DIR
 from app.services.vertical_admin import create_vertical as admin_create_vertical
 from app.services.vertical_admin import read_vertical_file as admin_read_vertical_file
 from app.services.vertical_admin import update_vertical_file as admin_update_vertical_file
+from app.services.flow_generation import (
+    compose_flow_text_patch_system_message,
+    generate_flow_patch_sample_for_vertical,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -154,6 +158,16 @@ class AdminVerticalFileUpdate(BaseModel):
     validate_content: bool = Field(default=True, validation_alias="validate")
 
 
+class AdminVerticalFlowGeneratorPreview(BaseModel):
+    mode: str = Field(default="dry", description="dry | real")
+    scopes: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=lambda: ["es", "pt", "en", "ca"])
+    business_knowledge: str | None = None
+    tenant_name: str | None = None
+    model: str | None = None
+    temperature: float = 0.3
+
+
 class TenantBase(BaseModel):
     name: str
     contact_email: Optional[str] = None
@@ -168,9 +182,11 @@ class TenantBase(BaseModel):
     allowed_origins: list[str] = Field(default_factory=list)
     maintenance: bool = False
     ia_enabled: Optional[bool] = None
+    use_ia: Optional[bool] = None
     vertical_key: Optional[str] = None
     vertical_scopes: list[str] = Field(default_factory=list)
     custom_flow_enabled: Optional[bool] = None
+    flow_system: Optional[str] = None
 
 
 class TenantCreate(TenantBase):
@@ -191,11 +207,13 @@ class TenantUpdate(BaseModel):
     allowed_origins: Optional[list[str]] = None
     maintenance: Optional[bool] = None
     ia_enabled: Optional[bool] = None
+    use_ia: Optional[bool] = None
     billing_status: Optional[str] = None
     vertical_key: Optional[str] = None
     vertical_scopes: Optional[list[str]] = None
     force_vertical: Optional[bool] = None
     custom_flow_enabled: Optional[bool] = None
+    flow_system: Optional[str] = None
 
 
 class WidgetTokenRequest(BaseModel):
@@ -204,6 +222,10 @@ class WidgetTokenRequest(BaseModel):
 
 
 class TenantExclude(BaseModel):
+    reason: Optional[str] = None
+
+
+class TenantInclude(BaseModel):
     reason: Optional[str] = None
 
 
@@ -234,6 +256,7 @@ def _load_published_materials(db, tenant_id: str) -> dict | None:
 def _serialize_tenant(t: Tenant) -> dict[str, Any]:
     branding = getattr(t, "branding", {}) or {}
     address = branding.get("address") if isinstance(branding.get("address"), dict) else {}
+    ia_limit = getattr(t, "ia_monthly_limit_eur", None)
     return {
         "id": str(t.id),
         "customer_code": getattr(t, "customer_code", None),
@@ -248,7 +271,9 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         "plan": t.plan,
         "billing_status": getattr(t, "billing_status", None),
         "plan_changed_at": branding.get("plan_changed_at"),
-        "ia_monthly_limit_eur": float(t.ia_monthly_limit_eur or 0),
+        # `None` significa "usar el límite por plan" (evita que el panel admin
+        # vea 0.0 y lo guarde sin querer, bloqueando la IA).
+        "ia_monthly_limit_eur": (float(ia_limit) if ia_limit is not None else None),
         "allowed_origins": branding.get("allowed_widget_origins")
         or branding.get("allowed_origins")
         or [],
@@ -271,6 +296,9 @@ def _serialize_tenant(t: Tenant) -> dict[str, Any]:
         "vertical_key": getattr(t, "vertical_key", None),
         "vertical_scopes": branding.get("vertical_scopes") or [],
         "custom_flow_enabled": bool(branding.get("custom_flow_enabled") or False),
+        "flow_system": str(branding.get("flow_system") or "v1").strip().lower(),
+        "excluded_reason": branding.get("excluded_reason"),
+        "excluded_at": branding.get("excluded_at"),
     }
 
 
@@ -372,6 +400,59 @@ def read_vertical_file_admin(vertical_key: str, filename: str):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/verticals/{vertical_key}/flow-generator/preview", dependencies=[Depends(_ensure_super_admin())])
+def preview_flow_generator_for_vertical(vertical_key: str, payload: AdminVerticalFlowGeneratorPreview):
+    try:
+        scopes = validate_vertical_scopes(vertical_key, payload.scopes)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_vertical_scopes")
+
+    langs = [str(x).lower().strip() for x in (payload.languages or []) if x]
+    langs = [x for x in langs if x in {"es", "pt", "en", "ca"}] or ["es"]
+
+    mode = str(payload.mode or "dry").strip().lower()
+    if mode not in {"dry", "real"}:
+        raise HTTPException(status_code=400, detail="invalid_mode")
+
+    if mode == "dry":
+        system_msg = compose_flow_text_patch_system_message(vertical_key=vertical_key, scopes=scopes, languages=langs)
+        return {
+            "mode": "dry",
+            "vertical_key": vertical_key,
+            "scopes": scopes,
+            "languages": langs,
+            "system_message": system_msg,
+            "user_prompt": {
+                "vertical_key": vertical_key,
+                "scopes": scopes,
+                "tenant_name": (payload.tenant_name or "").strip() or None,
+                "languages": langs,
+                "business_knowledge": (payload.business_knowledge or "").strip(),
+            },
+        }
+
+    try:
+        out = generate_flow_patch_sample_for_vertical(
+            vertical_key=vertical_key,
+            scopes=scopes,
+            languages=langs,
+            business_knowledge=payload.business_knowledge,
+            tenant_name=payload.tenant_name,
+            model=payload.model,
+            temperature=float(payload.temperature),
+        )
+        return {"mode": "real", "vertical_key": vertical_key, "scopes": scopes, "languages": langs, **out}
+    except ValueError as exc:
+        code = str(exc) or "flow_generate_failed"
+        if code in {"missing_openai_api_key", "invalid_openai_api_key", "ia_provider_unavailable"}:
+            raise HTTPException(status_code=503, detail=code)
+        if code == "ia_rate_limited":
+            raise HTTPException(status_code=429, detail=code)
+        raise HTTPException(status_code=400, detail=code)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc) or "flow_generate_failed")
+
+
 @router.post("/auth/login")
 def admin_oidc_login(payload: AdminOIDCInput):
     settings = get_settings()
@@ -423,6 +504,10 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
         "maintenance": payload.maintenance,
         "vertical_scopes": scopes,
     }
+    flow_system = str(payload.flow_system or "v2").strip().lower()
+    if flow_system not in {"v1", "v2"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_flow_system")
+    branding["flow_system"] = flow_system
     if payload.custom_flow_enabled is not None:
         branding["custom_flow_enabled"] = bool(payload.custom_flow_enabled)
     phone = (payload.contact_phone or "").strip() or None
@@ -431,15 +516,30 @@ def create_tenant(payload: TenantCreate, request: Request, db=Depends(get_db)):
     if address:
         branding["address"] = address
     customer_code = _next_customer_code(db)
+    ia_limit = payload.ia_monthly_limit_eur
+    if ia_limit is not None and float(ia_limit) <= 0:
+        ia_limit = None
+    ia_enabled = payload.ia_enabled
+    use_ia = payload.use_ia
+    # Defaults "neutrales": si no se especifica nada, IA queda deshabilitada
+    # hasta que el admin la habilite explícitamente.
+    if ia_enabled is None and use_ia is None:
+        ia_enabled = False
+        use_ia = False
+    elif ia_enabled is None:
+        ia_enabled = bool(use_ia)
+    elif use_ia is None:
+        use_ia = bool(ia_enabled)
     tenant = Tenant(
         customer_code=customer_code,
         name=payload.name,
         contact_email=payload.contact_email,
         plan=payload.plan,
-        ia_monthly_limit_eur=payload.ia_monthly_limit_eur,
+        ia_monthly_limit_eur=ia_limit,
         usage_limit_monthly=payload.usage_limit_monthly,
         branding=branding,
-        ia_enabled=payload.ia_enabled if payload.ia_enabled is not None else True,
+        ia_enabled=ia_enabled,
+        use_ia=use_ia,
         vertical_key=payload.vertical_key,
         flow_mode="VERTICAL",
     )
@@ -511,6 +611,11 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
     previous_plan = tenant.plan
     if payload.allowed_origins is not None:
         branding["allowed_widget_origins"] = payload.allowed_origins
+    if payload.flow_system is not None:
+        flow_system = str(payload.flow_system or "").strip().lower()
+        if flow_system not in {"v1", "v2"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_flow_system")
+        branding["flow_system"] = flow_system
     if payload.custom_flow_enabled is not None:
         branding["custom_flow_enabled"] = bool(payload.custom_flow_enabled)
     if payload.maintenance is not None:
@@ -568,6 +673,19 @@ def update_tenant(tenant_id: str, payload: TenantUpdate, request: Request, db=De
             "address_city",
         },
     )
+    # Compat: si se activa/desactiva `ia_enabled` y no llega `use_ia`, alinear ambos flags.
+    if payload.ia_enabled is not None and payload.use_ia is None:
+        updates["use_ia"] = bool(payload.ia_enabled)
+    if payload.use_ia is not None and payload.ia_enabled is None:
+        updates["ia_enabled"] = bool(payload.use_ia)
+
+    # Normalización: 0 => "sin override" (usar límite por plan).
+    if "ia_monthly_limit_eur" in updates:
+        try:
+            if updates["ia_monthly_limit_eur"] is not None and float(updates["ia_monthly_limit_eur"]) <= 0:
+                updates["ia_monthly_limit_eur"] = None
+        except Exception:
+            pass
 
     # Sub-vertical scopes (branding) – inmutables salvo `force_vertical`
     if payload.vertical_scopes is not None:
@@ -643,6 +761,7 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
 
     branding = getattr(tenant, "branding", {}) or {}
     custom_flow_enabled = bool(branding.get("custom_flow_enabled") or False)
+    flow_system = str(branding.get("flow_system") or "v1").strip().lower()
     scopes = tenant_vertical_scopes(tenant)
 
     if getattr(tenant, "vertical_key", None):
@@ -656,7 +775,8 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
         flow_id_override=flow_id_override,
         plan_value=str(plan_value or "base").lower(),
     )
-    flow_data = apply_materials(flow_data, materials)
+    if flow_system != "v2":
+        flow_data = apply_materials(flow_data, materials)
 
     custom_flow: dict = {}
     published = None
@@ -699,6 +819,7 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
         "active_flow_id": str(getattr(tenant, "active_flow_id")) if getattr(tenant, "active_flow_id", None) else None,
         "published": published,
         "custom_flow_enabled": custom_flow_enabled,
+        "flow_system": flow_system,
         "scopes": scopes,
         "base_flow": base_flow if isinstance(base_flow, dict) else {},
         "custom_flow": custom_flow if isinstance(custom_flow, dict) else {},
@@ -1181,6 +1302,38 @@ def exclude_tenant(tenant_id: str, payload: TenantExclude, request: Request, db=
         meta={"reason": payload.reason},
     )
     return {"tenant_id": str(tenant.id), "excluded": True}
+
+
+@router.post("/tenants/{tenant_id}/include", dependencies=[Depends(_ensure_super_admin())])
+def include_tenant(tenant_id: str, payload: TenantInclude, request: Request, db=Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant_not_found")
+    branding = getattr(tenant, "branding", {}) or {}
+    branding["excluded"] = False
+    branding.pop("excluded_at", None)
+    branding.pop("excluded_reason", None)
+    if payload.reason:
+        branding["included_reason"] = payload.reason
+        branding["included_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    tenant.branding = branding
+    try:
+        tenant.usage_mode = UsageMode.ACTIVE  # type: ignore
+    except Exception:
+        pass
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="tenant.include",
+        entity="tenant",
+        entity_id=str(tenant.id),
+        tenant_id=str(tenant.id),
+        meta={"reason": payload.reason},
+    )
+    return {"tenant_id": str(tenant.id), "excluded": False}
 
 
 @router.post("/tenants/{tenant_id}/magic-login", dependencies=[Depends(_ensure_super_admin())])

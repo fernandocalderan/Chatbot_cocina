@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.configs import Config
 from app.models.files import FileAsset
+from app.models.tenants import Tenant
+from app.services.kb_search import format_kb_prompt, search_kb
 
 
 CONFIG_TIPO_MATERIALS = "tenant_flow_materials"
@@ -99,3 +101,24 @@ def build_knowledge_prompt(
     out = "\n".join(parts).strip()
     return out[:max_total_chars]
 
+
+def build_semantic_knowledge_prompt(
+    db: Session,
+    tenant_id: str,
+    *,
+    query: str,
+    top_k: int = 6,
+    max_total_chars: int = 6000,
+) -> str:
+    """
+    Construye un prompt a partir de búsqueda semántica (pgvector) sobre documentos indexados.
+    Usa la selección de archivos `tenant_flow_materials.knowledge_files` como filtro si existe.
+    """
+    if not query or not str(query).strip():
+        return ""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        return ""
+    file_ids = tenant_knowledge_file_ids(db, tenant_id)
+    chunks = search_kb(db=db, tenant=tenant, query=str(query), file_ids=file_ids or None, top_k=top_k)
+    return format_kb_prompt(chunks, max_chars=max_total_chars)

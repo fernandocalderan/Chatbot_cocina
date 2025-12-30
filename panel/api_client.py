@@ -3,15 +3,71 @@ import os
 import uuid
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
 import requests
 import streamlit as st
 
+# =========================
+#  Carga de .env (local)
+# =========================
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        if not path.exists():
+            return out
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if not k:
+                continue
+            out[k] = v
+    except Exception:
+        return {}
+    return out
+
+
+def _load_local_env_defaults() -> None:
+    """
+    Streamlit no carga `.env` automáticamente.
+    En local, intentamos poblar env vars mínimos para que el panel funcione out-of-the-box.
+    """
+    allow = {
+        "API_BASE",
+        "API_BASE_URL",
+        "PANEL_TENANT_ID",
+        "PANEL_API_TOKEN",
+        "ADMIN_API_TOKEN",
+        "ADMIN_API_KEY",
+    }
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / ".env",
+        here.parent / "backend" / ".env",
+        here.parent / ".env",
+    ]
+    for p in candidates:
+        data = _parse_env_file(p)
+        for k, v in data.items():
+            if k in allow and k not in os.environ:
+                os.environ[k] = v
+
+
+_load_local_env_defaults()
+
 # API base: usa API_BASE si está, o por defecto el puerto de docker-compose (8100)
-API_BASE = os.getenv("API_BASE", "http://localhost:8100").rstrip("/")
+API_BASE = (os.getenv("API_BASE") or os.getenv("API_BASE_URL") or "http://localhost:8100").rstrip("/")
 API_PREFIX = "/v1"
-TENANT_ID = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
+TENANT_ID = os.getenv("PANEL_TENANT_ID") or ""
 API_TOKEN = os.getenv("PANEL_API_TOKEN")
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN") or os.getenv("ADMIN_API_KEY")
 logger = logging.getLogger(__name__)
@@ -21,6 +77,16 @@ class API:
     def __init__(self, api_url: str, token: str | None):
         self.api_url = api_url.rstrip("/")
         self.token = token
+
+    def _default_timeout(self) -> float:
+        """
+        Timeout (segundos) para llamadas normales al backend desde el panel.
+        Operaciones largas (IA/indexado) deben pasar un timeout mayor explícitamente.
+        """
+        try:
+            return float(os.getenv("PANEL_HTTP_TIMEOUT", "15"))
+        except Exception:
+            return 15.0
 
     def _full_url(self, path: str) -> str:
         return f"{self.api_url}{API_PREFIX}{path}"
@@ -37,20 +103,46 @@ class API:
             headers["X-Tenant-ID"] = tenant
         return headers
 
-    def get(self, path: str):
-        return requests.get(self._full_url(path), headers=self.headers(), timeout=10)
+    def get(self, path: str, *, timeout: float | tuple[float, float] | None = None):
+        return requests.get(
+            self._full_url(path),
+            headers=self.headers(),
+            timeout=timeout or self._default_timeout(),
+        )
 
-    def post(self, path: str, data: dict, idempotency_key: str | None = None):
+    def post(
+        self,
+        path: str,
+        data: dict,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | tuple[float, float] | None = None,
+    ):
         headers = self.headers()
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
-        return requests.post(self._full_url(path), json=data, headers=headers, timeout=10)
+        return requests.post(
+            self._full_url(path),
+            json=data,
+            headers=headers,
+            timeout=timeout or self._default_timeout(),
+        )
 
-    def patch(self, path: str, data: dict):
-        return requests.patch(self._full_url(path), json=data, headers=self.headers(), timeout=10)
+    def patch(self, path: str, data: dict, *, timeout: float | tuple[float, float] | None = None):
+        return requests.patch(
+            self._full_url(path),
+            json=data,
+            headers=self.headers(),
+            timeout=timeout or self._default_timeout(),
+        )
 
-    def put(self, path: str, data: dict):
-        return requests.put(self._full_url(path), json=data, headers=self.headers(), timeout=10)
+    def put(self, path: str, data: dict, *, timeout: float | tuple[float, float] | None = None):
+        return requests.put(
+            self._full_url(path),
+            json=data,
+            headers=self.headers(),
+            timeout=timeout or self._default_timeout(),
+        )
 
 
 def _current_tenant_id() -> str | None:
@@ -241,25 +333,31 @@ def api_get(path: str) -> Any:
     return _handle_api_error(resp)
 
 
-def api_post(path: str, payload: dict, idempotency_key: str | None = None) -> Any:
+def api_post(
+    path: str,
+    payload: dict,
+    idempotency_key: str | None = None,
+    *,
+    timeout: float | tuple[float, float] | None = None,
+) -> Any:
     client = _client()
-    resp = client.post(path, payload, idempotency_key=idempotency_key)
+    resp = client.post(path, payload, idempotency_key=idempotency_key, timeout=timeout)
     if resp.ok:
         return resp.json()
     return _handle_api_error(resp)
 
 
-def api_put(path: str, payload: dict) -> Any:
+def api_put(path: str, payload: dict, *, timeout: float | tuple[float, float] | None = None) -> Any:
     client = _client()
-    resp = client.put(path, payload)
+    resp = client.put(path, payload, timeout=timeout)
     if resp.ok:
         return resp.json()
     return _handle_api_error(resp)
 
 
-def api_patch(path: str, payload: dict) -> Any:
+def api_patch(path: str, payload: dict, *, timeout: float | tuple[float, float] | None = None) -> Any:
     client = _client()
-    resp = client.patch(path, payload)
+    resp = client.patch(path, payload, timeout=timeout)
     if resp.ok:
         return resp.json()
     return _handle_api_error(resp)
@@ -502,6 +600,79 @@ def extract_tenant_file(file_id: str, *, use_ai: bool = False):
     if resp.ok:
         return resp.json()
     return _handle_api_error(resp, fallback_message="No se pudo extraer el texto del archivo.")
+
+
+def index_tenant_file(file_id: str, *, reindex: bool = False):
+    client = _client()
+    url = f"{client.api_url}{API_PREFIX}/files/{file_id}/index"
+    headers = client.headers()
+    params = {"reindex": "1"} if reindex else None
+    try:
+        resp = requests.post(url, headers=headers, params=params, timeout=120)
+    except requests.RequestException as exc:
+        return {"status_code": 0, "detail": str(exc)}
+    if resp.ok:
+        return resp.json()
+    return _handle_api_error(resp, fallback_message="No se pudo indexar el archivo para búsqueda semántica.")
+
+
+# -------------------------
+# Tenant flows v2
+# -------------------------
+
+
+def get_flow_v2_quota():
+    return api_get("/tenant/flows/quota") or {}
+
+
+def generate_flow_v2(*, allow_overage: bool = False, languages: list[str] | None = None):
+    payload: dict[str, Any] = {"allow_overage": bool(allow_overage)}
+    if languages is not None:
+        payload["languages"] = languages
+    # IA puede tardar >10s; timeout largo configurable.
+    try:
+        long_timeout = float(os.getenv("PANEL_HTTP_TIMEOUT_LONG", "180"))
+    except Exception:
+        long_timeout = 180.0
+    # (connect, read)
+    timeout: tuple[float, float] = (5.0, long_timeout)
+    return api_post("/tenant/flows/generate", payload, timeout=timeout) or {}
+
+
+def get_flow_v2_draft():
+    return api_get("/tenant/flows/draft") or {}
+
+
+def get_flow_v2_published():
+    return api_get("/tenant/flows/published") or {}
+
+
+def reset_flow_v2_draft_from_runtime():
+    return api_post("/tenant/flows/draft/reset", {}) or {}
+
+
+def patch_flow_v2_block(block_id: str, payload: dict):
+    return api_patch(f"/tenant/flows/draft/blocks/{block_id}", payload) or {}
+
+
+def patch_flow_v2_blocks(payload: dict):
+    return api_patch("/tenant/flows/draft/blocks", payload) or {}
+
+
+def publish_flow_v2():
+    return api_post("/tenant/flows/publish", {"use_draft": True}) or {}
+
+
+def list_flow_v2_subflows():
+    return api_get("/tenant/flows/subflows") or {}
+
+
+def get_flow_v2_subflow(subflow_key: str):
+    return api_get(f"/tenant/flows/subflows/{subflow_key}") or {}
+
+
+def patch_flow_v2_subflow_block(subflow_key: str, block_id: str, payload: dict):
+    return api_patch(f"/tenant/flows/subflows/{subflow_key}/blocks/{block_id}", payload) or {}
 
 
 def _decode_jwt_payload(token: str | None) -> dict:

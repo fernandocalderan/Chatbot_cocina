@@ -113,30 +113,55 @@ def _load_materials(db: Session, tenant_id: str) -> dict | None:
     return None
 
 
-def _runtime_messages(flow_data: dict, materials: dict | None) -> dict:
+def _pick_text(value: object, language: str) -> str:
+    if isinstance(value, dict):
+        lang = (language or "es").lower()
+        direct = value.get(lang)
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        short = lang.split("-", 1)[0]
+        direct = value.get(short)
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        for v in value.values():
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _runtime_messages(flow_data: dict, materials: dict | None, *, language_default: str, flow_system: str) -> dict:
     content = materials.get("content") if isinstance(materials, dict) else {}
     welcome = content.get("welcome") if isinstance(content, dict) else None
     errors = content.get("errors") if isinstance(content, dict) else {}
     closing = content.get("closing") if isinstance(content, dict) else None
     language = content.get("language") if isinstance(content, dict) else None
     tone = content.get("tone") if isinstance(content, dict) else None
+    if str(flow_system or "").strip().lower() == "v2":
+        welcome = None
+        closing = None
+        language = language_default
     start_id = flow_data.get("start_block") if isinstance(flow_data, dict) else None
     blocks = flow_data.get("blocks") if isinstance(flow_data.get("blocks"), dict) else {}
     if not welcome and start_id and start_id in blocks:
-        welcome = blocks[start_id].get("text")
+        welcome = _pick_text(blocks[start_id].get("text"), str(language or language_default))
     if not closing and "end" in blocks:
-        closing = blocks["end"].get("text")
+        closing = _pick_text(blocks["end"].get("text"), str(language or language_default))
     return {
-        "welcome": welcome or "Hola. ¿En qué puedo ayudarte?",
+        "welcome": _pick_text(welcome, str(language or language_default)) or "Hola. ¿En qué puedo ayudarte?",
         "errors": errors or {"offline": "Nuestro asistente no está disponible."},
-        "closing": closing or "",
-        "language": language or "es",
+        "closing": _pick_text(closing, str(language or language_default)) or "",
+        "language": str(language or language_default or "es").lower(),
         "tone": tone or "serio",
     }
 
 
 def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
     materials = _load_materials(db, str(tenant.id))
+    branding = getattr(tenant, "branding", {}) or {}
+    flow_system = str(branding.get("flow_system") or "v1").strip().lower()
     flow_id = materials.get("flow_id") if isinstance(materials, dict) else None
     flow_id = resolve_flow_id(flow_id, getattr(tenant, "vertical_key", None))
     plan_value = getattr(tenant, "plan", "base")
@@ -148,11 +173,12 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
         flow_id_override=flow_id,
         plan_value=str(plan_value or "base").lower(),
     )
-    flow_data = apply_materials(flow_data, materials)
+    if flow_system != "v2":
+        flow_data = apply_materials(flow_data, materials)
 
     visual_payload = _tenant_widget_config(db, tenant)
     automation = materials.get("automation") if isinstance(materials, dict) else {}
-    messages = _runtime_messages(flow_data, materials)
+    messages = _runtime_messages(flow_data, materials, language_default=str(getattr(tenant, "idioma_default", None) or "es"), flow_system=flow_system)
     visual = visual_payload.get("visual") or {}
     tokens = {
         "colors": {

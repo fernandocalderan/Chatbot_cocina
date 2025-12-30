@@ -25,6 +25,10 @@ _TEXT_FILES = {
     "prompt_vertical_extension.txt",
 }
 
+_FLOW_SCOPE_PREFIXES = ("flow_scope_", "flow_base_scope_")
+_ROUTER_ROUTES_PREFIX = "router_routes_scope_"
+_SUBFLOW_PREFIX = "subflow_scope_"
+
 
 @dataclass(frozen=True)
 class ValidationResult:
@@ -140,12 +144,54 @@ def _allowed_filename(filename: str) -> tuple[str, str]:
         return name, "json"
     if name in _TEXT_FILES:
         return name, "text"
-    if name.startswith("flow_scope_") and name.endswith(".json"):
-        scope = name.removeprefix("flow_scope_").removesuffix(".json")
+    if name.startswith("prompt_scope_") and name.endswith(".txt"):
+        scope = name.removeprefix("prompt_scope_").removesuffix(".txt")
         scope_norm = str(scope or "").strip().lower()
         if not scope_norm or not _KEY_RE.match(scope_norm):
             raise ValueError("invalid_scope_key")
-        return f"flow_scope_{scope_norm}.json", "flow_scope"
+        return f"prompt_scope_{scope_norm}.txt", "text"
+    for prefix in _FLOW_SCOPE_PREFIXES:
+        if name.startswith(prefix) and name.endswith(".json"):
+            scope = name.removeprefix(prefix).removesuffix(".json")
+            scope_norm = str(scope or "").strip().lower()
+            if not scope_norm or not _KEY_RE.match(scope_norm):
+                raise ValueError("invalid_scope_key")
+            # Canonical filename: flow_base_scope_<scope>.json
+            return f"flow_base_scope_{scope_norm}.json", "flow_scope"
+
+    # Router routes mapping file (json dict, no flow schema)
+    # router_routes_scope_<scope>__<save_to>.json
+    if name.startswith(_ROUTER_ROUTES_PREFIX) and name.endswith(".json"):
+        rest = name.removeprefix(_ROUTER_ROUTES_PREFIX).removesuffix(".json")
+        if "__" not in rest:
+            raise ValueError("invalid_router_routes_filename")
+        scope_raw, save_to_raw = rest.split("__", 1)
+        scope_norm = str(scope_raw or "").strip().lower()
+        save_to_norm = str(save_to_raw or "").strip().lower()
+        if not scope_norm or not _KEY_RE.match(scope_norm):
+            raise ValueError("invalid_scope_key")
+        if not save_to_norm or not _KEY_RE.match(save_to_norm):
+            raise ValueError("invalid_router_save_to")
+        return f"{_ROUTER_ROUTES_PREFIX}{scope_norm}__{save_to_norm}.json", "json"
+
+    # Subflow flow file (flow schema)
+    # subflow_scope_<scope>__<save_to>__<key>.json
+    if name.startswith(_SUBFLOW_PREFIX) and name.endswith(".json"):
+        rest = name.removeprefix(_SUBFLOW_PREFIX).removesuffix(".json")
+        parts = rest.split("__")
+        if len(parts) != 3:
+            raise ValueError("invalid_subflow_filename")
+        scope_raw, save_to_raw, key_raw = parts
+        scope_norm = str(scope_raw or "").strip().lower()
+        save_to_norm = str(save_to_raw or "").strip().lower()
+        key_norm = str(key_raw or "").strip().lower()
+        if not scope_norm or not _KEY_RE.match(scope_norm):
+            raise ValueError("invalid_scope_key")
+        if not save_to_norm or not _KEY_RE.match(save_to_norm):
+            raise ValueError("invalid_router_save_to")
+        if not key_norm or not _KEY_RE.match(key_norm):
+            raise ValueError("invalid_subflow_key")
+        return f"{_SUBFLOW_PREFIX}{scope_norm}__{save_to_norm}__{key_norm}.json", "flow_subflow"
     raise ValueError("invalid_filename")
 
 
@@ -224,14 +270,20 @@ def update_vertical_file(
     if not vdir.exists():
         raise FileNotFoundError("vertical_not_found")
     normalized_name, allowed_kind = _allowed_filename(filename)
-    if kind != allowed_kind and not (allowed_kind == "flow_scope" and kind == "json"):
+    if kind != allowed_kind and not (
+        (allowed_kind in {"flow_scope", "flow_subflow"} and kind == "json")
+    ):
         raise ValueError("invalid_kind_for_filename")
     path = vdir / normalized_name
 
-    if allowed_kind in {"json", "flow_scope"}:
+    if allowed_kind in {"json", "flow_scope", "flow_subflow"}:
         if not isinstance(content, dict):
             raise ValueError("invalid_json_payload")
-        if validate and normalized_name in {"flow_base.json"} or normalized_name.startswith("flow_scope_"):
+        if validate and (
+            normalized_name in {"flow_base.json"}
+            or normalized_name.startswith(_FLOW_SCOPE_PREFIXES)
+            or normalized_name.startswith(_SUBFLOW_PREFIX)
+        ):
             res = validate_flow_schema(content)
             if not res.ok:
                 raise ValueError(f"invalid_flow:{';'.join(res.errors)}")

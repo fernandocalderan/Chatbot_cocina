@@ -16,10 +16,12 @@ _DEFAULT_VERTICAL_KEY = os.getenv("DEFAULT_VERTICAL_KEY") or "kitchens"
 
 _VERTICAL_PROMPT_FILENAME = "prompt_vertical.txt"
 _VERTICAL_PROMPT_EXTENSION_FILENAME = "prompt_vertical_extension.txt"
+_VERTICAL_SCOPE_PROMPT_PREFIX = "prompt_scope_"
 _VERTICAL_METADATA_FILENAME = "metadata.json"
 _VERTICAL_SEMANTIC_SCHEMA_FILENAME = "semantic_schema.json"
 _VERTICAL_KPI_DEFAULTS_FILENAME = "kpi_defaults.json"
 _VERTICAL_FLOW_BASE_FILENAME = "flow_base.json"
+_VERTICAL_FLOW_BASE_SCOPE_PREFIX = "flow_base_scope_"
 
 CONFIG_TIPO_SEMANTIC_SCHEMA = "tenant_semantic_schema"
 CONFIG_TIPO_KPI_DEFAULTS = "tenant_kpi_defaults"
@@ -259,6 +261,25 @@ def scope_defaults(vertical_key: str | None, scopes: object) -> dict[str, Any]:
     return defaults if isinstance(defaults, dict) else {}
 
 
+def vertical_scope_prompt(vertical_key: str | None, scope_key: str | None) -> str | None:
+    if not vertical_key or not scope_key:
+        return None
+    sk = str(scope_key).strip().lower()
+    if not sk:
+        return None
+    vdir = _vertical_dir(str(vertical_key).strip())
+    return _read_text(vdir / f"{_VERTICAL_SCOPE_PROMPT_PREFIX}{sk}.txt")
+
+
+def vertical_scope_prompts(vertical_key: str | None, scopes: object) -> list[str]:
+    out: list[str] = []
+    for s in _normalize_scopes(scopes):
+        txt = vertical_scope_prompt(vertical_key, s)
+        if txt:
+            out.append(txt)
+    return out
+
+
 def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged: dict[str, Any] = dict(base)
     for k, v in override.items():
@@ -346,14 +367,19 @@ def vertical_flow_base(vertical_key: str | None, scopes: object = None) -> dict[
     if not isinstance(base, dict):
         return None
     chosen = _normalize_scopes(scopes)
-    if len(chosen) != 1:
+    if not chosen:
         return base
+    # La estructura del flow se define por el scope "principal".
+    # Si hay varios scopes, el primero es el principal (los demás influyen en prompts/KB).
     scope_key = chosen[0]
-    scope_path = vdir / f"flow_scope_{scope_key}.json"
-    if scope_path.exists():
-        scoped = _read_json(scope_path)
-        if isinstance(scoped, dict):
-            return scoped
+    # Canonical: flow_base_scope_<scope>.json (compat: flow_scope_<scope>.json)
+    scope_path = vdir / f"{_VERTICAL_FLOW_BASE_SCOPE_PREFIX}{scope_key}.json"
+    legacy_scope_path = vdir / f"flow_scope_{scope_key}.json"
+    for p in (scope_path, legacy_scope_path):
+        if p.exists():
+            scoped = _read_json(p)
+            if isinstance(scoped, dict):
+                return scoped
     entry = vertical_scope_definitions(vertical_key).get(scope_key)
     if not isinstance(entry, dict):
         return base
@@ -361,6 +387,22 @@ def vertical_flow_base(vertical_key: str | None, scopes: object = None) -> dict[
     if isinstance(overrides, dict) and overrides:
         return _deep_merge_dicts(base, overrides)
     return base
+
+
+def vertical_read_asset_json(vertical_key: str | None, filename: str) -> dict[str, Any] | None:
+    """
+    Lee un JSON adicional del vertical (p.ej. router_routes_scope_* o subflow_scope_*).
+    Se limita a nombres de archivo simples (sin subdirectorios) para evitar path traversal.
+    """
+    if not vertical_key:
+        return None
+    name = str(filename or "").strip()
+    if not name or "/" in name or "\\" in name:
+        return None
+    vdir = _vertical_dir(str(vertical_key))
+    path = vdir / name
+    data = _read_json(path)
+    return data if isinstance(data, dict) else None
 
 
 def provision_vertical_materials(db, tenant: Tenant) -> dict | None:

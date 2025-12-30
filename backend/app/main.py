@@ -15,6 +15,7 @@ from app.api.scoring import router as scoring_router
 from app.api.sessions import router as sessions_router
 from app.api.tenant import router as tenant_router
 from app.api.tenant_automation import router as tenant_automation_router
+from app.api.tenant_flows_v2 import router as tenant_flows_v2_router
 from app.api.widget import router as widget_router
 from app.api.routes.calendar_oauth import router as calendar_oauth_router
 from app.api.routes.crm import router as crm_router
@@ -157,6 +158,7 @@ def get_application() -> FastAPI:
     app.include_router(templates_router, prefix=API_PREFIX)
     app.include_router(tenant_router, prefix=API_PREFIX)
     app.include_router(tenant_automation_router, prefix=API_PREFIX)
+    app.include_router(tenant_flows_v2_router, prefix=API_PREFIX)
     app.include_router(widget_router, prefix=API_PREFIX)
     app.include_router(appointments_router, prefix=API_PREFIX)
     app.include_router(leads_router, prefix=API_PREFIX)

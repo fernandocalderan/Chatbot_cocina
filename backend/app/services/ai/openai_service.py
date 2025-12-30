@@ -16,7 +16,7 @@ from app.services.ai.ai_moderation import AIModeration
 from app.services.ai.circuit_breaker import AICircuitBreaker
 from app.services.ia_usage_service import IAQuotaExceeded, IAUsageService
 from app.services.config.tenant_prompt_config import get_tenant_prompt_config
-from app.services.knowledge_base import build_knowledge_prompt
+from app.services.knowledge_base import build_knowledge_prompt, build_semantic_knowledge_prompt
 from app.services.prompts.router.prompt_router import PromptRouter
 from app.utils.masking import mask_payload
 from app.services.pricing import get_plan_limits
@@ -427,7 +427,13 @@ class OpenAIService(AiProvider):
         if self._use_extended_prompts(plan):
             tenant_config = {**tenant_config, "prompt_level": "extended"}
         if db is not None and tenant_identifier:
-            kb = build_knowledge_prompt(db, str(tenant_identifier))
+            kb = ""
+            try:
+                kb = build_semantic_knowledge_prompt(db, str(tenant_identifier), query=message)
+            except Exception:
+                kb = ""
+            if not kb:
+                kb = build_knowledge_prompt(db, str(tenant_identifier))
             if kb:
                 tenant_config = {**tenant_config, "knowledge_base": kb}
 

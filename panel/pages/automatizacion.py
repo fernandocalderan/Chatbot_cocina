@@ -19,6 +19,7 @@ from api_client import (
     list_files,
     upload_tenant_file,
     extract_tenant_file,
+    index_tenant_file,
 )
 from utils import load_styles, empty_state, metric_card, render_quota_banner, pill
 
@@ -96,6 +97,12 @@ if selected_key == "flujo":
     st.subheader("Cómo responde el asistente")
     st.caption("Configura materiales del flujo (visual, textos, automatización) sin tocar la lógica.")
 
+    tenant_cfg = get_tenant_config() or {}
+    flow_system = str((tenant_cfg.get("flow_system") if isinstance(tenant_cfg, dict) else None) or "v1").strip().lower()
+    is_v2_flow = flow_system == "v2"
+    if is_v2_flow:
+        st.info("Este tenant usa `flow_system=v2`: la edición de textos/opciones del flujo se hace en “Flujo v2”. Aquí solo controlas visual/automatización/archivos.")
+
     data = get_automation_materials() or {}
     draft = data.get("draft") if isinstance(data, dict) else None
     published = data.get("published") if isinstance(data, dict) else None
@@ -108,9 +115,36 @@ if selected_key == "flujo":
     automation = current.get("automation") if isinstance(current.get("automation"), dict) else {}
     knowledge_files_current = current.get("knowledge_files") if isinstance(current.get("knowledge_files"), list) else []
 
-    tabs = st.tabs(["Visual", "Cómo habla", "Automatización", "Flujo activo", "Archivos"])
+    def _detail_code(payload: dict) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        detail = payload.get("detail")
+        if isinstance(detail, dict):
+            inner = detail.get("detail")
+            return str(inner or "")
+        if isinstance(detail, str):
+            return str(detail or "")
+        return ""
 
-    with tabs[0]:
+    # defaults for payload (v2 ignores welcome/closing/questions/buttons)
+    welcome = str(content.get("welcome") or "")
+    closing = str(content.get("closing") or "")
+    default_lang = str((tenant_cfg.get("language") if isinstance(tenant_cfg, dict) else None) or content.get("language") or "es").lower()
+    if default_lang not in {"es", "pt", "en", "ca"}:
+        default_lang = "es"
+    lang = default_lang
+    tone_conv = str(content.get("tone") or "serio")
+    err_offline = str((content.get("errors") or {}).get("offline") or "")
+    err_generic = str((content.get("errors") or {}).get("generic") or "")
+
+    if is_v2_flow:
+        tabs = st.tabs(["Visual", "Automatización", "Archivos"])
+        tab_visual, tab_auto, tab_files = tabs
+    else:
+        tabs = st.tabs(["Visual", "Cómo habla", "Automatización", "Flujo activo", "Archivos"])
+        tab_visual, tab_speech, tab_auto, tab_flow, tab_files = tabs
+
+    with tab_visual:
         st.markdown("### Visual del widget")
         col1, col2 = st.columns(2)
         primary = col1.text_input("Color primario", value=str(visual.get("primary_color") or "#6B5B95"), key="vis_primary")
@@ -126,53 +160,75 @@ if selected_key == "flujo":
         if logo_url:
             st.image(logo_url, width=140)
 
-    with tabs[1]:
-        st.markdown("### Cómo habla el asistente")
-        welcome = st.text_area("Mensaje de bienvenida", value=str(content.get("welcome") or ""), height=90, key="mat_welcome")
-        closing = st.text_area("Mensaje de cierre", value=str(content.get("closing") or ""), height=70, key="mat_closing")
-        lang = st.selectbox("Idioma por defecto", ["es", "pt", "en", "ca"], index=["es", "pt", "en", "ca"].index(str(content.get("language") or "es")), key="mat_lang")
-        tone_conv = st.selectbox("Tono conversacional", ["serio", "cercano"], index=0 if str(content.get("tone") or "serio") == "serio" else 1, key="mat_tone")
+    if not is_v2_flow:
+        with tab_speech:
+            st.markdown("### Cómo habla el asistente")
+            welcome = st.text_area("Mensaje de bienvenida", value=str(content.get("welcome") or ""), height=90, key="mat_welcome")
+            closing = st.text_area("Mensaje de cierre", value=str(content.get("closing") or ""), height=70, key="mat_closing")
+            lang = st.selectbox("Idioma por defecto", ["es", "pt", "en", "ca"], index=["es", "pt", "en", "ca"].index(str(content.get("language") or "es")), key="mat_lang")
+            tone_conv = st.selectbox("Tono conversacional", ["serio", "cercano"], index=0 if str(content.get("tone") or "serio") == "serio" else 1, key="mat_tone")
 
-        st.markdown("### Errores")
-        err_offline = st.text_input("Mensaje sin conexión", value=str((content.get("errors") or {}).get("offline") or ""), key="mat_err_offline")
-        err_generic = st.text_input("Mensaje genérico", value=str((content.get("errors") or {}).get("generic") or ""), key="mat_err_generic")
+            st.markdown("### Errores")
+            err_offline = st.text_input("Mensaje sin conexión", value=str((content.get("errors") or {}).get("offline") or ""), key="mat_err_offline")
+            err_generic = st.text_input("Mensaje genérico", value=str((content.get("errors") or {}).get("generic") or ""), key="mat_err_generic")
 
-        st.divider()
-        st.markdown("### Preguntas y botones (avance guiado)")
-        with st.expander("Cargar bloques del flujo activo", expanded=False):
-            if st.button("Cargar bloques", use_container_width=True):
-                with st.spinner("Cargando…"):
-                    flow = fetch_flow()
-                if isinstance(flow, dict) and isinstance(flow.get("flow"), dict):
-                    st.session_state["_flow_blocks"] = flow["flow"].get("blocks", {})
-                else:
-                    empty_state("No pudimos cargar el flujo", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
+            st.divider()
+            st.markdown("### Preguntas y botones (avance guiado)")
+            with st.expander("Cargar bloques del flujo activo", expanded=False):
+                if st.button("Cargar bloques", use_container_width=True):
+                    with st.spinner("Cargando…"):
+                        flow = fetch_flow()
+                    if isinstance(flow, dict) and isinstance(flow.get("flow"), dict):
+                        st.session_state["_flow_blocks"] = flow["flow"].get("blocks", {})
+                    else:
+                        empty_state("No pudimos cargar el flujo", "Estamos cargando la información. El asistente sigue activo.", icon="⚠️")
 
-        blocks = st.session_state.get("_flow_blocks") or {}
-        if isinstance(blocks, dict) and blocks:
-            for block_id, block in list(blocks.items())[:20]:
-                if not isinstance(block, dict):
-                    continue
-                text = block.get("text")
-                if not text and block.get("type") not in {"buttons", "options"}:
-                    continue
-                title = block_id
-                snippet = ""
-                if isinstance(text, dict):
-                    snippet = str(text.get("es") or "")[:60]
-                elif isinstance(text, str):
-                    snippet = text[:60]
-                with st.expander(f"{title}{(' — ' + snippet) if snippet else ''}", expanded=False):
-                    if text:
-                        st.text_area("Texto (ES)", value=str(text.get("es") if isinstance(text, dict) else text), key=f"q-{block_id}")
-                    options = block.get("options") if isinstance(block.get("options"), list) else []
-                    if options:
-                        for idx, opt in enumerate(options):
-                            label = opt.get("label") if isinstance(opt, dict) else opt
-                            label_es = label.get("es") if isinstance(label, dict) else label
-                            st.text_input(f"Botón {idx+1}", value=str(label_es or ""), key=f"b-{block_id}-{idx}")
+            blocks = st.session_state.get("_flow_blocks") or {}
+            if isinstance(blocks, dict) and blocks:
+                for block_id, block in list(blocks.items())[:20]:
+                    if not isinstance(block, dict):
+                        continue
+                    text = block.get("text")
+                    if not text and block.get("type") not in {"buttons", "options"}:
+                        continue
+                    title = block_id
+                    snippet = ""
+                    if isinstance(text, dict):
+                        snippet = str(text.get("es") or "")[:60]
+                    elif isinstance(text, str):
+                        snippet = text[:60]
+                    with st.expander(f"{title}{(' — ' + snippet) if snippet else ''}", expanded=False):
+                        if text:
+                            st.text_area("Texto (ES)", value=str(text.get("es") if isinstance(text, dict) else text), key=f"q-{block_id}")
+                        options = block.get("options") if isinstance(block.get("options"), list) else []
+                        if options:
+                            for idx, opt in enumerate(options):
+                                label = opt.get("label") if isinstance(opt, dict) else opt
+                                label_es = label.get("es") if isinstance(label, dict) else label
+                                st.text_input(f"Botón {idx+1}", value=str(label_es or ""), key=f"b-{block_id}-{idx}")
 
-    with tabs[2]:
+    if is_v2_flow:
+        with tab_visual:
+            st.divider()
+            st.markdown("### Idioma y mensajes (UI)")
+            lang = st.selectbox(
+                "Idioma por defecto (UI)",
+                ["es", "pt", "en", "ca"],
+                index=["es", "pt", "en", "ca"].index(default_lang),
+                key="mat_lang",
+                help="Define el idioma inicial del widget (el flow v2 es multi-idioma).",
+            )
+            tone_conv = st.selectbox(
+                "Tono conversacional (UI)",
+                ["serio", "cercano"],
+                index=0 if tone_conv == "serio" else 1,
+                key="mat_tone",
+            )
+            st.markdown("### Errores")
+            err_offline = st.text_input("Mensaje sin conexión", value=err_offline, key="mat_err_offline")
+            err_generic = st.text_input("Mensaje genérico", value=err_generic, key="mat_err_generic")
+
+    with tab_auto:
         st.markdown("### Automatización")
         ai_level = st.selectbox("Nivel de IA", ["off", "low", "medium", "high"], index=["off", "low", "medium", "high"].index(str(automation.get("ai_level") or "medium")), key="auto_level")
         saving_mode = st.toggle("Modo ahorro", value=bool(automation.get("saving_mode") or False), key="auto_saving")
@@ -186,26 +242,28 @@ if selected_key == "flujo":
             if st.checkbox(step, value=step in existing_steps, key=f"auto_step_{step}"):
                 selected_steps.append(step)
 
-    with tabs[3]:
-        st.markdown("### Flujo activo")
-        flow_ids = [f.get("id") for f in available_flows if isinstance(f, dict)]
-        flow_labels = {f.get("id"): f.get("label") for f in available_flows if isinstance(f, dict)}
-        current_flow = str(current.get("flow_id") or (flow_ids[0] if flow_ids else "base_plan_fixed"))
-        if flow_ids:
-            idx = flow_ids.index(current_flow) if current_flow in flow_ids else 0
-            selected_flow = st.selectbox("Selecciona el flujo", flow_ids, index=idx, format_func=lambda v: flow_labels.get(v, v))
-        else:
-            selected_flow = st.text_input("Flow ID", value=current_flow)
-        st.info("Los cambios afectan solo nuevas conversaciones. Las sesiones activas no se alteran.")
+    selected_flow = str(current.get("flow_id") or "")
+    if not is_v2_flow:
+        with tab_flow:
+            st.markdown("### Flujo activo")
+            flow_ids = [f.get("id") for f in available_flows if isinstance(f, dict)]
+            flow_labels = {f.get("id"): f.get("label") for f in available_flows if isinstance(f, dict)}
+            current_flow = str(current.get("flow_id") or (flow_ids[0] if flow_ids else "base_plan_fixed"))
+            if flow_ids:
+                idx = flow_ids.index(current_flow) if current_flow in flow_ids else 0
+                selected_flow = st.selectbox("Selecciona el flujo", flow_ids, index=idx, format_func=lambda v: flow_labels.get(v, v))
+            else:
+                selected_flow = st.text_input("Flow ID", value=current_flow)
+            st.info("Los cambios afectan solo nuevas conversaciones. Las sesiones activas no se alteran.")
 
-    with tabs[4]:
+    with tab_files:
         st.markdown("### Archivos (materiales de aprendizaje)")
         st.caption(
             "Sube PDFs/imagenes y selecciona cuáles puede usar la IA como contexto. "
             "PDFs: extracción automática. Imágenes: usa ‘Extraer con IA’."
         )
 
-        uploaded = st.file_uploader("Subir archivo", type=["pdf", "png", "jpg", "jpeg"], key="kb-upload")
+        uploaded = st.file_uploader("Subir archivo", type=["pdf", "png", "jpg", "jpeg", "xlsx"], key="kb-upload")
         if uploaded is not None and st.button("Subir", key="kb-upload-btn"):
             with st.spinner("Subiendo…"):
                 res = upload_tenant_file(uploaded)
@@ -268,40 +326,62 @@ if selected_key == "flujo":
                             else:
                                 st.error(res)
 
+                    st.markdown("#### Indexado (búsqueda semántica)")
+                    if st.button("Indexar ahora", key=f"kb-index-{fid}"):
+                        with st.spinner("Indexando…"):
+                            res = index_tenant_file(fid, reindex=False)
+                        if isinstance(res, dict) and res.get("indexed"):
+                            st.success("Indexado OK.")
+                            st.rerun()
+                        else:
+                            code = _detail_code(res) if isinstance(res, dict) else ""
+                            if code == "ia_disabled_for_tenant":
+                                st.error("La IA está deshabilitada para este tenant. Actívala en Admin (Tenants → “IA habilitada”).")
+                            else:
+                                st.error(res)
+
     st.divider()
     c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
     if c1.button("Guardar borrador", use_container_width=True):
         questions = {}
         buttons = {}
-        blocks = st.session_state.get("_flow_blocks") or {}
-        if isinstance(blocks, dict):
-            for block_id, block in blocks.items():
-                if not isinstance(block, dict):
-                    continue
-                q_key = f"q-{block_id}"
-                if q_key in st.session_state and st.session_state[q_key].strip():
-                    questions[block_id] = st.session_state[q_key].strip()
-                options = block.get("options") if isinstance(block.get("options"), list) else []
-                labels = []
-                for idx, _opt in enumerate(options):
-                    b_key = f"b-{block_id}-{idx}"
-                    if b_key in st.session_state and st.session_state[b_key].strip():
-                        labels.append(st.session_state[b_key].strip())
-                if labels:
-                    buttons[block_id] = labels
+        if not is_v2_flow:
+            blocks = st.session_state.get("_flow_blocks") or {}
+            if isinstance(blocks, dict):
+                for block_id, block in blocks.items():
+                    if not isinstance(block, dict):
+                        continue
+                    q_key = f"q-{block_id}"
+                    if q_key in st.session_state and st.session_state[q_key].strip():
+                        questions[block_id] = st.session_state[q_key].strip()
+                    options = block.get("options") if isinstance(block.get("options"), list) else []
+                    labels = []
+                    for idx, _opt in enumerate(options):
+                        b_key = f"b-{block_id}-{idx}"
+                        if b_key in st.session_state and st.session_state[b_key].strip():
+                            labels.append(st.session_state[b_key].strip())
+                    if labels:
+                        buttons[block_id] = labels
+
+        content_payload = {
+            "language": lang,
+            "tone": tone_conv,
+            "errors": {"offline": err_offline, "generic": err_generic},
+        }
+        if not is_v2_flow:
+            content_payload.update(
+                {
+                    "welcome": welcome,
+                    "closing": closing,
+                    "questions": questions,
+                    "buttons": buttons,
+                }
+            )
 
         payload = {
-            "flow_id": selected_flow,
+            "flow_id": (selected_flow if not is_v2_flow else None),
             "knowledge_files": st.session_state.get("kb-files") or knowledge_files_current or [],
-            "content": {
-                "welcome": welcome,
-                "closing": closing,
-                "language": lang,
-                "tone": tone_conv,
-                "errors": {"offline": err_offline, "generic": err_generic},
-                "questions": questions,
-                "buttons": buttons,
-            },
+            "content": content_payload,
             "automation": {
                 "ai_level": ai_level,
                 "saving_mode": saving_mode,
@@ -322,6 +402,7 @@ if selected_key == "flujo":
                 "border_radius": border_radius,
             },
         }
+        payload = {k: v for k, v in payload.items() if v is not None}
         with st.spinner("Guardando borrador…"):
             res = save_automation_materials(payload)
         if isinstance(res, dict) and res.get("status_code"):

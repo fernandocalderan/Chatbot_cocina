@@ -13,17 +13,30 @@ from app.models.files import FileAsset
 from app.models.leads import Lead
 from app.models.tenants import Tenant
 from app.services.file_service import FileService
+from app.services.ia_usage_service import IAQuotaExceeded
 from app.services.file_text_extractor import (
     extract_image_text_via_openai,
     extract_pdf_text,
+    extract_xlsx_text,
     preview,
     write_extracted_text,
 )
+from app.services.kb_indexer import index_file as kb_index_file
 
 router = APIRouter(prefix="/files", tags=["files"])
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
-ALLOWED_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+ALLOWED_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+}
 
 
 @router.post("/upload", dependencies=[Depends(require_auth)])
@@ -95,6 +108,13 @@ async def upload_file(
             meta["extracted_text_key"] = str(out_path.relative_to(base_dir))
             meta["extracted_preview"] = preview(extracted)
             meta["extracted_method"] = "pypdf"
+    elif file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        extracted = extract_xlsx_text(dest_path)
+        out_path = write_extracted_text(dest_path, extracted)
+        if out_path:
+            meta["extracted_text_key"] = str(out_path.relative_to(base_dir))
+            meta["extracted_preview"] = preview(extracted)
+            meta["extracted_method"] = "openpyxl"
 
     try:
         asset = FileAsset(
@@ -153,6 +173,9 @@ def list_files(
                 "extracted_text_key": meta.get("extracted_text_key"),
                 "extracted_preview": meta.get("extracted_preview"),
                 "extracted_method": meta.get("extracted_method"),
+                "kb_indexed_at": meta.get("kb_indexed_at"),
+                "kb_index_model": meta.get("kb_index_model"),
+                "kb_chunks": meta.get("kb_chunks"),
             }
         )
     return {"items": items}
@@ -184,6 +207,9 @@ def extract_file_text(
     if content_type == "application/pdf":
         extracted = extract_pdf_text(file_path)
         method = "pypdf"
+    elif content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        extracted = extract_xlsx_text(file_path)
+        method = "openpyxl"
     elif content_type in {"image/png", "image/jpeg"} and use_ai:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if not tenant:
@@ -210,6 +236,39 @@ def extract_file_text(
         return {"file_id": str(asset.id), "extracted": True, "method": method, "preview": meta.get("extracted_preview")}
 
     raise HTTPException(status_code=400, detail="extraction_not_available")
+
+
+@router.post("/{file_id}/index", dependencies=[Depends(require_auth)])
+def index_file_for_kb(
+    file_id: str,
+    reindex: bool = False,
+    db=Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
+    token: str = Depends(oauth2_scheme),
+):
+    asset = db.query(FileAsset).filter(FileAsset.id == file_id, FileAsset.tenant_id == tenant_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="file_not_found")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="tenant_not_found")
+    try:
+        res = kb_index_file(db=db, tenant=tenant, file_id=str(asset.id), reindex=bool(reindex))
+        return res
+    except IAQuotaExceeded as exc:
+        msg = str(exc) or "ia_quota_exceeded"
+        if "ia_disabled_for_tenant" in msg:
+            raise HTTPException(status_code=403, detail="ia_disabled_for_tenant")
+        raise HTTPException(status_code=402, detail=msg)
+    except ValueError as exc:
+        code = str(exc) or "kb_index_failed"
+        if code in {"missing_openai_api_key", "invalid_openai_api_key", "ia_provider_unavailable"}:
+            raise HTTPException(status_code=503, detail=code)
+        if code == "ia_rate_limited":
+            raise HTTPException(status_code=429, detail=code)
+        raise HTTPException(status_code=400, detail=code)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "kb_index_failed")
 
 
 @router.get("/{lead_id}/comercial.pdf", dependencies=[Depends(require_auth)])

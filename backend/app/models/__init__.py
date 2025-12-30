@@ -13,6 +13,8 @@ from app.models.ai_interaction import AIInteractionAudit
 from app.models.ia_usage import IAUsage
 from app.models.conversation_templates import ConversationTemplate
 from app.models.login_tokens import LoginToken
+from app.models.flow_generations import FlowGeneration
+from app.models.kb_chunks import KBChunk
 
 __all__ = [
     "Tenant",
@@ -30,4 +32,6 @@ __all__ = [
     "IAUsage",
     "ConversationTemplate",
     "LoginToken",
+    "FlowGeneration",
+    "KBChunk",
 ]

@@ -12,6 +12,18 @@ from app.services.verticals import tenant_custom_flow_enabled
 from app.services.verticals import tenant_vertical_scopes
 
 
+def _tenant_flow_system(tenant: Tenant | None) -> str:
+    """
+    v1 (legacy): respeta `branding.custom_flow_enabled` para tenants con vertical.
+    v2: siempre intenta usar flow publicado en DB; si no existe, fallback a vertical+scopes.
+    """
+    if not tenant:
+        return "v1"
+    branding = getattr(tenant, "branding", {}) or {}
+    val = branding.get("flow_system")
+    return str(val or "v1").strip().lower()
+
+
 def _latest_published_flow(db: Session, tenant_id: str) -> FlowVersioned | None:
     try:
         return (
@@ -72,6 +84,29 @@ def resolve_runtime_flow(
     4) Fallback conservador: carga template desde verticals/ o legacy app/flows (según `load_flow_template`).
     """
     vertical_key = getattr(tenant, "vertical_key", None)
+    flow_system = _tenant_flow_system(tenant)
+
+    # v2: siempre preferir flow publicado en DB (si existe), sin depender de custom_flow_enabled.
+    if flow_system == "v2":
+        flow_row = _active_or_latest_published_flow(db, tenant)
+        if flow_row and isinstance(flow_row.schema_json, dict):
+            return flow_row.schema_json
+        if vertical_key:
+            try:
+                provision_vertical_assets(db, tenant)
+            except Exception:
+                pass
+            flow_row = _active_or_latest_published_flow(db, tenant)
+            if flow_row and isinstance(flow_row.schema_json, dict):
+                return flow_row.schema_json
+        return load_flow_template(
+            flow_id_override,
+            plan_value=plan_value,
+            vertical_key=str(vertical_key) if vertical_key else None,
+            scopes=tenant_vertical_scopes(tenant),
+        )
+
+    # v1: comportamiento actual (respetar custom_flow_enabled para tenants verticales).
     if vertical_key and not tenant_custom_flow_enabled(tenant):
         return load_flow_template(
             flow_id_override,

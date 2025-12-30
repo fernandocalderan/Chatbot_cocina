@@ -1,0 +1,41 @@
+{
+  "version": "clinics_private__dental__router_v1",
+  "plan": "base",
+  "languages": ["es"],
+  "start_block": "welcome",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false,
+    "router": {
+      "block_id": "motivo_consulta",
+      "save_to": "motivo_consulta",
+      "mode": "handoff_end",
+      "routes_file": "router_routes_scope_dental__motivo_consulta.json",
+      "fallback_key": "otro"
+    }
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": "Hola 👋 Soy el asistente de atención de la clínica dental. Estoy aquí para ayudarte a resolver dudas y facilitar una cita.",
+      "next": "motivo_consulta"
+    },
+    "motivo_consulta": {
+      "id": "motivo_consulta",
+      "type": "buttons",
+      "text": "¿Cuál es el motivo principal de tu consulta?",
+      "options": [
+        {"label": "Dolor o molestia dental", "value": "dolor"},
+        {"label": "Revisión o limpieza", "value": "revision"},
+        {"label": "Ortodoncia", "value": "ortodoncia"},
+        {"label": "Implantes o prótesis", "value": "implantes"},
+        {"label": "Otro motivo", "value": "otro"}
+      ],
+      "save_to": "motivo_consulta",
+      "next": "end"
+    },
+    "end": {"id": "end", "type": "end"}
+  }
+}

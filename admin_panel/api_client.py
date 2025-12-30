@@ -190,6 +190,22 @@ def read_vertical_file_admin(
     return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
 
 
+def preview_vertical_flow_generator(
+    token: str | None,
+    vertical_key: str,
+    payload: dict,
+    *,
+    api_key: str | None = None,
+):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/verticals/{vertical_key}/flow-generator/preview",
+        json=payload,
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=60,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
 def admin_health(token: str | None, api_key: str | None = None):
     resp = requests.get(
         f"{API_BASE}/v1/admin/health",
@@ -245,6 +261,17 @@ def exclude_tenant(token: str | None, tenant_id: str, reason: str | None = None,
     payload = {"reason": reason} if reason else {}
     resp = requests.post(
         f"{API_BASE}/v1/admin/tenants/{tenant_id}/exclude",
+        json=payload,
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=10,
+    )
+    return resp.json() if resp.ok else {"error": resp.text, "status_code": resp.status_code}
+
+
+def include_tenant(token: str | None, tenant_id: str, reason: str | None = None, api_key: str | None = None):
+    payload = {"reason": reason} if reason else {}
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/include",
         json=payload,
         headers=_headers(token, api_key or _admin_api_key()),
         timeout=10,

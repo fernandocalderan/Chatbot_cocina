@@ -33,7 +33,8 @@ def _api_base():
 def _widget_src():
     return (
         os.getenv("WIDGET_CDN_URL")
-        or "http://localhost:5173/frontend-widget/dist/chat-widget.js"
+        # Local default: use repo build (sin servidor).
+        or "local:frontend-widget/dist/chat-widget.js"
     )
 
 
@@ -87,6 +88,10 @@ def _issue_widget_token(api_key: str | None, token: str | None, tenant_id: str, 
     )
 
 
+def _get_tenant_flow_info(api_key: str | None, token: str | None, tenant_id: str, api_base: str):
+    return _request("GET", f"/v1/admin/tenants/{tenant_id}/flow", api_key=api_key, token=token, api_base=api_base)
+
+
 st.title("Widget Tester 💬")
 st.caption(
     "Genera un token, configura tenant/origen y prueba el widget (burbuja + flujo) sin salir del panel."
@@ -96,7 +101,7 @@ PRESETS = {
     "Auto": {},
     "Local": {
         "api_base": "http://localhost:8100",
-        "widget_src": "http://localhost:5173/frontend-widget/dist/chat-widget.js",
+        "widget_src": "local:frontend-widget/dist/chat-widget.js",
     },
     "Staging": {
         "api_base": os.getenv("STAGING_API_BASE") or "",
@@ -138,8 +143,28 @@ if not tenants:
     st.error("No se pudieron cargar tenants. Revisa API base/API key.")
     st.stop()
 
-tenant_map = {t["name"] or t["id"]: t for t in tenants}
-selected_name = st.selectbox("Selecciona tenant", options=list(tenant_map.keys()))
+tenant_map = {t["name"] or t["id"]: t for t in tenants if isinstance(t, dict) and t.get("id")}
+names = list(tenant_map.keys())
+selected_idx = 0
+try:
+    state_tid = st.session_state.get("_widget_tester_tenant_id")
+    if state_tid:
+        for i, n in enumerate(names):
+            if str(tenant_map[n].get("id")) == str(state_tid):
+                selected_idx = i
+                break
+    qp_tid = st.query_params.get("tenant_id")
+    if isinstance(qp_tid, list):
+        qp_tid = qp_tid[0] if qp_tid else None
+    if qp_tid:
+        for i, n in enumerate(names):
+            if str(tenant_map[n].get("id")) == str(qp_tid):
+                selected_idx = i
+                break
+except Exception:
+    selected_idx = 0
+
+selected_name = st.selectbox("Selecciona tenant", options=names, index=selected_idx)
 tenant = tenant_map[selected_name]
 
 col_info, col_token = st.columns([0.5, 0.5])
@@ -148,16 +173,56 @@ with col_info:
     st.markdown(f"**Vertical:** `{tenant.get('vertical_key') or 'N/D'}`")
     allowed = tenant.get("allowed_origins") or []
     st.markdown(f"**Allowed origins:** {', '.join(allowed) if allowed else 'ninguno'}")
+    st.markdown("**Flow efectivo (qué se está probando):**")
+    flow_info = _get_tenant_flow_info(api_key or None, ctx.token, tenant["id"], api_base)
+    if isinstance(flow_info, dict) and flow_info.get("error"):
+        st.error(flow_info)
+    elif isinstance(flow_info, dict):
+        flow_system = str(flow_info.get("flow_system") or "v2").lower()
+        published = flow_info.get("published") if isinstance(flow_info.get("published"), dict) else None
+        scopes = flow_info.get("scopes") or []
+        if flow_system == "v2" and published:
+            st.success(f"Published v{published.get('version')} · {published.get('flow_id')}")
+        else:
+            st.info(f"Fallback a base scope: {scopes[0] if scopes else '—'}")
+        eff = flow_info.get("effective_flow") if isinstance(flow_info.get("effective_flow"), dict) else {}
+        blocks = eff.get("blocks") if isinstance(eff.get("blocks"), dict) else {}
+        st.caption(f"start_block: `{eff.get('start_block') or '—'}` · blocks: {len(blocks)}")
+        with st.expander("Ver JSON efectivo", expanded=False):
+            st.json(eff or {})
 
 with col_token:
     # El widget se ejecuta dentro de un iframe del propio panel (origen = host:puerto de Streamlit).
-    panel_port = st.get_option("server.port") or 8501
-    panel_origin_default = f"http://localhost:{panel_port}"
-    origin = st.text_input(
-        "Dominio permitido (allowed_origin del token)",
-        value=(allowed[0] if allowed else panel_origin_default),
-        help="En este panel, el widget corre bajo el origen del admin panel (normalmente http://localhost:8501).",
+    panel_port = st.get_option("server.port") or 8502
+    panel_addr = st.get_option("server.address") or "localhost"
+    # Si el servidor escucha 0.0.0.0, el navegador puede estar en localhost o 0.0.0.0.
+    # Por defecto usamos el address configurado para minimizar errores (captura el caso 0.0.0.0).
+    panel_origin_default = f"http://{panel_addr}:{panel_port}"
+    panel_origin_alt = None
+    if panel_addr not in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        panel_origin_alt = f"http://localhost:{panel_port}"
+    elif panel_addr != "localhost":
+        panel_origin_alt = f"http://localhost:{panel_port}"
+    mode = st.radio(
+        "Modo de prueba",
+        ["Dentro del panel (iframe)", "Página externa"],
+        index=0,
+        horizontal=True,
+        help="Dentro del panel: el widget corre bajo el origen del admin panel (ej. http://localhost:8502). "
+        "Página externa: úsalo para probar en http://localhost:3000 u otros dominios.",
     )
+    if mode.startswith("Dentro"):
+        origin = panel_origin_default
+        st.text_input("Dominio permitido (allowed_origin del token)", value=origin, disabled=True)
+        if panel_origin_alt and panel_origin_alt != origin:
+            st.caption(f"Si abriste este panel con otro host, prueba también `{panel_origin_alt}`.")
+    else:
+        origin = st.text_input(
+            "Dominio permitido (allowed_origin del token)",
+            value=(tenant.get("allowed_origins") or ["http://localhost:3000"])[0],
+            help="Este debe coincidir con el `Origin` real del sitio donde cargas el widget.",
+        )
+        st.caption("Tip: para probar en local, abre `test-widget.html` o tu frontend en `http://localhost:3000`.")
     ttl = st.slider("TTL minutos", min_value=15, max_value=60, value=60, step=15)
     token_state_key = f"_widget_token_{tenant['id']}"
     token_input = st.text_area(
@@ -167,6 +232,24 @@ with col_token:
         key="widget_token_area",
     )
     if st.button("Generar token nuevo", use_container_width=True):
+        # Si el origin no está permitido en el tenant, lo añadimos primero para evitar 403.
+        allowed_origins = tenant.get("allowed_origins") or []
+        if origin and origin not in allowed_origins:
+            new_list = list(dict.fromkeys([*allowed_origins, origin]))
+            upd = _request(
+                "PATCH",
+                f"/v1/admin/tenants/{tenant['id']}",
+                api_key=api_key or None,
+                token=ctx.token,
+                json_body={"allowed_origins": new_list},
+                api_base=api_base,
+            )
+            if isinstance(upd, dict) and upd.get("error"):
+                st.error({"error": "no_se_pudo_añadir_origen", "detail": upd})
+                st.stop()
+            st.success("Origen añadido al tenant.")
+            st.cache_data.clear()
+
         res = _issue_widget_token(api_key or None, ctx.token, tenant["id"], origin, ttl)
         if isinstance(res, dict) and res.get("token"):
             token_input = res["token"]
@@ -206,10 +289,41 @@ if token_input:
 st.divider()
 st.subheader("Widget en vivo")
 st.caption("Se monta el widget real con el token/tenant indicados.")
+if mode.startswith("Página"):
+    st.info("Modo página externa: el widget en vivo no se monta dentro del panel. Usa el token arriba en tu sitio de prueba.")
+    st.stop()
 
-# Cache-bust: evita servir un JS cacheado por el navegador al cambiar builds
-widget_src_effective = widget_src.strip()
-if widget_src_effective:
+def _load_local_widget_assets(widget_src_value: str) -> tuple[str, str] | None:
+    """
+    Permite usar el build local del repo sin depender de un servidor HTTP.
+    Formato: local:frontend-widget/dist/chat-widget.js
+    """
+    src = (widget_src_value or "").strip()
+    if not src.lower().startswith("local:"):
+        return None
+    rel = src.split(":", 1)[1].strip().lstrip("/")
+    js_path = (REPO_ROOT / rel).resolve()
+    css_path = js_path.with_name("chatbot-widget.css")
+    if not js_path.exists():
+        st.error(f"No existe el widget local: `{js_path}`")
+        return None
+    js = js_path.read_text(encoding="utf-8")
+    css = css_path.read_text(encoding="utf-8") if css_path.exists() else ""
+    return js, css
+
+
+local_assets = _load_local_widget_assets(widget_src)
+local_js_b64 = ""
+local_css = ""
+if local_assets:
+    import base64
+
+    local_js_b64 = base64.b64encode(local_assets[0].encode("utf-8")).decode("ascii")
+    local_css = local_assets[1] or ""
+
+# Cache-bust: evita servir un JS cacheado por el navegador al cambiar builds (solo HTTP).
+widget_src_effective = (widget_src or "").strip()
+if widget_src_effective and not widget_src_effective.lower().startswith("local:"):
     sep = "&" if "?" in widget_src_effective else "?"
     widget_src_effective = f"{widget_src_effective}{sep}v={abs(hash(widget_src_effective))%100000}-{abs(hash(token_input))%100000}"
 
@@ -227,6 +341,7 @@ html = f"""
       #root {{
         min-height: 600px;
       }}
+      {local_css}
     </style>
   </head>
   <body>
@@ -237,11 +352,51 @@ html = f"""
         window.localStorage.removeItem("widget_token");
       }} catch (e) {{}}
     </script>
-    <script src="{widget_src_effective}" async
-      data-api="{api_base}"
-      data-tenant="{tenant['id']}"
-      data-token="{token_input}"
-      data-start-open="true">
+    {"".join([]) if not local_assets else ""}
+    <script>
+      (function() {{
+        const apiBase = {json.dumps(api_base)};
+        const token = {json.dumps(token_input)};
+        const startOpen = true;
+        const tenantId = {json.dumps(str(tenant['id']))};
+
+        const localMode = {json.dumps(bool(local_assets))};
+        if (localMode) {{
+          const jsB64 = {json.dumps(local_js_b64)};
+          const js = atob(jsB64);
+          const blob = new Blob([js], {{ type: "text/javascript" }});
+          const url = URL.createObjectURL(blob);
+          const s = document.createElement("script");
+          s.src = url;
+          s.async = true;
+          s.dataset.api = apiBase;
+          s.dataset.apiUrl = apiBase;
+          s.dataset.token = token;
+          s.dataset.tenant = tenantId;
+          s.dataset.startOpen = String(startOpen);
+          document.body.appendChild(s);
+          return;
+        }}
+
+        const src = {json.dumps(widget_src_effective)};
+        if (!src) {{
+          const err = document.createElement("div");
+          err.style.padding = "12px";
+          err.style.color = "#b91c1c";
+          err.textContent = "Widget JS no configurado. Usa 'local:frontend-widget/dist/chat-widget.js' o pega una URL CDN.";
+          document.body.appendChild(err);
+          return;
+        }}
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.dataset.api = apiBase;
+        s.dataset.apiUrl = apiBase;
+        s.dataset.token = token;
+        s.dataset.tenant = tenantId;
+        s.dataset.startOpen = String(startOpen);
+        document.body.appendChild(s);
+      }})();
     </script>
   </body>
 </html>

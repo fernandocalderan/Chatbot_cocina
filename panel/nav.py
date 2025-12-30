@@ -80,6 +80,8 @@ def render_sidebar():
 
         if nav_v2_enabled():
             st.page_link("pages/automatizacion.py", label="Automatización", icon=":material/auto_awesome:")
+            st.page_link("pages/documentos.py", label="Documentos", icon=":material/attach_file:")
+            st.page_link("pages/flujo_v2.py", label="Flujo", icon=":material/account_tree:")
             st.page_link("pages/configuracion.py", label="Configuración", icon=":material/settings:")
         else:
             st.page_link("pages/04_Automatizacion.py", label="Automatización", icon=":material/auto_awesome:")

@@ -117,6 +117,63 @@ def extract_image_text_via_openai(
         return ""
 
 
+def extract_xlsx_text(path: Path, *, max_chars: int = 50_000, max_rows_per_sheet: int = 10_000) -> str:
+    """
+    Extrae texto de XLSX de forma determinista (sin IA) preservando cabeceras y filas.
+    Produce texto plano apto para indexado/KB.
+    """
+    try:
+        import openpyxl  # type: ignore
+    except Exception:
+        logger.warning({"event": "xlsx_extract_missing_dep", "path": str(path)})
+        return ""
+
+    try:
+        wb = openpyxl.load_workbook(filename=str(path), data_only=True, read_only=True)
+    except Exception as exc:
+        logger.warning({"event": "xlsx_extract_failed", "path": str(path), "error": str(exc)})
+        return ""
+
+    parts: list[str] = []
+    total = 0
+    try:
+        for ws in wb.worksheets[:20]:
+            sheet_name = str(getattr(ws, "title", "") or "").strip() or "Sheet"
+            parts.append(f"## {sheet_name}")
+            total += len(parts[-1])
+            row_count = 0
+
+            for row in ws.iter_rows(values_only=True):
+                row_count += 1
+                if row_count > max_rows_per_sheet:
+                    parts.append(f"(… truncado: más de {max_rows_per_sheet} filas)")
+                    break
+                cells = []
+                for cell in row:
+                    if cell is None:
+                        cells.append("")
+                    else:
+                        s = str(cell).strip()
+                        cells.append(s)
+                line = " | ".join([c for c in cells if c != ""]).strip()
+                if not line:
+                    continue
+                parts.append(line)
+                total += len(line)
+                if total >= max_chars:
+                    break
+            if total >= max_chars:
+                break
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+    out = "\n".join(parts).strip()
+    return out[:max_chars]
+
+
 def write_extracted_text(dest_path: Path, text: str) -> Path | None:
     if not text:
         return None

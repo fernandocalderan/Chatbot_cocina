@@ -40,7 +40,9 @@ from app.services.verticals import (
     get_vertical_config,
     scope_defaults,
     tenant_vertical_scopes,
+    vertical_read_asset_json,
 )
+from app.services.subflow_overrides import load_overrides_payload, get_overrides_for_file, apply_overrides_to_flow
 from app.services.agenda_service import AgendaService
 from app.models.configs import Config
 from app.services.conversational_intelligence import is_doubt_text, is_question_text, resolve_block_text
@@ -147,6 +149,33 @@ def validate_input(block: dict, user_input: str):
         high = max(nums)
         if low > high or low < min_budget or high > max_budget:
             raise HTTPException(status_code=400, detail="invalid_budget")
+
+
+def _slugify_key(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    raw = re.sub(r"[^a-z0-9_-]+", "_", raw)
+    raw = re.sub(r"_+", "_", raw).strip("_-")
+    return raw
+
+
+def _router_cfg(flow_data: dict) -> dict | None:
+    cfg = flow_data.get("config") if isinstance(flow_data.get("config"), dict) else {}
+    router = cfg.get("router") if isinstance(cfg.get("router"), dict) else None
+    if not isinstance(router, dict):
+        return None
+    if not str(router.get("save_to") or "").strip():
+        return None
+    prefix = str(router.get("subflow_prefix") or "sf_")
+    suffix = str(router.get("subflow_suffix") or "__inicio")
+    return {
+        "save_to": str(router.get("save_to")).strip(),
+        "subflow_prefix": prefix,
+        "subflow_suffix": suffix,
+        "fallback_key": str(router.get("fallback_key") or "general").strip() or "general",
+        "routes_file": str(router.get("routes_file") or "").strip() or None,
+    }
 
 
 def pick_lang(flow: dict, requested: Optional[str]) -> str:
@@ -556,16 +585,55 @@ def send_message(
     except Exception:
         materials = None
 
+    # Determinar session_id pronto para poder cargar estado y respetar subflows activos.
+    session_id = payload.session_id or str(uuid4())
+    payload.session_id = session_id
+    set_request_context(
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    metrics.set_gauge("chat_sessions_active", 1, {"tenant_id": tenant_id})
+
+    state = session_mgr.load(session_id) or {}
+    if state and state.get("vars", {}).get("tenant_id") not in (None, tenant_id):
+        raise HTTPException(status_code=403, detail="tenant_mismatch")
+
     tenant_vertical_key = getattr(tenant, "vertical_key", None)
     flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
     flow_id_override = resolve_flow_id(flow_id_override, tenant_vertical_key)
-    flow_data = resolve_runtime_flow(
-        db=db,
-        tenant=tenant,
-        flow_id_override=flow_id_override,
-        plan_value=str(plan_value or "base").lower(),
-    )
-    flow_data = apply_materials(flow_data, materials)
+
+    # Si hay un subflow activo (definido por el motor), cargarlo en lugar del router/base.
+    active_flow = state.get("_active_flow") if isinstance(state.get("_active_flow"), dict) else None
+    active_file = active_flow.get("file") if isinstance(active_flow, dict) else None
+    if tenant_vertical_key and isinstance(active_file, str) and active_file.strip():
+        loaded = vertical_read_asset_json(str(tenant_vertical_key), active_file.strip())
+        if isinstance(loaded, dict) and isinstance(loaded.get("blocks"), dict) and loaded.get("blocks"):
+            try:
+                ov_payload = load_overrides_payload(db, str(tenant_id))
+                ov_entry = get_overrides_for_file(ov_payload, active_file.strip())
+                flow_data = apply_overrides_to_flow(loaded, ov_entry)
+            except Exception:
+                flow_data = loaded
+        else:
+            # Si el subflow no está disponible, limpiar override y continuar con base.
+            state.pop("_active_flow", None)
+            session_mgr.save(session_id, state)
+            flow_data = resolve_runtime_flow(
+                db=db,
+                tenant=tenant,
+                flow_id_override=flow_id_override,
+                plan_value=str(plan_value or "base").lower(),
+            )
+    else:
+        flow_data = resolve_runtime_flow(
+            db=db,
+            tenant=tenant,
+            flow_id_override=flow_id_override,
+            plan_value=str(plan_value or "base").lower(),
+        )
+    flow_system = str((getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1").strip().lower()
+    if flow_system != "v2":
+        flow_data = apply_materials(flow_data, materials)
     vertical_cfg = get_vertical_config(tenant_vertical_key) if tenant_vertical_key else {}
     ci_cfg = vertical_cfg.get("conversational_intelligence") if isinstance(vertical_cfg.get("conversational_intelligence"), dict) else {}
     ci_enabled = bool(ci_cfg.get("enabled", False))
@@ -601,16 +669,6 @@ def send_message(
     ai_extract_meta = None
     ai_reply_text = None
     raw_user_text = payload.message
-
-    session_id = payload.session_id or str(uuid4())
-    set_request_context(
-        tenant_id=tenant_id,
-        session_id=session_id,
-    )
-    metrics.set_gauge("chat_sessions_active", 1, {"tenant_id": tenant_id})
-    state = session_mgr.load(session_id) or {}
-    if state and state.get("vars", {}).get("tenant_id") not in (None, tenant_id):
-        raise HTTPException(status_code=403, detail="tenant_mismatch")
     if not state:
         # Intentar cargar desde DB si existe
         db_state = (
@@ -1014,6 +1072,31 @@ def send_message(
         session_mgr.save(session_id, state)
         next_block = engine.get_block(next_block_id)
 
+    # Ejecutar bloques internos del sistema (no se exponen al usuario/widget).
+    def run_internal_blocks(block: dict | None) -> dict | None:
+        nonlocal state
+        current = block
+        safety = 0
+        while isinstance(current, dict) and current.get("type") == "internal" and safety < 20:
+            safety += 1
+            action = str(current.get("action") or "").strip().lower()
+            if action == "calculate_scoring":
+                try:
+                    score, breakdown = compute_score(state, flow_data.get("scoring", {}) or {})
+                except Exception:
+                    score, breakdown = 0, {}
+                state.setdefault("vars", {})["lead_score"] = score
+                state.setdefault("vars", {})["lead_score_breakdown"] = breakdown
+            next_id = current.get("next") or (current.get("next_map", {}) or {}).get("default")
+            if not next_id:
+                return current
+            state["current_block"] = next_id
+            session_mgr.save(session_id, state)
+            current = engine.get_block(next_id)
+        return current
+
+    next_block = run_internal_blocks(next_block)
+
     requested_lang = payload.lang
     if not requested_lang and isinstance(materials, dict):
         content_cfg = materials.get("content") if isinstance(materials.get("content"), dict) else {}
@@ -1201,6 +1284,94 @@ def send_message(
 
     next_block = run_auto_blocks(next_block)
 
+    # Router → Subflow handoff (v1-safe, sin condition/next_map):
+    # Si el flow termina en `end` y tiene `config.router`, saltamos al subflow
+    # seleccionado por el motor (mapeo fuera del JSON, vía routes_file).
+    router_cfg = _router_cfg(flow_data) if isinstance(flow_data, dict) else None
+    if (
+        router_cfg
+        and isinstance(next_block, dict)
+        and str(next_block.get("type") or "").strip().lower() == "end"
+        and isinstance(flow_data.get("blocks"), dict)
+        and isinstance(state, dict)
+        and isinstance(vars_data, dict)
+        and not bool((state.get("_router") or {}).get("handoff_done"))
+    ):
+        choice_val = vars_data.get(router_cfg["save_to"])
+        choice_key = _slugify_key(choice_val) or router_cfg["fallback_key"]
+
+        # 1) Preferir routes_file (mapeo fuera del JSON)
+        subflow_file = None
+        subflow_id = None
+        routes_file = router_cfg.get("routes_file")
+        if tenant_vertical_key and routes_file:
+            routes_payload = vertical_read_asset_json(str(tenant_vertical_key), str(routes_file))
+            routes = routes_payload.get("routes") if isinstance(routes_payload, dict) else None
+            default = routes_payload.get("default") if isinstance(routes_payload, dict) else None
+            picked = None
+            if isinstance(routes, dict):
+                picked = routes.get(str(choice_val)) or routes.get(choice_key)
+            if picked is None and isinstance(default, (dict, str)):
+                picked = default
+            if isinstance(picked, str):
+                subflow_file = picked
+            elif isinstance(picked, dict):
+                subflow_file = picked.get("file") or picked.get("filename")
+                subflow_id = picked.get("subflow_id") or picked.get("flow_id")
+
+        # 2) Fallback: convención de nombre de bloque (legacy)
+        if not subflow_file and isinstance(flow_data.get("blocks"), dict):
+            blocks_dict = flow_data.get("blocks") or {}
+            candidate_id = f"{router_cfg['subflow_prefix']}{choice_key}{router_cfg['subflow_suffix']}"
+            if candidate_id not in blocks_dict:
+                fallback_id = f"{router_cfg['subflow_prefix']}{router_cfg['fallback_key']}{router_cfg['subflow_suffix']}"
+                candidate_id = fallback_id if fallback_id in blocks_dict else ""
+            if candidate_id and candidate_id in blocks_dict and candidate_id != "end":
+                state["_router"] = {
+                    "handoff_done": True,
+                    "save_to": router_cfg["save_to"],
+                    "choice": str(choice_val) if choice_val is not None else None,
+                    "subflow_start": candidate_id,
+                    "mode": "legacy_blocks",
+                }
+                state.pop("ended", None)
+                state["current_block"] = candidate_id
+                session_mgr.save(session_id, state)
+                next_block_id = candidate_id
+                next_block = engine.get_block(candidate_id) or next_block
+        # 3) Si hay subflow_file, cargar subflow como flow independiente (first-class)
+        if tenant_vertical_key and subflow_file:
+            sub = vertical_read_asset_json(str(tenant_vertical_key), str(subflow_file))
+            if isinstance(sub, dict) and isinstance(sub.get("blocks"), dict) and sub.get("blocks"):
+                try:
+                    ov_payload = load_overrides_payload(db, str(tenant_id))
+                    ov_entry = get_overrides_for_file(ov_payload, str(subflow_file))
+                    sub = apply_overrides_to_flow(sub, ov_entry)
+                except Exception:
+                    pass
+                start = sub.get("start_block")
+                if not isinstance(start, str) or start not in sub.get("blocks", {}):
+                    start = next(iter(sub.get("blocks", {}).keys()))
+                state["_router"] = {
+                    "handoff_done": True,
+                    "save_to": router_cfg["save_to"],
+                    "choice": str(choice_val) if choice_val is not None else None,
+                    "routes_file": routes_file,
+                    "mode": "subflow_file",
+                    "subflow_id": str(subflow_id or sub.get("version") or "") or None,
+                    "subflow_file": str(subflow_file),
+                }
+                state["_active_flow"] = {"type": "vertical_subflow", "file": str(subflow_file), "id": str(subflow_id or sub.get("version") or "") or None}
+                state.pop("ended", None)
+                state["current_block"] = start
+                session_mgr.save(session_id, state)
+
+                # Cambiar contexto de ejecución a subflow
+                flow_data = sub
+                engine = FlowEngine(flow_data, context=state.get("vars", {}))
+                next_block_id = start
+                next_block = engine.get_block(start) or next_block
+
     bot_block_id = (
         state.get("current_block", next_block_id or current_block_id)
         or current_block_id
@@ -1245,6 +1416,14 @@ def send_message(
             bot_block["text"] = (
                 bot_block.get("fallback_text") or bot_block.get("text") or ""
             )
+        bot_block["type"] = "message"
+
+    # Bloque final explícito (tipo `end`): terminar sesión sin exponer type al widget.
+    if bot_block.get("type") == "end":
+        state["ended"] = True
+        # Si terminamos un subflow activo, limpiar override para evitar que futuras llamadas
+        # intenten continuar con un flow inexistente.
+        state.pop("_active_flow", None)
         bot_block["type"] = "message"
     # Si el bloque es appointment/calendar, rellenar slots desde estado o agenda
     if bot_block.get("type") in {"appointment", "calendar"}:

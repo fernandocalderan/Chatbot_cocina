@@ -30,6 +30,28 @@ def init_page(*, title: str, icon: str | None = None) -> None:
     _load_styles()
 
 
+def _resolve_entrypoint_script() -> str:
+    """
+    Streamlit solo permite `page_link()` al script principal y archivos en `pages/`.
+    En local, a veces se ejecuta `streamlit run ui.py` y otras `streamlit run app.py`.
+    """
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx  # type: ignore
+
+        ctx = get_script_run_ctx()
+        main_path = getattr(ctx, "main_script_path", None)
+        if main_path:
+            name = Path(str(main_path)).name
+            if name in {"app.py", "ui.py"}:
+                return name
+    except Exception:
+        pass
+    entry = st.session_state.get("_admin_entrypoint")
+    if entry in {"app.py", "ui.py"}:
+        return entry
+    return "app.py"
+
+
 def _load_styles() -> None:
     css_path = Path(__file__).parent / "styles.css"
     if css_path.exists():
@@ -99,7 +121,7 @@ def require_admin_context() -> AdminContext:
 def render_sidebar_nav(*, show_tools: bool = True) -> None:
     with st.sidebar:
         st.markdown("### SuperAdmin")
-        st.page_link("app.py", label="Inicio", icon="🏠")
+        st.page_link(_resolve_entrypoint_script(), label="Inicio", icon="🏠")
         st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
         st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")

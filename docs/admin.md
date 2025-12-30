@@ -1,5 +1,17 @@
 # Panel y APIs de SuperAdmin
 
+## Reconstrucción de flujos personalizados
+- Documento de planificación: `docs/flow_rebuild_plan.md`.
+
+## Localhost (quickstart)
+- Levantar DB+Redis+API: `docker compose up -d --build`
+  - API: `http://localhost:8100`
+  - Postgres (host): `localhost:5433` (imagen `pgvector/pgvector`)
+  - Redis (host): `localhost:6382`
+- SuperAdmin panel (Streamlit): `scripts/run_admin_panel_local.sh` (por defecto `http://localhost:8502`)
+- Tenant panel (Streamlit): `scripts/run_tenant_panel_local.sh` (por defecto `http://localhost:8501`)
+- Si `8100` está ocupado, usa `API_PORT=8101 scripts/run_backend_local.sh` (backend fuera de docker) o cambia el mapping en `docker-compose.yml`.
+
 ## Acceso seguro
 - Usa `ADMIN_API_TOKEN` como API key dedicada al panel de superadmin (no se acepta en chat/widget). Configúralo en `.env` y cambia el valor por un secreto fuerte por entorno (dev/stage/prod).  
 - El panel `admin_panel` permite bypass OIDC si `ADMIN_API_KEY`/`ADMIN_API_TOKEN` está presente en el entorno.  

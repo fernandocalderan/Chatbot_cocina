@@ -1,4 +1,3 @@
-from functools import lru_cache
 import os
 from pathlib import Path
 import sys
@@ -86,6 +85,33 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
+def _env_file_mtime(path: str | None) -> float:
+    if not path:
+        return -1.0
+    try:
+        return Path(path).stat().st_mtime
+    except Exception:
+        return -1.0
+
+
+def _get_settings_uncached(*, env_file: str | None) -> Settings:
+    if env_file:
+        # Forzar lectura del env file actual (útil en local cuando cambian claves sin reinicio).
+        return Settings(_env_file=env_file)
     return Settings()
+
+
+# Cache con invalidación automática por mtime del env_file para evitar confusión en local
+# (p.ej., cambio de OPENAI_API_KEY sin reiniciar el backend).
+from functools import lru_cache  # noqa: E402
+
+
+@lru_cache(maxsize=4)
+def _get_settings_cached(env_file: str | None, mtime: float) -> Settings:
+    return _get_settings_uncached(env_file=env_file)
+
+
+def get_settings() -> Settings:
+    env_file = _resolve_env_file()
+    mtime = _env_file_mtime(env_file)
+    return _get_settings_cached(env_file, mtime)

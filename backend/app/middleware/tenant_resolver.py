@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from typing import Callable
+from urllib.parse import urlparse
 
 import jwt
 from fastapi import Request
@@ -13,15 +14,62 @@ from app.models.tenants import Tenant
 from app.models.users import User
 
 
-def _origin_allowed(
-    origin: str, referer: str, allowed_origins: list[str] | None
-) -> bool:
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def _canonical_origin(value: str) -> str:
+    """
+    Devuelve esquema://host:puerto (sin path/query) o "" si no parseable.
+    """
+    try:
+        p = urlparse(value or "")
+        if not p.scheme or not p.hostname:
+            return ""
+        port = p.port or (443 if p.scheme == "https" else 80)
+        host = p.hostname
+        return f"{p.scheme}://{host}:{port}"
+    except Exception:
+        return ""
+
+
+def _local_equivalent_origin(value: str) -> str:
+    """
+    En local, consideramos localhost/127.0.0.1/0.0.0.0 equivalentes para el mismo puerto.
+    """
+    base = _canonical_origin(value)
+    if not base:
+        return ""
+    try:
+        p = urlparse(base)
+        host = p.hostname or ""
+        if host in _LOCAL_HOSTS:
+            port = p.port or (443 if p.scheme == "https" else 80)
+            return f"{p.scheme}://localhost:{port}"
+        return base
+    except Exception:
+        return base
+
+
+def _origin_matches(allowed: str, origin: str, referer: str, *, local_mode: bool) -> bool:
+    if allowed and (origin.startswith(allowed) or referer.startswith(allowed)):
+        return True
+    if not local_mode or not allowed:
+        return False
+    allowed_c = _local_equivalent_origin(allowed)
+    if not allowed_c:
+        return False
+    origin_c = _local_equivalent_origin(origin) if origin else ""
+    referer_c = _local_equivalent_origin(referer) if referer else ""
+    return bool(origin_c and origin_c == allowed_c) or bool(referer_c and referer_c == allowed_c)
+
+
+def _origin_allowed(origin: str, referer: str, allowed_origins: list[str] | None, *, local_mode: bool) -> bool:
     if not allowed_origins:
         return True
     for allowed in allowed_origins:
         if not allowed:
             continue
-        if origin.startswith(allowed) or referer.startswith(allowed):
+        if _origin_matches(str(allowed), origin, referer, local_mode=local_mode):
             return True
     return False
 
@@ -52,6 +100,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
         return await call_next(request)
 
     settings = get_settings()
+    local_mode = str(getattr(settings, "environment", "local") or "local").lower() == "local"
     api_key = request.headers.get("x-api-key") or request.headers.get("X-Api-Key")
     header_tenant_raw = request.headers.get("X-Tenant-ID") or request.headers.get(
         "x-tenant-id"
@@ -91,7 +140,16 @@ async def resolve_tenant(request: Request, call_next: Callable):
         elif (
             api_key and settings.panel_api_token and api_key == settings.panel_api_token
         ):
-            tenant_obj = db.query(Tenant).first()
+            # Panel API token: requiere un tenant. Evitar elegir un tenant excluido si existe otro.
+            tenant_obj = db.query(Tenant).order_by(Tenant.created_at.asc()).all()
+            tenant_obj = next(
+                (
+                    t
+                    for t in tenant_obj
+                    if not bool((getattr(t, "branding", {}) or {}).get("excluded", False))
+                ),
+                None,
+            )
             if not tenant_obj:
                 return JSONResponse({"detail": "tenant_not_found"}, status_code=401)
             tenant_id = str(tenant_obj.id)
@@ -147,7 +205,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
                     )
                 if not origin and not referer:
                     return JSONResponse({"detail": "origin_required"}, status_code=401)
-                if not (origin.startswith(allowed) or referer.startswith(allowed)):
+                if not _origin_matches(str(allowed), origin, referer, local_mode=local_mode):
                     return JSONResponse(
                         {"detail": "origin_not_allowed"}, status_code=401
                     )
@@ -193,6 +251,10 @@ async def resolve_tenant(request: Request, call_next: Callable):
         allowed_origins = []
         if tenant_obj:
             branding = getattr(tenant_obj, "branding", {}) or {}
+            # Excluido: bloquear todo el acceso tenant/widget/panel (admin sigue pudiendo operar).
+            # Permitir bypass cuando el token es de impersonación (soporte/debug).
+            if bool(branding.get("excluded", False)) and "IMPERSONATED" not in roles:
+                return JSONResponse({"detail": "tenant_excluded"}, status_code=403)
             allowed_origins = (
                 branding.get("allowed_widget_origins")
                 or branding.get("allowed_origins")
@@ -210,7 +272,7 @@ async def resolve_tenant(request: Request, call_next: Callable):
         if (
             (origin or referer)
             and tenant_obj
-            and not _origin_allowed(origin, referer, allowed_origins)
+            and not _origin_allowed(origin, referer, allowed_origins, local_mode=local_mode)
         ):
             return JSONResponse({"detail": "origin_not_allowed"}, status_code=401)
 

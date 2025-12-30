@@ -1,4 +1,5 @@
 from app.observability import metrics
+import os
 
 
 class FlowEngine:
@@ -38,8 +39,25 @@ class FlowEngine:
             {"tenant_id": tenant_id, "block_type": block_type or "unknown"},
         )
 
-        # 1) Bloques de condición (condition) -> usan self.context
+        # 1) Bloques de condición (condition) -> INSEGURO si usa eval.
+        # En v1-safe deshabilitamos eval por defecto. Se puede habilitar solo en dev con:
+        # ENABLE_UNSAFE_EVAL_CONDITIONS=1
         if block_type == "condition":
+            if os.getenv("ENABLE_UNSAFE_EVAL_CONDITIONS") != "1":
+                metrics.inc_counter(
+                    "flow_condition_blocks_blocked_total",
+                    {"tenant_id": tenant_id},
+                )
+                # Fallback determinista: intenta usar `next` o, si no existe, la primera salida declarada.
+                nxt = current_block.get("next")
+                if nxt:
+                    return nxt
+                conditions = current_block.get("conditions", [])
+                if isinstance(conditions, list):
+                    for cond in conditions:
+                        if isinstance(cond, dict) and cond.get("next"):
+                            return cond.get("next")
+                return None
             ctx = self.context or {}
             conditions = current_block.get("conditions", [])
             for cond in conditions:

@@ -42,7 +42,7 @@ with col_b:
     origins_new = st.text_input("Allowed origins (coma)", key="ct-origins")
     limit = st.number_input("Límite IA €", min_value=0.0, step=5.0, value=0.0, key="ct-limit")
     maint_new = st.checkbox("Mantenimiento inicial", value=False, key="ct-maint")
-    use_ia_new = st.checkbox("IA habilitada", value=True, key="ct-ia")
+    use_ia_new = st.checkbox("IA habilitada (permiso)", value=False, key="ct-ia")
 
 selected_scopes_new: list[str] = []
 selected_vertical = vertical_by_key.get(vertical_key) if vertical_key else None
@@ -74,6 +74,7 @@ if isinstance(selected_vertical, dict):
         )
 
 if st.button("Crear", use_container_width=True, key="ct-submit"):
+    ia_limit = float(limit or 0.0)
     payload = {
         "name": name,
         "contact_email": contact or None,
@@ -83,7 +84,7 @@ if st.button("Crear", use_container_width=True, key="ct-submit"):
         "address_postal_code": addr_postal or None,
         "address_city": addr_city or None,
         "plan": plan,
-        "ia_monthly_limit_eur": limit,
+        "ia_monthly_limit_eur": None if ia_limit <= 0 else ia_limit,
         "allowed_origins": [o.strip() for o in origins_new.split(",") if o.strip()],
         "maintenance": maint_new,
         "use_ia": use_ia_new,

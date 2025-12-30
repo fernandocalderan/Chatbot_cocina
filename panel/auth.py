@@ -36,7 +36,6 @@ def ensure_login(*, allow_when_must_set_password: bool = False) -> str | None:
             except Exception:
                 st.stop()
         st.stop()
-    default_tid = os.getenv("PANEL_TENANT_ID") or "3ef65ee3-b31a-4b48-874e-d8d937cb7766"
     if token:
         # Cuando ya hay sesión, el tenant_id debe venir del JWT (evita quedar “enganchado”
         # al tenant por defecto al cambiar de usuario/tenant).
@@ -44,11 +43,7 @@ def ensure_login(*, allow_when_must_set_password: bool = False) -> str | None:
         token_tid = payload.get("tenant_id")
         if token_tid:
             st.session_state["tenant_id"] = token_tid
-        elif not st.session_state.get("tenant_id"):
-            st.session_state["tenant_id"] = default_tid
-    elif not st.session_state.get("tenant_id"):
-        # Antes de iniciar sesión, prefill para mejorar UX.
-        st.session_state["tenant_id"] = default_tid
+        # No rellenar tenant_id por defecto sin token (evita confusión multi-tenant).
     if token:
         # Hidrata branding/config del tenant 1 vez por sesión (idioma, tz, moneda, nombre).
         if not st.session_state.get("_branding_loaded"):

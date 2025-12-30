@@ -1,0 +1,58 @@
+{
+  "version": "flow_clinics_private__dental__motivo_consulta__implantes__v1",
+  "plan": "base",
+  "languages": ["es"],
+  "start_block": "intro",
+  "config": {
+    "subflow": {
+      "scope": "dental",
+      "router_save_to": "motivo_consulta",
+      "key": "implantes",
+      "label": "Implantes o prótesis"
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "De acuerdo. Para implantes o prótesis, haremos una valoración inicial en consulta.",
+      "next": "disclaimer"
+    },
+    "disclaimer": {
+      "id": "disclaimer",
+      "type": "message",
+      "text": "Ten en cuenta que la valoración y cualquier tratamiento siempre se realizan de forma presencial por un profesional.",
+      "next": "nombre"
+    },
+    "nombre": {
+      "id": "nombre",
+      "type": "input",
+      "text": "Para continuar, indícanos tu nombre completo",
+      "save_to": "nombre",
+      "validation": {"type": "text_length", "min_chars": 2, "max_chars": 80},
+      "next": "telefono"
+    },
+    "telefono": {
+      "id": "telefono",
+      "type": "input",
+      "text": "¿Cuál es tu número de teléfono?",
+      "save_to": "telefono",
+      "validation": {"type": "phone"},
+      "next": "agenda"
+    },
+    "agenda": {
+      "id": "agenda",
+      "type": "calendar",
+      "text": "Reserva una cita para que el equipo valore tu caso en persona.",
+      "save_to": "appointment_slot",
+      "next": "cierre"
+    },
+    "cierre": {
+      "id": "cierre",
+      "type": "message",
+      "text": "Perfecto. En breve el equipo de la clínica continuará contigo. Gracias por contactar con nosotros.",
+      "next": "end"
+    },
+    "end": {"id": "end", "type": "end"}
+  }
+}

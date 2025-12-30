@@ -2,16 +2,22 @@
   "kitchens": {
     "label": "Cocinas & Reformas",
     "default_flow_id": "kitchens_base_v1",
-    "flow_ids": ["kitchens_base_v1"]
+    "flow_ids": [
+      "kitchens_base_v1"
+    ]
   },
   "clinics_private": {
     "label": "Clínicas Privadas",
     "default_flow_id": "clinics_private_base_v1",
-    "flow_ids": ["clinics_private_base_v1"]
+    "flow_ids": [
+      "clinics_private_base_v1"
+    ]
   },
   "home_services": {
-    "label": "Home Services",
+    "label": "Servicios para el Hogar",
     "default_flow_id": "home_services_base_v1",
-    "flow_ids": ["home_services_base_v1"]
+    "flow_ids": [
+      "home_services_base_v1"
+    ]
   }
 }

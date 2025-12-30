@@ -28,6 +28,15 @@ MODEL_PRICING = {
         "input_usd_per_million": 4.0,
         "output_usd_per_million": 10.0,
     },
+    # Embeddings (USD / 1M tokens). Output tokens are 0 for embeddings.
+    "text-embedding-3-small": {
+        "input_usd_per_million": 0.02,
+        "output_usd_per_million": 0.0,
+    },
+    "text-embedding-3-large": {
+        "input_usd_per_million": 0.13,
+        "output_usd_per_million": 0.0,
+    },
 }
 
 
@@ -42,6 +51,10 @@ def normalize_model_name(model: str) -> str:
         return "gpt-4.1-mini"
     if "preview" in m or "gpt-4.1-preview" in m:
         return "gpt-4.1-preview"
+    if "text-embedding-3-small" in m or "embedding-3-small" in m:
+        return "text-embedding-3-small"
+    if "text-embedding-3-large" in m or "embedding-3-large" in m:
+        return "text-embedding-3-large"
     return "gpt-4.1"  # fallback seguro
 
 

@@ -1,0 +1,33 @@
+{
+  "router": {
+    "scope": "dental",
+    "block_id": "motivo_consulta",
+    "save_to": "motivo_consulta"
+  },
+  "routes": {
+    "dolor": {
+      "subflow_id": "flow_clinics_private__dental__motivo_consulta__dolor__v1",
+      "file": "subflow_scope_dental__motivo_consulta__dolor.json"
+    },
+    "revision": {
+      "subflow_id": "flow_clinics_private__dental__motivo_consulta__revision__v1",
+      "file": "subflow_scope_dental__motivo_consulta__revision.json"
+    },
+    "ortodoncia": {
+      "subflow_id": "flow_clinics_private__dental__motivo_consulta__ortodoncia__v1",
+      "file": "subflow_scope_dental__motivo_consulta__ortodoncia.json"
+    },
+    "implantes": {
+      "subflow_id": "flow_clinics_private__dental__motivo_consulta__implantes__v1",
+      "file": "subflow_scope_dental__motivo_consulta__implantes.json"
+    },
+    "otro": {
+      "subflow_id": "flow_clinics_private__dental__motivo_consulta__otro__v1",
+      "file": "subflow_scope_dental__motivo_consulta__otro.json"
+    }
+  },
+  "default": {
+    "subflow_id": "flow_clinics_private__dental__motivo_consulta__otro__v1",
+    "file": "subflow_scope_dental__motivo_consulta__otro.json"
+  }
+}

@@ -15,7 +15,8 @@ if existing_token:
     st.session_state["_config_tab"] = "seguridad"
     st.switch_page("pages/configuracion.py")
 
-default_tenant = st.session_state.get("tenant_id") or os.getenv("PANEL_TENANT_ID", "")
+# No predefinir tenant: el usuario debe pegar/ingresar el Tenant ID.
+default_tenant = ""
 
 mode = st.radio(
     "Método de acceso",

@@ -1,0 +1,4 @@
+Scope: cristaleria
+Objetivo: describe la especialidad del negocio para este scope.
+Incluye: servicios, precios, horarios, materiales y políticas cuando aparezcan en los documentos.
+Estilo: claro, directo, orientado a captación y agenda.

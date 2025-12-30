@@ -234,25 +234,17 @@
         "es": "Para confirmar zona y disponibilidad real, ¿en qué ciudad o código postal es el servicio?"
       },
       "save_to": "location",
-      "next": "cta_router"
+      "next": "route_after_location"
     },
-    "cta_router": {
-      "id": "cta_router",
-      "type": "condition",
-      "conditions": [
-        {
-          "if": "service_type in ['instalacion','reparacion']",
-          "next": "appointment_offer"
-        },
-        {
-          "if": "service_type == 'presupuesto'",
-          "next": "info_before_booking"
-        },
-        {
-          "if": "",
-          "next": "appointment_offer"
-        }
-      ]
+    "route_after_location": {
+      "id": "route_after_location",
+      "type": "buttons",
+      "save_to": "service_type",
+      "next_map": {
+        "presupuesto": "info_before_booking",
+        "default": "appointment_offer"
+      },
+      "next": "appointment_offer"
     },
     "info_before_booking": {
       "id": "info_before_booking",

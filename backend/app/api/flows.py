@@ -92,7 +92,9 @@ def get_current_flow(
     # (cuando está deshabilitado, el runtime usa el flujo base de vertical+scopes).
     custom_enabled = True
     if getattr(tenant, "vertical_key", None):
-        custom_enabled = tenant_custom_flow_enabled(tenant)
+        branding = getattr(tenant, "branding", {}) or {}
+        flow_system = str(branding.get("flow_system") or "v1").strip().lower()
+        custom_enabled = True if flow_system == "v2" else tenant_custom_flow_enabled(tenant)
 
     if custom_enabled:
         latest = _load_latest_published_flow(db, current_tenant)
@@ -122,7 +124,9 @@ def get_current_flow(
         flow_id_override=flow_id_override,
         plan_value=str(plan_value or "base").lower(),
     )
-    flow_data = apply_materials(flow_data, materials)
+    flow_system = str((getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1").strip().lower()
+    if flow_system != "v2":
+        flow_data = apply_materials(flow_data, materials)
     return {
         "tenant_id": current_tenant,
         "flow_id": None,

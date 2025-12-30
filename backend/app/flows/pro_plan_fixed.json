@@ -377,21 +377,19 @@
     },
     "branch_kitchen_or_bath": {
       "id": "branch_kitchen_or_bath",
-      "type": "condition",
-      "conditions": [
-        {
-          "if": "tipo_proyecto in ['cocina_nueva','cocina_reforma','muebles_cocina','lavadero']",
-          "next": "kitchen_usage_people"
-        },
-        {
-          "if": "tipo_proyecto in ['bano_nuevo','bano_reforma','muebles_bano']",
-          "next": "bath_usage_people"
-        },
-        {
-          "if": "True",
-          "next": "style_global"
-        }
-      ]
+      "type": "buttons",
+      "save_to": "tipo_proyecto",
+      "next_map": {
+        "cocina_nueva": "kitchen_usage_people",
+        "cocina_reforma": "kitchen_usage_people",
+        "muebles_cocina": "kitchen_usage_people",
+        "lavadero": "kitchen_usage_people",
+        "bano_nuevo": "bath_usage_people",
+        "bano_reforma": "bath_usage_people",
+        "muebles_bano": "bath_usage_people",
+        "default": "style_global"
+      },
+      "next": "style_global"
     },
     "kitchen_usage_people": {
       "id": "kitchen_usage_people",
