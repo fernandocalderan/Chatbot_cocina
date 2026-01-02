@@ -1,0 +1,39 @@
+{
+  "version": "flow_clinics_private__dental__motivo_consulta__limpieza__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false,
+    "router": {
+      "block_id": "motivo_consulta",
+      "save_to": "motivo_consulta",
+      "mode": "handoff_end",
+      "routes_file": "router_routes_scope_dental__motivo_consulta.json",
+      "fallback_key": "otro"
+    },
+    "subflow": {
+      "vertical_key": "clinics_private",
+      "scope": "dental",
+      "router_save_to": "motivo_consulta",
+      "key": "limpieza",
+      "label": null
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Sub-flow `limpieza` (pendiente de configurar).",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

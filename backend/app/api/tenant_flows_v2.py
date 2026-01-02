@@ -55,37 +55,81 @@ def _slugify_key(value: object) -> str:
         s = s.replace("__", "_")
     return s.strip("_-")
 
+def _infer_router_cfg_from_flow(flow: dict) -> dict | None:
+    blocks = flow.get("blocks") if isinstance(flow.get("blocks"), dict) else {}
+    if not blocks:
+        return None
 
-def _router_and_routes_for_tenant(db: Session, tenant: Tenant) -> tuple[dict, dict, dict] | tuple[None, None, None]:
+    candidates: list[tuple[str, str, bool]] = []
+    for bid, block in blocks.items():
+        if not isinstance(block, dict):
+            continue
+        btype = str(block.get("type") or "").strip().lower()
+        if btype not in {"buttons", "options"}:
+            continue
+        options = block.get("options")
+        if not isinstance(options, list) or not options:
+            continue
+        save_to = block.get("save_to") if isinstance(block.get("save_to"), str) else None
+        if not save_to or not save_to.strip():
+            continue
+        next_is_end = str(block.get("next") or "").strip().lower() == "end"
+        candidates.append((str(bid), str(save_to).strip(), next_is_end))
+
+    if not candidates:
+        return None
+    # Prefer the v1-safe router pattern (ends in `end`) when possible.
+    candidates = sorted(candidates, key=lambda x: (not x[2], x[0]))
+    block_id, save_to, _ = candidates[0]
+    return {"block_id": block_id, "save_to": save_to, "mode": "handoff_end"}
+
+
+def _resolve_router_cfg_for_tenant(db: Session, tenant: Tenant, runtime_flow: dict) -> dict | None:
+    cfg = runtime_flow.get("config") if isinstance(runtime_flow.get("config"), dict) else {}
+    router_cfg = cfg.get("router") if isinstance(cfg.get("router"), dict) else None
+    if isinstance(router_cfg, dict) and str(router_cfg.get("save_to") or "").strip():
+        return router_cfg
+
+    # Fallback: take router metadata from scope base (helps with older published flows missing config.router)
+    scopes = tenant_vertical_scopes(tenant)
+    base = vertical_flow_base(getattr(tenant, "vertical_key", None), scopes)
+    base_cfg = base.get("config") if isinstance(base, dict) and isinstance(base.get("config"), dict) else {}
+    base_router = base_cfg.get("router") if isinstance(base_cfg.get("router"), dict) else None
+    if isinstance(base_router, dict) and str(base_router.get("save_to") or "").strip():
+        return base_router
+
+    # Last resort: infer from runtime blocks.
+    return _infer_router_cfg_from_flow(runtime_flow)
+
+
+def _flow_router_and_routes_for_tenant(db: Session, tenant: Tenant) -> tuple[dict | None, dict | None, dict]:
     """
-    Devuelve (router_flow, router_cfg, routes_payload) o (None, None, None).
+    Devuelve (runtime_flow, router_cfg?, routes_payload{}).
     """
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
     flow = resolve_runtime_flow(db=db, tenant=tenant, flow_id_override=None, plan_value=str(plan_value or "base").lower())
     if not isinstance(flow, dict) or not flow:
-        return None, None, None
-    cfg = flow.get("config") if isinstance(flow.get("config"), dict) else {}
-    router_cfg = cfg.get("router") if isinstance(cfg.get("router"), dict) else None
-    if not isinstance(router_cfg, dict):
-        return None, None, None
+        return None, None, {}
     vertical_key = getattr(tenant, "vertical_key", None)
     if not vertical_key:
-        return None, None, None
-    routes_file = str(router_cfg.get("routes_file") or "").strip()
+        return flow, None, {}
+
+    router_cfg = _resolve_router_cfg_for_tenant(db, tenant, flow)
+    routes_file = str(router_cfg.get("routes_file") or "").strip() if isinstance(router_cfg, dict) else ""
     routes_payload: dict = {}
-    if routes_file:
+    if isinstance(router_cfg, dict) and routes_file:
         loaded = vertical_read_asset_json(str(vertical_key), routes_file)
         routes_payload = loaded if isinstance(loaded, dict) else {}
     return flow, router_cfg, routes_payload
 
 
-def _router_scope_for_tenant(tenant: Tenant, router_cfg: dict) -> str | None:
-    scope_key = str(router_cfg.get("scope") or "").strip().lower() or None
+def _router_scope_for_tenant(tenant: Tenant, router_cfg: dict | None) -> str | None:
+    scope_key = str((router_cfg or {}).get("scope") or "").strip().lower() or None
     if scope_key:
         return scope_key
-    routes_file = str(router_cfg.get("routes_file") or "").strip()
+    routes_file = str((router_cfg or {}).get("routes_file") or "").strip()
     parsed = parse_vertical_router_routes_filename(routes_file) if routes_file else None
     if isinstance(parsed, dict) and parsed.get("scope"):
         return str(parsed["scope"]).strip().lower()
@@ -633,7 +677,7 @@ def list_subflows(
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant_not_found")
 
-    flow, router_cfg, routes_payload = _router_and_routes_for_tenant(db, tenant)
+    flow, router_cfg, routes_payload = _flow_router_and_routes_for_tenant(db, tenant)
     if not flow:
         return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
 
@@ -641,12 +685,18 @@ def list_subflows(
     if not vertical_key:
         return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
 
-    save_to = str(router_cfg.get("save_to") or "").strip()
+    effective_router_cfg = router_cfg if isinstance(router_cfg, dict) else None
+    save_to = str((effective_router_cfg or {}).get("save_to") or "").strip()
+    if not save_to:
+        # As a last resort, try to infer it from blocks (helps tenants with legacy published flows).
+        inferred = _infer_router_cfg_from_flow(flow)
+        effective_router_cfg = inferred if isinstance(inferred, dict) else None
+        save_to = str((effective_router_cfg or {}).get("save_to") or "").strip()
     if not save_to:
         return {"tenant_id": str(tenant.id), "router": None, "subflows": []}
 
-    scope_key = _router_scope_for_tenant(tenant, router_cfg)
-    labels = _router_labels(flow, router_cfg)
+    scope_key = _router_scope_for_tenant(tenant, effective_router_cfg)
+    labels = _router_labels(flow, effective_router_cfg or {})
     overrides_payload = load_subflow_overrides_payload(db, str(tenant.id))
     overrides = overrides_payload.get("overrides") if isinstance(overrides_payload.get("overrides"), dict) else {}
 
@@ -709,9 +759,9 @@ def list_subflows(
     return {
         "tenant_id": str(tenant.id),
         "router": {
-            "block_id": str(router_cfg.get("block_id") or ""),
-            "save_to": str(router_cfg.get("save_to") or ""),
-            "routes_file": str(router_cfg.get("routes_file") or ""),
+            "block_id": str((effective_router_cfg or {}).get("block_id") or ""),
+            "save_to": str((effective_router_cfg or {}).get("save_to") or ""),
+            "routes_file": str((effective_router_cfg or {}).get("routes_file") or ""),
         },
         "subflows": [i.model_dump() for i in items],
     }
@@ -728,7 +778,7 @@ def get_subflow(
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant_not_found")
 
-    flow, router_cfg, routes_payload = _router_and_routes_for_tenant(db, tenant)
+    flow, router_cfg, routes_payload = _flow_router_and_routes_for_tenant(db, tenant)
     if not flow:
         raise HTTPException(status_code=404, detail="router_not_configured")
 
@@ -736,8 +786,11 @@ def get_subflow(
     vertical_key = getattr(tenant, "vertical_key", None)
     if not vertical_key:
         raise HTTPException(status_code=400, detail="tenant_missing_vertical")
-    save_to = str(router_cfg.get("save_to") or "").strip().lower()
-    scope_key = _router_scope_for_tenant(tenant, router_cfg)
+    effective_router_cfg = router_cfg if isinstance(router_cfg, dict) else _infer_router_cfg_from_flow(flow)
+    save_to = str((effective_router_cfg or {}).get("save_to") or "").strip().lower()
+    if not save_to:
+        raise HTTPException(status_code=404, detail="router_not_configured")
+    scope_key = _router_scope_for_tenant(tenant, effective_router_cfg)
     subflow_file, subflow_id = _resolve_subflow_file(
         vertical_key=str(vertical_key),
         scope_key=scope_key,
@@ -782,7 +835,7 @@ def patch_subflow_block(
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant_not_found")
 
-    flow, router_cfg, routes_payload = _router_and_routes_for_tenant(db, tenant)
+    flow, router_cfg, routes_payload = _flow_router_and_routes_for_tenant(db, tenant)
     if not flow:
         raise HTTPException(status_code=404, detail="router_not_configured")
 
@@ -790,8 +843,11 @@ def patch_subflow_block(
     vertical_key = getattr(tenant, "vertical_key", None)
     if not vertical_key:
         raise HTTPException(status_code=400, detail="tenant_missing_vertical")
-    save_to = str(router_cfg.get("save_to") or "").strip().lower()
-    scope_key = _router_scope_for_tenant(tenant, router_cfg)
+    effective_router_cfg = router_cfg if isinstance(router_cfg, dict) else _infer_router_cfg_from_flow(flow)
+    save_to = str((effective_router_cfg or {}).get("save_to") or "").strip().lower()
+    if not save_to:
+        raise HTTPException(status_code=404, detail="router_not_configured")
+    scope_key = _router_scope_for_tenant(tenant, effective_router_cfg)
     subflow_file, _subflow_id = _resolve_subflow_file(
         vertical_key=str(vertical_key),
         scope_key=scope_key,
