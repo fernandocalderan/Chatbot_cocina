@@ -19,6 +19,8 @@ from api_client import (
     list_flow_v2_subflows,
     get_flow_v2_subflow,
     patch_flow_v2_subflow_block,
+    update_flow_v2_subflows,
+    preview_flow_v2_subflows,
 )
 from utils import load_styles, empty_state, pill
 
@@ -182,6 +184,14 @@ def _patch_subflow_text(subflow_key: str, block_id: str, values_by_lang: dict[st
 
 def _patch_subflow_options(subflow_key: str, block_id: str, options: list[dict]):
     return patch_flow_v2_subflow_block(subflow_key, block_id, {"options": options})
+
+
+def _patch_subflow_text_enriched(subflow_key: str, block_id: str, values_by_lang: dict[str, str]):
+    return patch_flow_v2_subflow_block(subflow_key, block_id, {"text_enriched": values_by_lang})
+
+
+def _patch_subflow_text_variants(subflow_key: str, block_id: str, variants: list[str]):
+    return patch_flow_v2_subflow_block(subflow_key, block_id, {"text_variants": variants})
 
 
 def _compute_dirty_blocks() -> set[str]:
@@ -574,16 +584,114 @@ for idx, (block_id, block) in enumerate(block_items, start=1):
 
 
 st.divider()
-st.subheader("Sub-flows (por intención)")
-st.caption("Opcional: personaliza los textos/opciones de cada sub-flow. La estructura se mantiene fija.")
+st.subheader("Sub-flows")
+st.caption("Activa/desactiva etapas y personaliza copy sin romper la estructura.")
 
 subflows_payload = _safe_dict(list_flow_v2_subflows())
 subflows_list = subflows_payload.get("subflows") if isinstance(subflows_payload.get("subflows"), list) else []
+composition_mode = str(subflows_payload.get("composition_mode") or "router").strip().lower()
+order_list = subflows_payload.get("order") if isinstance(subflows_payload.get("order"), list) else []
+recommended_order = subflows_payload.get("recommended_order") if isinstance(subflows_payload.get("recommended_order"), list) else []
+
+mode_idx = 1 if composition_mode == "sequential" else 0
+col_mode1, col_mode2 = st.columns([0.7, 0.3])
+mode_choice = col_mode1.selectbox("Modo de composición", options=["router", "sequential"], index=mode_idx, key="sf-mode")
+if col_mode2.button("Guardar modo", use_container_width=True):
+    res = update_flow_v2_subflows({"composition_mode": mode_choice})
+    if isinstance(res, dict) and res.get("status_code"):
+        st.error(res)
+    else:
+        st.success("Modo actualizado.")
+        st.rerun()
+
 if not subflows_list:
-    st.info("Este flujo no tiene router/sub-flows configurados (o no hay sub-flows en el scope).")
+    st.info("No hay sub-flows detectados para este tenant.")
 else:
+    all_keys = [str(item.get("key") or "").strip() for item in subflows_list if isinstance(item, dict)]
+    all_keys = [k for k in all_keys if k]
+    normalized_order = [k for k in order_list if k in all_keys]
+    if not normalized_order and recommended_order:
+        normalized_order = [k for k in recommended_order if k in all_keys]
+    for k in all_keys:
+        if k not in normalized_order:
+            normalized_order.append(k)
+
+    if "sf_order_list" not in st.session_state or st.session_state.get("sf_order_seed") != ",".join(normalized_order):
+        st.session_state["sf_order_list"] = list(normalized_order)
+        st.session_state["sf_order_seed"] = ",".join(normalized_order)
+
+    if composition_mode == "sequential":
+        st.markdown("**Orden (sequential)**")
+        order_state = st.session_state.get("sf_order_list", [])
+        sel_key = st.selectbox("Mover sub-flow", options=order_state, index=0, key="sf-order-select")
+        c_up, c_down, c_save = st.columns([0.25, 0.25, 0.5])
+        if c_up.button("Subir", use_container_width=True):
+            idx = order_state.index(sel_key)
+            if idx > 0:
+                order_state[idx - 1], order_state[idx] = order_state[idx], order_state[idx - 1]
+                st.session_state["sf_order_list"] = order_state
+                st.rerun()
+        if c_down.button("Bajar", use_container_width=True):
+            idx = order_state.index(sel_key)
+            if idx < len(order_state) - 1:
+                order_state[idx + 1], order_state[idx] = order_state[idx], order_state[idx + 1]
+                st.session_state["sf_order_list"] = order_state
+                st.rerun()
+        if c_save.button("Guardar orden", use_container_width=True):
+            res = update_flow_v2_subflows({"order": order_state})
+            if isinstance(res, dict) and res.get("status_code"):
+                st.error(res)
+            else:
+                st.success("Orden guardado.")
+                st.rerun()
+
+        st.markdown("**Activación de sub-flows**")
+        enabled_updates: dict[str, bool] = {}
+        for item in subflows_list:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if not key:
+                continue
+            label = item.get("label")
+            label_txt = label.get(languages[0]) if isinstance(label, dict) else (str(label) if label is not None else "")
+            title = f"{key} — {label_txt}" if label_txt else key
+            required = bool(item.get("required"))
+            locked = bool(item.get("locked"))
+            enabled_val = bool(item.get("enabled", True))
+            col_a, col_b = st.columns([0.75, 0.25])
+            col_a.markdown(title + (" 🔒" if locked else "") + (" (obligatorio)" if required else ""))
+            enabled_updates[key] = col_b.checkbox(
+                "Activo",
+                value=True if required else enabled_val,
+                disabled=bool(required),
+                key=f"sf-enabled-{key}",
+            )
+        if st.button("Guardar activación", use_container_width=True):
+            res = update_flow_v2_subflows({"enabled": enabled_updates})
+            if isinstance(res, dict) and res.get("status_code"):
+                st.error(res)
+            else:
+                st.success("Activación guardada.")
+                st.rerun()
+
+        if st.button("Generar preview", use_container_width=True):
+            preview = _safe_dict(preview_flow_v2_subflows())
+            flow_prev = preview.get("flow") if isinstance(preview.get("flow"), dict) else {}
+            blocks_prev = flow_prev.get("blocks") if isinstance(flow_prev.get("blocks"), dict) else {}
+            st.caption(f"Preview: start=`{flow_prev.get('start_block')}` · blocks={len(blocks_prev)}")
+            if blocks_prev:
+                st.markdown("**Primeros bloques (preview)**")
+                for bid, b in list(blocks_prev.items())[:12]:
+                    if not isinstance(b, dict):
+                        continue
+                    txt = _get_text(b, languages[0]).strip().split("\n")[0][:120]
+                    st.write(f"- `{bid}` · {txt}")
+
+    st.markdown("**Editar copy de sub-flow**")
     display_by_key: dict[str, str] = {}
     opt_keys: list[str] = []
+    lock_map: dict[str, bool] = {}
     for item in subflows_list:
         if not isinstance(item, dict):
             continue
@@ -593,9 +701,16 @@ else:
         label = item.get("label")
         label_txt = label.get(languages[0]) if isinstance(label, dict) else (str(label) if label is not None else "")
         has_ov = bool(item.get("has_overrides"))
+        enabled_val = bool(item.get("enabled", True))
+        locked = bool(item.get("locked"))
+        lock_map[k] = locked
         title = f"{k} — {label_txt}" if label_txt else k
+        if not enabled_val:
+            title = f"{title} (desactivado)"
         if has_ov:
-            title = f"{title} (personalizado)"
+            title = f"{title} · personalizado"
+        if locked:
+            title = f"{title} 🔒"
         display_by_key[k] = title
         opt_keys.append(k)
 
@@ -613,11 +728,14 @@ else:
     sf_blocks = effective_sf.get("blocks") if isinstance(effective_sf.get("blocks"), dict) else {}
     sf_langs = effective_sf.get("languages") if isinstance(effective_sf.get("languages"), list) else languages
     sf_langs = [str(x) for x in sf_langs if x] or languages
+    is_locked = lock_map.get(selected_key_raw, False)
 
     if not sf_blocks:
         st.error(subflow_info or "No se pudo cargar el sub-flow.")
     else:
         st.caption(f"Archivo: `{subflow_info.get('file') or '—'}` · blocks: {len(sf_blocks)}")
+        if is_locked:
+            st.warning("Este sub-flow está bloqueado y no permite edición.")
         for idx2, (sf_block_id, sf_block) in enumerate(list(sf_blocks.items()), start=1):
             if not isinstance(sf_block, dict):
                 continue
@@ -639,7 +757,7 @@ else:
                         key=f"sf-txt-{selected_key_raw}-{sf_block_id}-{lang}",
                         height=110,
                     )
-                if st.button("Guardar texto", key=f"sf-save-text-{selected_key_raw}-{sf_block_id}", use_container_width=True):
+                if st.button("Guardar texto", key=f"sf-save-text-{selected_key_raw}-{sf_block_id}", use_container_width=True, disabled=is_locked):
                     with st.spinner("Guardando…"):
                         res = _patch_subflow_text(selected_key_raw, sf_block_id, edited_sf)
                     if isinstance(res, dict) and res.get("status_code"):
@@ -647,6 +765,46 @@ else:
                     else:
                         st.success("Texto guardado.")
                         st.rerun()
+
+                if isinstance(sf_block.get("text_enriched"), dict):
+                    st.markdown("**Texto enriquecido**")
+                    cols = st.columns(2)
+                    edited_enriched: dict[str, str] = {}
+                    for i, lang in enumerate(sf_langs):
+                        col = cols[i % 2]
+                        edited_enriched[lang] = col.text_area(
+                            f"Enriched ({lang.upper()})",
+                            value=str(sf_block.get("text_enriched", {}).get(lang) or ""),
+                            key=f"sf-enriched-{selected_key_raw}-{sf_block_id}-{lang}",
+                            height=110,
+                        )
+                    if st.button("Guardar enriched", key=f"sf-save-enriched-{selected_key_raw}-{sf_block_id}", use_container_width=True, disabled=is_locked):
+                        with st.spinner("Guardando…"):
+                            res = _patch_subflow_text_enriched(selected_key_raw, sf_block_id, edited_enriched)
+                        if isinstance(res, dict) and res.get("status_code"):
+                            st.error(res)
+                        else:
+                            st.success("Texto enriquecido guardado.")
+                            st.rerun()
+
+                if isinstance(sf_block.get("text_variants"), list):
+                    st.markdown("**Variantes**")
+                    variants_raw = "\n".join([str(v) for v in sf_block.get("text_variants") if v is not None])
+                    variants_txt = st.text_area(
+                        "Variantes (una por línea)",
+                        value=variants_raw,
+                        key=f"sf-variants-{selected_key_raw}-{sf_block_id}",
+                        height=140,
+                    )
+                    if st.button("Guardar variantes", key=f"sf-save-variants-{selected_key_raw}-{sf_block_id}", use_container_width=True, disabled=is_locked):
+                        variants_list = [v.strip() for v in (variants_txt or "").split("\n") if v.strip()]
+                        with st.spinner("Guardando…"):
+                            res = _patch_subflow_text_variants(selected_key_raw, sf_block_id, variants_list)
+                        if isinstance(res, dict) and res.get("status_code"):
+                            st.error(res)
+                        else:
+                            st.success("Variantes guardadas.")
+                            st.rerun()
 
                 if sf_type in {"buttons", "options"}:
                     st.markdown("**Opciones**")
@@ -687,7 +845,7 @@ else:
                                 value="",
                                 key=f"sf-new-opt-label-{selected_key_raw}-{sf_block_id}-{lang}",
                             )
-                        if st.button("Guardar opciones", key=f"sf-save-opts-{selected_key_raw}-{sf_block_id}", use_container_width=True):
+                        if st.button("Guardar opciones", key=f"sf-save-opts-{selected_key_raw}-{sf_block_id}", use_container_width=True, disabled=is_locked):
                             payload_opts = patched + [{"id": new_id.strip(), "label": new_labels}]
                             with st.spinner("Guardando…"):
                                 res = _patch_subflow_options(selected_key_raw, sf_block_id, payload_opts)
@@ -697,7 +855,7 @@ else:
                                 st.success("Opciones guardadas.")
                                 st.rerun()
                     else:
-                        if st.button("Guardar opciones", key=f"sf-save-opts-{selected_key_raw}-{sf_block_id}", use_container_width=True):
+                        if st.button("Guardar opciones", key=f"sf-save-opts-{selected_key_raw}-{sf_block_id}", use_container_width=True, disabled=is_locked):
                             with st.spinner("Guardando…"):
                                 res = _patch_subflow_options(selected_key_raw, sf_block_id, patched)
                             if isinstance(res, dict) and res.get("status_code"):

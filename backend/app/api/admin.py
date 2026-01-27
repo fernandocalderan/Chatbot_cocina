@@ -37,6 +37,10 @@ from app.services.verticals import (
     allowed_scopes,
     validate_vertical_scopes,
     vertical_flow_base,
+    build_vertical_subflow_filename,
+    parse_vertical_subflow_filename,
+    vertical_list_subflows,
+    vertical_read_asset_json,
 )
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
@@ -58,6 +62,35 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def _ensure_super_admin():
     return require_role(UserRole.SUPER_ADMIN.value)
+
+
+def _subflow_skeleton_backend(*, vertical_key: str, scope: str, save_to: str, key: str, label: str | None) -> dict[str, Any]:
+    version = f"flow_{vertical_key}__{scope}__{save_to}__{key}__v1"
+    return {
+        "version": version,
+        "plan": "base",
+        "languages": ["es"],
+        "start_block": "intro",
+        "end_block": "end",
+        "config": {
+            "subflow": {
+                "vertical_key": vertical_key,
+                "scope": scope,
+                "router_save_to": save_to,
+                "key": key,
+                "label": (label or "").strip() or None,
+            }
+        },
+        "blocks": {
+            "intro": {
+                "id": "intro",
+                "type": "message",
+                "text": f"Sub-flow `{label or key}` (pendiente de configurar).",
+                "next": "end",
+            },
+            "end": {"id": "end", "type": "end"},
+        },
+    }
 
 
 def _resolve_actor(auth_header: str | None, x_api_key: str | None) -> str:
@@ -168,6 +201,20 @@ class AdminVerticalFlowGeneratorPreview(BaseModel):
     tenant_name: str | None = None
     model: str | None = None
     temperature: float = 0.3
+
+
+class AdminSubflowCreate(BaseModel):
+    vertical_key: str = Field(..., min_length=2, max_length=64)
+    scope: str = Field(..., min_length=1, max_length=64)
+    save_to: str = Field(..., min_length=1, max_length=64)
+    key: str = Field(..., min_length=1, max_length=64)
+    label: str | None = None
+
+
+class AdminSubflowUpdate(BaseModel):
+    vertical_key: str = Field(..., min_length=2, max_length=64)
+    filename: str = Field(..., min_length=5, max_length=140)
+    content: dict[str, Any] = Field(default_factory=dict)
 
 
 class TenantBase(BaseModel):
@@ -434,6 +481,108 @@ def delete_vertical_file_admin(vertical_key: str, filename: str, request: Reques
         meta={"vertical_key": vertical_key, "filename": out.get("filename")},
     )
     return out
+
+
+@router.get("/subflows", dependencies=[Depends(_ensure_super_admin())])
+def list_subflows_admin(
+    vertical_key: str = Query(..., min_length=2, max_length=64),
+    scope: str | None = Query(default=None),
+    save_to: str | None = Query(default=None),
+):
+    items = vertical_list_subflows(str(vertical_key), scope=scope, save_to=save_to)
+    cfg = get_vertical_config(str(vertical_key))
+    sub_cfg = cfg.get("subflows") if isinstance(cfg, dict) else {}
+    recommended_order = sub_cfg.get("recommended_order") if isinstance(sub_cfg, dict) else None
+    locks = sub_cfg.get("locks") if isinstance(sub_cfg, dict) else None
+    composition_default = sub_cfg.get("composition_default") if isinstance(sub_cfg, dict) else None
+    out: list[dict[str, Any]] = []
+    for entry in items:
+        fname = str(entry.get("filename") or "")
+        payload = vertical_read_asset_json(str(vertical_key), fname)
+        cfg = payload.get("config") if isinstance(payload, dict) else {}
+        sub = cfg.get("subflow") if isinstance(cfg, dict) else {}
+        out.append(
+            {
+                "filename": fname,
+                "scope": entry.get("scope"),
+                "save_to": entry.get("save_to"),
+                "key": entry.get("key"),
+                "label": sub.get("label") if isinstance(sub, dict) else None,
+                "subflow_id": payload.get("version") if isinstance(payload, dict) else None,
+            }
+        )
+    return {
+        "items": out,
+        "recommended_order": recommended_order or [],
+        "locks": locks or {},
+        "composition_default": composition_default or "router",
+    }
+
+
+@router.post("/subflows", dependencies=[Depends(_ensure_super_admin())])
+def create_subflow_admin(payload: AdminSubflowCreate, request: Request):
+    if not get_vertical_config(payload.vertical_key):
+        raise HTTPException(status_code=404, detail="vertical_not_found")
+    filename = build_vertical_subflow_filename(scope=payload.scope, save_to=payload.save_to, key=payload.key)
+    existing = vertical_read_asset_json(payload.vertical_key, filename)
+    if isinstance(existing, dict) and isinstance(existing.get("blocks"), dict) and existing.get("blocks"):
+        raise HTTPException(status_code=409, detail="subflow_exists")
+    content = _subflow_skeleton_backend(
+        vertical_key=str(payload.vertical_key).strip().lower(),
+        scope=str(payload.scope).strip().lower(),
+        save_to=str(payload.save_to).strip().lower(),
+        key=str(payload.key).strip().lower(),
+        label=payload.label,
+    )
+    try:
+        admin_update_vertical_file(
+            vertical_key=str(payload.vertical_key),
+            filename=filename,
+            kind="json",
+            content=content,
+            validate=True,
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_subflow_content")
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="subflow.create",
+        entity="subflow",
+        entity_id=filename,
+        tenant_id=None,
+        meta={"vertical_key": payload.vertical_key},
+    )
+    return {"filename": filename, "content": content}
+
+
+@router.put("/subflows", dependencies=[Depends(_ensure_super_admin())])
+def update_subflow_admin(payload: AdminSubflowUpdate, request: Request):
+    if not get_vertical_config(payload.vertical_key):
+        raise HTTPException(status_code=404, detail="vertical_not_found")
+    parsed = parse_vertical_subflow_filename(payload.filename)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="invalid_subflow_filename")
+    try:
+        admin_update_vertical_file(
+            vertical_key=str(payload.vertical_key),
+            filename=str(payload.filename),
+            kind="json",
+            content=payload.content,
+            validate=True,
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_subflow_content")
+    actor = _resolve_actor(request.headers.get("Authorization"), request.headers.get("x-api-key"))
+    AuditService.log_admin_action(
+        actor=actor,
+        action="subflow.update",
+        entity="subflow",
+        entity_id=str(payload.filename),
+        tenant_id=None,
+        meta={"vertical_key": payload.vertical_key},
+    )
+    return {"filename": str(payload.filename)}
 
 
 @router.post("/verticals/{vertical_key}/flow-generator/preview", dependencies=[Depends(_ensure_super_admin())])

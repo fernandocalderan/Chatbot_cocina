@@ -1,0 +1,60 @@
+{
+  "version": "flow_kitchens__default__intent__contact_capture__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "contact_name",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "contact_capture",
+      "label": "Datos de contacto"
+    }
+  },
+  "blocks": {
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": {
+        "es": "Para terminar, ¿cómo te llamas?",
+        "ca": "Per acabar, com et dius?",
+        "pt": "Para terminar, qual é o seu nome?",
+        "en": "To finish, what is your name?"
+      },
+      "save_to": "nombre",
+      "next": "contact_phone",
+      "text_enriched": {
+        "es": "Para poder dirigirme a ti, ¿cómo te llamas?"
+      }
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": {
+        "es": "¿Cuál es tu teléfono o WhatsApp?",
+        "ca": "Quin és el teu telèfon o WhatsApp?",
+        "pt": "Qual é o seu telefone ou WhatsApp?",
+        "en": "What is your phone or WhatsApp?"
+      },
+      "validation": {
+        "regex": "^[0-9+ ()-]{6,20}$"
+      },
+      "save_to": "telefono",
+      "next": "end",
+      "text_enriched": {
+        "es": "¿Cuál es tu teléfono o WhatsApp? Así podremos confirmarte la cita o pedirte un detalle si hace falta."
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

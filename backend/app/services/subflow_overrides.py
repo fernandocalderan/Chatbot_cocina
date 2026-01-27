@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.models.configs import Config
 
+COMPOSITION_MODES = {"router", "sequential"}
+DEFAULT_COMPOSITION_MODE = "router"
+
 
 CONFIG_TIPO_SUBFLOW_OVERRIDES = "tenant_subflow_overrides"
 
@@ -24,6 +27,32 @@ def load_overrides_payload(db: Session, tenant_id: str) -> dict[str, Any]:
     )
     payload = row.payload_json if row else {}
     return payload if isinstance(payload, dict) else {}
+
+
+def normalize_composition_mode(raw: Any) -> str:
+    val = str(raw or "").strip().lower()
+    return val if val in COMPOSITION_MODES else DEFAULT_COMPOSITION_MODE
+
+
+def get_composition_mode(payload: dict[str, Any] | None) -> str:
+    data = payload if isinstance(payload, dict) else {}
+    return normalize_composition_mode(data.get("composition_mode"))
+
+
+def get_enabled_map(payload: dict[str, Any] | None) -> dict[str, bool]:
+    data = payload if isinstance(payload, dict) else {}
+    enabled = data.get("enabled")
+    if isinstance(enabled, dict):
+        return {str(k): bool(v) for k, v in enabled.items()}
+    return {}
+
+
+def get_order_list(payload: dict[str, Any] | None) -> list[str]:
+    data = payload if isinstance(payload, dict) else {}
+    order = data.get("order")
+    if isinstance(order, list):
+        return [str(x) for x in order if x]
+    return []
 
 
 def _next_version(db: Session, tenant_id: str) -> int:
@@ -97,6 +126,23 @@ def apply_overrides_to_flow(flow_data: dict[str, Any], overrides_entry: dict[str
                 text_obj[str(k)] = str(v)
             base_block["text"] = text_obj
 
+        if isinstance(patch.get("text_enriched"), dict):
+            current = base_block.get("text_enriched")
+            if isinstance(current, dict):
+                text_obj = current
+            elif isinstance(current, str):
+                text_obj = {default_lang: current}
+            else:
+                text_obj = {}
+            for k, v in patch["text_enriched"].items():
+                if v is None:
+                    continue
+                text_obj[str(k)] = str(v)
+            base_block["text_enriched"] = text_obj
+
+        if isinstance(patch.get("text_variants"), list):
+            base_block["text_variants"] = [str(v) for v in patch.get("text_variants") if v is not None]
+
         if isinstance(patch.get("options"), list) and str(base_block.get("type") or "") in {"buttons", "options"}:
             existing = base_block.get("options") if isinstance(base_block.get("options"), list) else []
             existing_by_id: dict[str, dict] = {}
@@ -142,4 +188,3 @@ def apply_overrides_to_flow(flow_data: dict[str, Any], overrides_entry: dict[str
 
     out["blocks"] = out_blocks
     return out
-

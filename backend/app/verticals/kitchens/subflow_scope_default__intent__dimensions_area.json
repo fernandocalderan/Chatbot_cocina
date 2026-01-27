@@ -1,0 +1,127 @@
+{
+  "version": "flow_kitchens__default__intent__dimensions_area__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "area_range",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "dimensions_area",
+      "label": "Dimensiones y forma"
+    }
+  },
+  "blocks": {
+    "area_range": {
+      "id": "area_range",
+      "type": "buttons",
+      "text": {
+        "es": "¿Sabes aproximadamente cuántos m² tiene el espacio?",
+        "ca": "Saps aproximadament quants m² té l'espai?",
+        "pt": "Sabe aproximadamente quantos m² tem o espaço?",
+        "en": "Do you know approximately how many m² the space has?"
+      },
+      "options": [
+        {
+          "label": "<5 m²",
+          "value": "<5"
+        },
+        {
+          "label": "5–8 m²",
+          "value": "5-8"
+        },
+        {
+          "label": "8–12 m²",
+          "value": "8-12"
+        },
+        {
+          "label": "12–18 m²",
+          "value": "12-18"
+        },
+        {
+          "label": ">18 m²",
+          "value": ">18"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_se"
+        }
+      ],
+      "save_to": "area_rango",
+      "next_map": {
+        "no_se": "area_free",
+        "default": "space_form"
+      },
+      "text_enriched": {
+        "es": "Para dimensionar mejor el proyecto, ¿en qué rango de superficie aproximada está el espacio?"
+      }
+    },
+    "area_free": {
+      "id": "area_free",
+      "type": "input",
+      "text": {
+        "es": "Si quieres, describe el espacio (por ejemplo, largo x ancho) y lo estimamos.",
+        "ca": "Si vols, descriu l'espai (per exemple, llarg x ample) i ho estimem.",
+        "pt": "Se quiser, descreva o espaço (por exemplo, comprimento x largura) e estimamos.",
+        "en": "If you want, describe the space (e.g. length x width) and we’ll estimate it."
+      },
+      "save_to": "area_descripcion",
+      "next": "space_form",
+      "text_enriched": {
+        "es": "Perfecto. Si quieres, describe el espacio (por ejemplo, largo x ancho) y lo estimamos."
+      }
+    },
+    "space_form": {
+      "id": "space_form",
+      "type": "buttons",
+      "text": {
+        "es": "¿Cómo es la forma del espacio?",
+        "ca": "Com és la forma de l'espai?",
+        "pt": "Como é o formato do espaço?",
+        "en": "What is the shape of the space?"
+      },
+      "options": [
+        {
+          "label": "Rectangular",
+          "value": "rectangular"
+        },
+        {
+          "label": "Cuadrado",
+          "value": "cuadrado"
+        },
+        {
+          "label": "En L",
+          "value": "L"
+        },
+        {
+          "label": "En U",
+          "value": "U"
+        },
+        {
+          "label": "Pasillo / estrecha",
+          "value": "pasillo"
+        },
+        {
+          "label": "No lo sé",
+          "value": "desconocido"
+        }
+      ],
+      "save_to": "forma_espacio",
+      "next": "end",
+      "text_enriched": {
+        "es": "Para orientarnos bien, ¿Cómo es la forma del espacio?"
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

@@ -22,3 +22,4 @@ dist/
 
 # Local widget test (contains tokens)
 test-widget.html
+app.log

@@ -10,6 +10,7 @@ from app.services.flow_templates import load_flow_template
 from app.services.verticals import provision_vertical_assets
 from app.services.verticals import tenant_custom_flow_enabled
 from app.services.verticals import tenant_vertical_scopes
+from app.services.subflows_composer import maybe_compose_for_tenant
 
 
 def _tenant_flow_system(tenant: Tenant | None) -> str:
@@ -86,51 +87,62 @@ def resolve_runtime_flow(
     vertical_key = getattr(tenant, "vertical_key", None)
     flow_system = _tenant_flow_system(tenant)
 
+    flow_data: dict[str, Any] | None = None
+
     # v2: siempre preferir flow publicado en DB (si existe), sin depender de custom_flow_enabled.
     if flow_system == "v2":
         flow_row = _active_or_latest_published_flow(db, tenant)
         if flow_row and isinstance(flow_row.schema_json, dict):
-            return flow_row.schema_json
-        if vertical_key:
-            try:
-                provision_vertical_assets(db, tenant)
-            except Exception:
-                pass
+            flow_data = flow_row.schema_json
+        else:
+            if vertical_key:
+                try:
+                    provision_vertical_assets(db, tenant)
+                except Exception:
+                    pass
+                flow_row = _active_or_latest_published_flow(db, tenant)
+                if flow_row and isinstance(flow_row.schema_json, dict):
+                    flow_data = flow_row.schema_json
+            if not flow_data:
+                flow_data = load_flow_template(
+                    flow_id_override,
+                    plan_value=plan_value,
+                    vertical_key=str(vertical_key) if vertical_key else None,
+                    scopes=tenant_vertical_scopes(tenant),
+                )
+    else:
+        # v1: comportamiento actual (respetar custom_flow_enabled para tenants verticales).
+        if vertical_key and not tenant_custom_flow_enabled(tenant):
+            flow_data = load_flow_template(
+                flow_id_override,
+                plan_value=plan_value,
+                vertical_key=str(vertical_key) if vertical_key else None,
+                scopes=tenant_vertical_scopes(tenant),
+            )
+        else:
             flow_row = _active_or_latest_published_flow(db, tenant)
             if flow_row and isinstance(flow_row.schema_json, dict):
-                return flow_row.schema_json
-        return load_flow_template(
-            flow_id_override,
-            plan_value=plan_value,
-            vertical_key=str(vertical_key) if vertical_key else None,
-            scopes=tenant_vertical_scopes(tenant),
-        )
+                flow_data = flow_row.schema_json
+            if not flow_data and vertical_key:
+                try:
+                    provision_vertical_assets(db, tenant)
+                except Exception:
+                    pass
+                flow_row = _active_or_latest_published_flow(db, tenant)
+                if flow_row and isinstance(flow_row.schema_json, dict):
+                    flow_data = flow_row.schema_json
+            if not flow_data:
+                flow_data = load_flow_template(
+                    flow_id_override,
+                    plan_value=plan_value,
+                    vertical_key=str(vertical_key) if vertical_key else None,
+                    scopes=tenant_vertical_scopes(tenant),
+                )
 
-    # v1: comportamiento actual (respetar custom_flow_enabled para tenants verticales).
-    if vertical_key and not tenant_custom_flow_enabled(tenant):
-        return load_flow_template(
-            flow_id_override,
-            plan_value=plan_value,
-            vertical_key=str(vertical_key) if vertical_key else None,
-            scopes=tenant_vertical_scopes(tenant),
-        )
-
-    flow_row = _active_or_latest_published_flow(db, tenant)
-    if flow_row and isinstance(flow_row.schema_json, dict):
-        return flow_row.schema_json
-
-    if vertical_key:
-        try:
-            provision_vertical_assets(db, tenant)
-        except Exception:
-            pass
-        flow_row = _active_or_latest_published_flow(db, tenant)
-        if flow_row and isinstance(flow_row.schema_json, dict):
-            return flow_row.schema_json
-
-    return load_flow_template(
-        flow_id_override,
-        plan_value=plan_value,
-        vertical_key=str(vertical_key) if vertical_key else None,
-        scopes=tenant_vertical_scopes(tenant),
-    )
+    if not isinstance(flow_data, dict):
+        flow_data = {}
+    try:
+        flow_data = maybe_compose_for_tenant(db=db, tenant=tenant, base_flow=flow_data)
+    except Exception:
+        pass
+    return flow_data

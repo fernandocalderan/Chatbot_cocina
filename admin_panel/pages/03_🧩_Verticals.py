@@ -156,6 +156,7 @@ def _subflow_skeleton(
         "plan": plan,
         "languages": languages,
         "start_block": "intro",
+        "end_block": "end",
         "config": cfg,
         "blocks": {
             "intro": {
@@ -167,6 +168,86 @@ def _subflow_skeleton(
             "end": {"id": "end", "type": "end"},
         },
     }
+
+
+def _subflow_template_blocks(template_key: str, label: str | None) -> dict[str, Any] | None:
+    title = (label or "").strip() or template_key.replace("_", " ").title()
+    if template_key == "intro_welcome":
+        return {
+            "intro": {"id": "intro", "type": "message", "text": f"Bienvenida: {title}", "next": "ready"},
+            "ready": {
+                "id": "ready",
+                "type": "buttons",
+                "text": "¿Empezamos ahora?",
+                "options": [{"label": "Sí", "value": "yes"}, {"label": "No ahora", "value": "no"}],
+                "save_to": "ready",
+                "next_map": {"yes": "end", "no": "end"},
+            },
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "question_buttons":
+        return {
+            "intro": {
+                "id": "intro",
+                "type": "buttons",
+                "text": f"{title}: elige una opción",
+                "options": [{"label": "Opción A", "value": "a"}, {"label": "Opción B", "value": "b"}],
+                "save_to": "choice",
+                "next": "end",
+            },
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "question_input":
+        return {
+            "intro": {"id": "intro", "type": "input", "text": f"{title}: escribe tu respuesta", "save_to": "input_value", "next": "end"},
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "contact_capture":
+        return {
+            "contact_name": {"id": "contact_name", "type": "input", "text": "¿Cuál es tu nombre?", "save_to": "contact_name", "next": "contact_phone"},
+            "contact_phone": {"id": "contact_phone", "type": "input", "text": "¿Cuál es tu teléfono?", "save_to": "contact_phone", "next": "end"},
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "budget":
+        return {
+            "budget": {
+                "id": "budget",
+                "type": "buttons",
+                "text": "¿Cuál es tu presupuesto aproximado?",
+                "options": [{"label": "<5k", "value": "<5k"}, {"label": "5-15k", "value": "5-15k"}, {"label": ">15k", "value": ">15k"}],
+                "save_to": "budget",
+                "next": "end",
+            },
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "urgency":
+        return {
+            "urgency": {
+                "id": "urgency",
+                "type": "buttons",
+                "text": "¿Qué urgencia tiene?",
+                "options": [{"label": "Alta", "value": "alta"}, {"label": "Media", "value": "media"}, {"label": "Baja", "value": "baja"}],
+                "save_to": "urgency",
+                "next": "end",
+            },
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "appointment_offer":
+        return {
+            "appointment_offer": {
+                "id": "appointment_offer",
+                "type": "message",
+                "text": "Podemos agendar una primera cita.",
+                "next": "end",
+            },
+            "end": {"id": "end", "type": "end"},
+        }
+    if template_key == "closing":
+        return {
+            "closing": {"id": "closing", "type": "message", "text": "Gracias. ¡Hasta pronto!", "next": "end"},
+            "end": {"id": "end", "type": "end"},
+        }
+    return None
 
 
 def _scaffold_router_subflows(
@@ -922,6 +1003,23 @@ if selected_key:
                             f"faltan: {len(missing_for_router)}"
                         )
 
+                    template_options = [
+                        "blank",
+                        "intro_welcome",
+                        "question_buttons",
+                        "question_input",
+                        "contact_capture",
+                        "budget",
+                        "urgency",
+                        "appointment_offer",
+                        "closing",
+                    ]
+                    template_key = st.selectbox(
+                        "Plantilla (opcional)",
+                        options=template_options,
+                        index=0,
+                        key=f"sf-template-{selected_key}-{scope_sel}",
+                    )
                     c_new1, c_new2, c_new3 = st.columns([0.35, 0.45, 0.2])
                     new_key = c_new1.text_input(
                         "Nueva key",
@@ -955,6 +1053,15 @@ if selected_key:
                                     label=new_label.strip() or None,
                                     template_flow=flow_live,
                                 )
+                                if template_key and template_key != "blank":
+                                    tpl_blocks = _subflow_template_blocks(template_key, new_label.strip() or sub_key)
+                                    if isinstance(tpl_blocks, dict):
+                                        sf_flow["blocks"] = tpl_blocks
+                                        for bid in tpl_blocks.keys():
+                                            if bid != "end":
+                                                sf_flow["start_block"] = bid
+                                                break
+                                        sf_flow["end_block"] = "end"
                                 out_sf = update_vertical_file_admin(
                                     ctx.token,
                                     selected_key,
@@ -1053,6 +1160,87 @@ if selected_key:
                                 else:
                                     st.success(f"Sub-flow borrado: `{sf_file}`")
                                     st.rerun()
+
+                    st.markdown("#### Orden recomendado (sequential)")
+                    meta_payload = read_vertical_file_admin(ctx.token, selected_key, "metadata.json", api_key=ctx.api_key)
+                    meta_content = meta_payload.get("content") if isinstance(meta_payload, dict) and isinstance(meta_payload.get("content"), dict) else {}
+                    sub_cfg = meta_content.get("subflows") if isinstance(meta_content.get("subflows"), dict) else {}
+                    rec_order = sub_cfg.get("recommended_order") if isinstance(sub_cfg.get("recommended_order"), list) else []
+                    locks_cfg = sub_cfg.get("locks") if isinstance(sub_cfg.get("locks"), dict) else {}
+                    order_keys = list(rec_order) if rec_order else list(subflow_files_by_key.keys())
+                    for k in subflow_files_by_key.keys():
+                        if k not in order_keys:
+                            order_keys.append(k)
+                    if "admin_sf_order" not in st.session_state or st.session_state.get("admin_sf_order_seed") != ",".join(order_keys):
+                        st.session_state["admin_sf_order"] = list(order_keys)
+                        st.session_state["admin_sf_order_seed"] = ",".join(order_keys)
+                    order_state = st.session_state.get("admin_sf_order", [])
+                    if order_state:
+                        sel_order = st.selectbox(
+                            "Mover sub-flow",
+                            options=order_state,
+                            key=f"admin-sf-order-{selected_key}-{scope_sel}",
+                        )
+                        c_up, c_down, c_save = st.columns([0.25, 0.25, 0.5])
+                        if c_up.button("Subir", use_container_width=True, key=f"admin-sf-up-{selected_key}-{scope_sel}"):
+                            idx = order_state.index(sel_order)
+                            if idx > 0:
+                                order_state[idx - 1], order_state[idx] = order_state[idx], order_state[idx - 1]
+                                st.session_state["admin_sf_order"] = order_state
+                                st.rerun()
+                        if c_down.button("Bajar", use_container_width=True, key=f"admin-sf-down-{selected_key}-{scope_sel}"):
+                            idx = order_state.index(sel_order)
+                            if idx < len(order_state) - 1:
+                                order_state[idx + 1], order_state[idx] = order_state[idx], order_state[idx + 1]
+                                st.session_state["admin_sf_order"] = order_state
+                                st.rerun()
+                        if c_save.button("Guardar orden", use_container_width=True, key=f"admin-sf-save-{selected_key}-{scope_sel}"):
+                            sub_cfg["recommended_order"] = order_state
+                            meta_content["subflows"] = sub_cfg
+                            out_meta = update_vertical_file_admin(
+                                ctx.token,
+                                selected_key,
+                                "metadata.json",
+                                kind="json",
+                                content=meta_content,
+                                validate=False,
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(out_meta, dict) and out_meta.get("error"):
+                                _show_api_error(out_meta, "No se pudo guardar metadata")
+                            else:
+                                st.success("Orden recomendado guardado.")
+                                st.rerun()
+
+                    st.markdown("#### Locks (required / editable)")
+                    if subflow_files_by_key:
+                        locks_updates: dict[str, dict[str, bool]] = {}
+                        for k in subflow_files_by_key.keys():
+                            entry = locks_cfg.get(k) if isinstance(locks_cfg.get(k), dict) else {}
+                            required_val = bool(entry.get("required"))
+                            editable_val = bool(entry.get("editable", True))
+                            c1, c2, c3 = st.columns([0.5, 0.25, 0.25])
+                            c1.markdown(f"- `{k}`")
+                            required_val = c2.checkbox("Required", value=required_val, key=f"lock-req-{selected_key}-{scope_sel}-{k}")
+                            editable_val = c3.checkbox("Editable", value=editable_val, key=f"lock-edit-{selected_key}-{scope_sel}-{k}")
+                            locks_updates[k] = {"required": required_val, "editable": editable_val}
+                        if st.button("Guardar locks", use_container_width=True, key=f"admin-sf-locks-save-{selected_key}-{scope_sel}"):
+                            sub_cfg["locks"] = locks_updates
+                            meta_content["subflows"] = sub_cfg
+                            out_meta = update_vertical_file_admin(
+                                ctx.token,
+                                selected_key,
+                                "metadata.json",
+                                kind="json",
+                                content=meta_content,
+                                validate=False,
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(out_meta, dict) and out_meta.get("error"):
+                                _show_api_error(out_meta, "No se pudo guardar locks")
+                            else:
+                                st.success("Locks guardados.")
+                                st.rerun()
 
                     # Editor de subflows (si hay routes_file)
                     try:

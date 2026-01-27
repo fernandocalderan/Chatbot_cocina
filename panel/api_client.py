@@ -675,6 +675,14 @@ def patch_flow_v2_subflow_block(subflow_key: str, block_id: str, payload: dict):
     return api_patch(f"/tenant/flows/subflows/{subflow_key}/blocks/{block_id}", payload) or {}
 
 
+def update_flow_v2_subflows(payload: dict):
+    return api_put("/tenant/flows/subflows", payload) or {}
+
+
+def preview_flow_v2_subflows():
+    return api_get("/tenant/flows/subflows/preview") or {}
+
+
 def _decode_jwt_payload(token: str | None) -> dict:
     if not token or "." not in token:
         return {}

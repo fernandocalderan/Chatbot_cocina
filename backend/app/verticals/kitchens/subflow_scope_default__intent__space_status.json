@@ -1,0 +1,64 @@
+{
+  "version": "flow_kitchens__default__intent__space_status__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "space_status",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "space_status",
+      "label": "Estado del espacio"
+    }
+  },
+  "blocks": {
+    "space_status": {
+      "id": "space_status",
+      "type": "buttons",
+      "text": {
+        "es": "El espacio está…",
+        "ca": "L'espai està…",
+        "pt": "O espaço está…",
+        "en": "The space is…"
+      },
+      "options": [
+        {
+          "label": "Construido y en uso",
+          "value": "uso"
+        },
+        {
+          "label": "Construido pero vacío",
+          "value": "vacio"
+        },
+        {
+          "label": "En obra",
+          "value": "en_obra"
+        },
+        {
+          "label": "Obra nueva sobre plano",
+          "value": "sobre_plano"
+        },
+        {
+          "label": "Solo quiero mobiliario nuevo",
+          "value": "solo_mobiliario"
+        }
+      ],
+      "save_to": "estado_espacio",
+      "next": "end",
+      "text_enriched": {
+        "es": "Para ajustar bien el planteamiento, ¿el espacio es nuevo o es una reforma sobre lo existente?"
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

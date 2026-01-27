@@ -216,6 +216,31 @@ def vertical_scope_definitions(vertical_key: str | None) -> dict[str, Any]:
     return defs if isinstance(defs, dict) else {}
 
 
+def vertical_subflows_config(vertical_key: str | None) -> dict[str, Any]:
+    cfg = get_vertical_config(vertical_key)
+    sub = cfg.get("subflows") if isinstance(cfg, dict) else None
+    return sub if isinstance(sub, dict) else {}
+
+
+def vertical_subflow_locks(vertical_key: str | None) -> dict[str, Any]:
+    sub = vertical_subflows_config(vertical_key)
+    locks = sub.get("locks") if isinstance(sub.get("locks"), dict) else {}
+    return locks if isinstance(locks, dict) else {}
+
+
+def vertical_subflow_recommended_order(vertical_key: str | None) -> list[str]:
+    sub = vertical_subflows_config(vertical_key)
+    order = sub.get("recommended_order")
+    if isinstance(order, list):
+        return [str(x) for x in order if x]
+    return []
+
+
+def vertical_subflow_composition_default(vertical_key: str | None) -> str:
+    sub = vertical_subflows_config(vertical_key)
+    return str(sub.get("composition_default") or "router").strip().lower()
+
+
 def allowed_scopes(vertical_key: str | None) -> list[str]:
     cfg = get_vertical_config(vertical_key)
     scope_cfg = cfg.get("scope") if isinstance(cfg, dict) else None

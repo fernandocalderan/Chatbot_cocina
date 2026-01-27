@@ -23,5 +23,62 @@
     "ai_intervention_enabled": true,
     "score_threshold": 70,
     "friction_seconds": 12
+  },
+  "subflows": {
+    "composition_default": "router",
+    "recommended_order": [
+      "intro_welcome",
+      "project_type",
+      "location",
+      "space_status",
+      "dimensions_area",
+      "budget",
+      "urgency",
+      "contact_capture",
+      "appointment_offer",
+      "closing"
+    ],
+    "locks": {
+      "intro_welcome": {
+        "required": true,
+        "editable": true
+      },
+      "project_type": {
+        "required": true,
+        "editable": true
+      },
+      "location": {
+        "required": true,
+        "editable": true
+      },
+      "space_status": {
+        "required": true,
+        "editable": true
+      },
+      "dimensions_area": {
+        "required": true,
+        "editable": true
+      },
+      "budget": {
+        "required": false,
+        "editable": true
+      },
+      "urgency": {
+        "required": false,
+        "editable": true
+      },
+      "contact_capture": {
+        "required": true,
+        "editable": true
+      },
+      "appointment_offer": {
+        "required": false,
+        "editable": true
+      },
+      "closing": {
+        "required": true,
+        "editable": true
+      }
+    }
   }
 }

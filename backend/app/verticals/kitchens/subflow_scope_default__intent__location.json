@@ -1,0 +1,42 @@
+{
+  "version": "flow_kitchens__default__intent__location__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "location",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "location",
+      "label": "Ubicación"
+    }
+  },
+  "blocks": {
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": {
+        "es": "¿En qué ciudad y zona se encuentra la vivienda?",
+        "ca": "A quina ciutat i zona es troba l'habitatge?",
+        "pt": "Em que cidade e zona fica a residência?",
+        "en": "In which city and area is the property located?"
+      },
+      "save_to": "ubicacion",
+      "next": "end",
+      "text_enriched": {
+        "es": "Para tener en cuenta logística y disponibilidad del equipo, ¿en qué zona/ciudad es el proyecto?"
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

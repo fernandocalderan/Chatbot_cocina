@@ -1,0 +1,93 @@
+{
+  "version": "flow_kitchens__default__intent__intro_welcome__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "welcome",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "intro_welcome",
+      "label": "Bienvenida"
+    }
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": {
+        "es": "Hola, soy el asistente del estudio. Te ayudo a definir tu proyecto de cocina o baño a medida. ¿Listo para empezar?",
+        "ca": "Hola, sóc l'assistent de l'estudi. T'ajudo a definir el teu projecte de cuina o bany a mida. Llest per començar?",
+        "pt": "Olá, sou o assistente do estúdio. Ajudo você a definir seu projeto de cozinha ou banheiro sob medida. Pronto para começar?",
+        "en": "Hi, I'm the studio assistant. I help you define your custom kitchen/bathroom project. Ready to start?"
+      },
+      "next": "ready_check",
+      "text_enriched": {
+        "es": "Hola. Para ayudarte bien desde el inicio, te haré unas preguntas rápidas sobre tu proyecto de cocina o reforma. ¿Listo para empezar?"
+      }
+    },
+    "ready_check": {
+      "id": "ready_check",
+      "type": "buttons",
+      "text": {
+        "es": "¿Empezamos ahora?",
+        "ca": "Comencem ara?",
+        "pt": "Começamos agora?",
+        "en": "Shall we start now?"
+      },
+      "options": [
+        {
+          "label": {
+            "es": "Sí",
+            "ca": "Sí",
+            "pt": "Sim",
+            "en": "Yes"
+          },
+          "value": "yes"
+        },
+        {
+          "label": {
+            "es": "No ahora",
+            "ca": "Ara no",
+            "pt": "Agora não",
+            "en": "Not now"
+          },
+          "value": "no"
+        }
+      ],
+      "save_to": "ready",
+      "next_map": {
+        "yes": "end",
+        "no": "goodbye_not_ready"
+      },
+      "text_enriched": {
+        "es": "Si te va bien, empezamos ahora y lo dejamos todo claro desde el principio. ¿Empezamos ahora?"
+      }
+    },
+    "goodbye_not_ready": {
+      "id": "goodbye_not_ready",
+      "type": "message",
+      "text": {
+        "es": "Sin problema, cuando quieras volver estaré aquí para ayudarte.",
+        "ca": "Cap problema, quan vulguis tornar seré aquí per ajudar-te.",
+        "pt": "Sem problema, quando quiser voltar estarei aqui para ajudar.",
+        "en": "No problem, whenever you want to come back I’ll be here to help."
+      },
+      "next": "end",
+      "text_enriched": {
+        "es": "Perfecto. Sin problema, cuando quieras volver estaré aquí para ayudarte."
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

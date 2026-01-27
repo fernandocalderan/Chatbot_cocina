@@ -1,0 +1,64 @@
+{
+  "version": "flow_kitchens__default__intent__urgency__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "urgency_scale",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "urgency",
+      "label": "Urgencia"
+    }
+  },
+  "blocks": {
+    "urgency_scale": {
+      "id": "urgency_scale",
+      "type": "buttons",
+      "text": {
+        "es": "Del 1 al 5, ¿qué tan urgente es este proyecto para ti?",
+        "ca": "De l'1 al 5, com d'urgent és aquest projecte per a tu?",
+        "pt": "De 1 a 5, quão urgente é este projeto para você?",
+        "en": "From 1 to 5, how urgent is this project for you?"
+      },
+      "options": [
+        {
+          "label": "1 - Sin prisa",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5 - Muy urgente",
+          "value": "5"
+        }
+      ],
+      "save_to": "urgencia_escala",
+      "next": "end",
+      "text_enriched": {
+        "es": "Para priorizar bien y adaptarnos a tus tiempos, del 1 al 5, ¿qué tan urgente es este proyecto para ti?"
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

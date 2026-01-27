@@ -1,0 +1,45 @@
+{
+  "version": "flow_kitchens__default__intent__closing__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "closing_message",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "closing",
+      "label": "Cierre"
+    }
+  },
+  "blocks": {
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": {
+        "es": "Perfecto. Con esta información podemos preparar una propuesta ajustada a tu espacio y presupuesto. Nuestro equipo te contactará en breve.",
+        "ca": "Perfecte. Amb aquesta informació podem preparar una proposta ajustada al teu espai i pressupost. El nostre equip es posarà en contacte amb tu aviat.",
+        "pt": "Perfeito. Com estas informações podemos preparar uma proposta ajustada ao seu espaço e orçamento. Nossa equipa entrará em contato em breve.",
+        "en": "Perfect. With this information we can prepare a proposal tailored to your space and budget. Our team will contact you soon."
+      },
+      "next": "end",
+      "text_enriched": {
+        "es": "Perfecto. Con esta información podemos preparar una propuesta ajustada a tu espacio y presupuesto. Nuestro equipo te contactará en breve."
+      },
+      "text_variants": [
+        "Perfecto. Con esta información ya podemos preparar una propuesta ajustada. Si te parece, el siguiente paso es concretar una primera cita.",
+        "Perfecto. Con esto ya tenemos una buena base. Nuestro equipo revisará la información y te contactará para proponerte el siguiente paso."
+      ]
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

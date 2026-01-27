@@ -1,0 +1,52 @@
+{
+  "version": "flow_kitchens__default__intent__appointment_offer__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "lead_scoring",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "appointment_offer",
+      "label": "Cita inicial"
+    }
+  },
+  "blocks": {
+    "lead_scoring": {
+      "id": "lead_scoring",
+      "type": "internal",
+      "action": "calculate_scoring",
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": {
+        "es": "Puedes elegir día y franja horaria para una visita o videollamada con nuestro equipo:",
+        "ca": "Pots triar dia i franja horària per a una visita o videotrucada amb el nostre equip:",
+        "pt": "Pode escolher dia e horário para uma visita ou videochamada com nossa equipa:",
+        "en": "You can choose a day and time slot for a visit or video call with our team:"
+      },
+      "save_to": "cita_slot",
+      "next": "end",
+      "text_enriched": {
+        "es": "Con lo que nos has contado, el siguiente paso sería ver tu caso con más detalle en una primera cita. Puedes elegir día y franja horaria:"
+      },
+      "text_variants": [
+        "Por lo que nos cuentas, creemos que tu proyecto encaja muy bien. El siguiente paso sería verlo con más detalle en una primera cita. Puedes elegir día y franja horaria:",
+        "Genial. Si te parece, podemos agendar una primera cita sin compromiso para entender bien tu caso. Puedes elegir día y franja horaria:"
+      ]
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

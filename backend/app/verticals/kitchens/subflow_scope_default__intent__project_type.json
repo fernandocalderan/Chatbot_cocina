@@ -1,0 +1,76 @@
+{
+  "version": "flow_kitchens__default__intent__project_type__v1",
+  "plan": "base",
+  "languages": [
+    "es",
+    "ca",
+    "pt",
+    "en"
+  ],
+  "start_block": "project_type",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "default",
+      "router_save_to": "intent",
+      "key": "project_type",
+      "label": "Tipo de proyecto"
+    }
+  },
+  "blocks": {
+    "project_type": {
+      "id": "project_type",
+      "type": "buttons",
+      "text": {
+        "es": "¿Qué tipo de proyecto quieres hacer exactamente?",
+        "ca": "Quin tipus de projecte vols fer exactament?",
+        "pt": "Que tipo de projeto deseja fazer exatamente?",
+        "en": "What type of project do you want to do exactly?"
+      },
+      "options": [
+        {
+          "label": "Cocina completa nueva",
+          "value": "cocina_nueva"
+        },
+        {
+          "label": "Reforma total de la cocina",
+          "value": "cocina_reforma"
+        },
+        {
+          "label": "Muebles de cocina sin reforma",
+          "value": "muebles_cocina"
+        },
+        {
+          "label": "Baño completo nuevo",
+          "value": "bano_nuevo"
+        },
+        {
+          "label": "Reforma de baño",
+          "value": "bano_reforma"
+        },
+        {
+          "label": "Mobiliario de baño a medida",
+          "value": "muebles_bano"
+        },
+        {
+          "label": "Lavadero / zona de aguas",
+          "value": "lavadero"
+        },
+        {
+          "label": "Otro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "tipo_proyecto",
+      "next": "end",
+      "text_enriched": {
+        "es": "Para orientarnos y adaptar la propuesta a lo que necesitas, ¿qué tipo de proyecto es?"
+      }
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}
