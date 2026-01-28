@@ -148,7 +148,7 @@ def validate_playbook_v2(flow: dict[str, Any], *, vkey: str, scope_key: str, col
 
     if col.strict:
         # En modo strict, elevar warnings de playbook V2 a errores.
-        last_warns = [w for w in col.warnings if f\"{vkey}/{scope_key}\" in w]
+        last_warns = [w for w in col.warnings if f"{vkey}/{scope_key}" in w]
         for msg in last_warns:
             if msg in col.warnings:
                 col.warnings.remove(msg)
