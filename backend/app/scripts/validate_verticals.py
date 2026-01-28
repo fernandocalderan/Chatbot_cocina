@@ -25,7 +25,7 @@ class Collector:
         self.data_warnings: list[str] = []
         self.orphans: list[str] = []
         self.fixes: dict[str, dict[str, Any]] = {}
-        self.migration_details: dict[str, list[str]] = {}
+        self.migration_details: dict[str, dict[str, str]] = {}
         self.migration_stats: dict[str, dict[str, int]] = {}
         self._migration_keys: set[tuple[str, str]] = set()
 
@@ -40,7 +40,7 @@ class Collector:
         if key in self._migration_keys:
             return
         self._migration_keys.add(key)
-        self.migration_details.setdefault(vkey, []).append(msg)
+        self.migration_details.setdefault(vkey, {})[code] = msg
         stats = self.migration_stats.setdefault(
             vkey,
             {"registry_missing": 0, "scopes_v2_missing": 0, "legacy_layout_items": 0},
@@ -336,9 +336,17 @@ def main() -> int:
                 f"legacy_layout_items={stats['legacy_layout_items']}]"
             )
             if args.verbose:
-                details = col.migration_details.get(vkey, [])
-                for msg in details:
-                    print(f"  - {msg}")
+                details = col.migration_details.get(vkey, {})
+                order = [
+                    "registry_missing_path",
+                    "registry_missing_archived",
+                    "missing_scopes_v2",
+                    "legacy_subflows",
+                ]
+                for code in order:
+                    msg = details.get(code)
+                    if msg:
+                        print(f"  - {msg}")
     if col.data_warnings:
         print("Advertencias:")
         for msg in col.data_warnings:
