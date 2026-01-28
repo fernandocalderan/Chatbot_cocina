@@ -1294,7 +1294,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                 filename=fname_flow,
                 value=existing_flow,
                 template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
-                instance_key=f"{selected_key}__{scope_sel}__{fname_flow}",
+                instance_key=f"{selected_key}__{scope_sel}__{fname_flow}__scopes_editor",
             )
 
     with tab_flows:
@@ -1347,7 +1347,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                         filename=fname_flow,
                         value=existing_flow,
                         template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
-                        instance_key=f"{selected_key}__{sk}__{fname_flow}",
+                        instance_key=f"{selected_key}__{sk}__{fname_flow}__flows_tab",
                     )
 
                 st.markdown("**Subguiones (Subflows)**")
