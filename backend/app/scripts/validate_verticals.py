@@ -176,10 +176,6 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
     if not slug_ok(RE_VERTICAL, vkey):
         col.err(f"registry.json: vertical_key inválido: {vkey}")
         return
-    if "path" not in entry:
-        col.warn_data(f"{vkey}: registry sin path")
-    if "archived" not in entry:
-        col.warn_data(f"{vkey}: registry sin archived")
 
     vdir = VERT_DIR / str(entry.get("path") or vkey)
     if not vdir.exists():
@@ -192,6 +188,18 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
     meta = load_json(meta_path, col)
     if str(meta.get("vertical_key") or vkey) != vkey:
         col.warn_data(f"{vkey}: metadata.vertical_key no coincide")
+
+    is_legacy = not isinstance(meta.get("scopes"), dict)
+    if "path" not in entry:
+        if is_legacy:
+            col.warn_migration(vkey, "registry_missing_path", "MIGRATION: registry missing path")
+        else:
+            col.warn_data(f"{vkey}: registry sin path")
+    if "archived" not in entry:
+        if is_legacy:
+            col.warn_migration(vkey, "registry_missing_archived", "MIGRATION: registry missing archived")
+        else:
+            col.warn_data(f"{vkey}: registry sin archived")
 
     scopes = resolve_scopes(meta, col, vkey=vkey)
     default_scope = meta.get("default_scope")
@@ -208,7 +216,7 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
             "legacy_subflows",
             f"MIGRATION: legacy layout detected ({legacy_count} items)",
         )
-    if not isinstance(meta.get("scopes"), dict):
+    if is_legacy:
         col.warn_migration(
             vkey,
             "missing_scopes_v2",

@@ -132,3 +132,4 @@ backend/app/verticals/
 - Si `metadata.scopes` no existe, el validador emite:  
   **“MIGRATION: metadata missing scopes V2 (legacy válido, pero no editable en modo profesional hasta migrar a scopes V2)”**  
 - Este warning **no rompe** `--strict`, pero deja constancia para migración controlada.
+- Si `registry.json` está incompleto (faltan `path` / `archived`) en verticales legacy, se reporta como **MIGRATION** (no error).
