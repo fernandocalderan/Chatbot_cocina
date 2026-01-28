@@ -1,10 +1,10 @@
 import sys
 from pathlib import Path
-
-import streamlit as st
 import json
 import re
 from typing import Any
+
+import streamlit as st
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -19,7 +19,14 @@ from admin_panel.api_client import (
     delete_vertical_file_admin,
     update_vertical_file_admin,
 )
-from admin_panel.ui import can_write, ensure_vertical_catalog, init_page, render_impersonation_banner, render_sidebar_nav, require_admin_context
+from admin_panel.ui import (
+    can_write,
+    ensure_vertical_catalog,
+    init_page,
+    render_impersonation_banner,
+    render_sidebar_nav,
+    require_admin_context,
+)
 
 init_page(title="SuperAdmin — Verticals", icon="🧩")
 
@@ -27,23 +34,21 @@ ctx = require_admin_context()
 render_sidebar_nav()
 render_impersonation_banner()
 
-st.title("Verticals")
-st.caption(
-    "Catálogo de verticales y scopes (sub-verticales). "
-    "Modelo simplificado v2: cada scope tiene 1 prompt + 1 flow base (estructura)."
-)
+# -----------------------------------------------------------------------------
+# Config + helpers
+# -----------------------------------------------------------------------------
+
+_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}$")
+_SUBFLOW_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
 
 write_enabled = can_write(ctx) and not st.session_state.get("impersonation_token")
 if not write_enabled:
-    st.info("Modo solo lectura: edición/creación de verticales está desactivada.")
+    st.info("Modo solo lectura: edición/creación desactivada.")
 
 
 def _show_api_error(payload: object, fallback: str) -> None:
     if isinstance(payload, dict) and payload.get("error"):
         st.error(f"{fallback} (HTTP {payload.get('status_code', 'N/A')}): {payload.get('error')}")
-
-_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}$")
-_SUBFLOW_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
 
 
 def _is_flow_filename(filename: str) -> bool:
@@ -269,11 +274,9 @@ def _scaffold_router_subflows(
     if not isinstance(options, list) or not options:
         raise ValueError("router_missing_options")
 
-    # Ensure end block exists
     if end_block_id not in blocks:
         blocks[end_block_id] = {"id": end_block_id, "type": "end"}
 
-    # Ensure save_to exists for analytics/vars
     router["save_to"] = str(save_to or "").strip() or "intent"
 
     routes: dict[str, str] = {}
@@ -287,10 +290,8 @@ def _scaffold_router_subflows(
     if not routes:
         raise ValueError("router_no_valid_options")
 
-    # Router v1-safe: termina aquí (no decide dentro del JSON).
     router["next"] = end_block_id
 
-    # Update config.router metadata (best-effort)
     cfg = flow.get("config") if isinstance(flow.get("config"), dict) else {}
     cfg_router = cfg.get("router") if isinstance(cfg.get("router"), dict) else {}
     cfg_router["block_id"] = router_block_id
@@ -305,16 +306,12 @@ def _scaffold_router_subflows(
 
 
 def _normalize_to_flow(data: Any, *, filename: str, template: dict | None) -> dict[str, Any]:
-    """
-    Convierte inputs comunes (lista de bloques, bloque suelto, blocks como lista) a un flow completo.
-    """
     tpl = template if isinstance(template, dict) else {}
     languages = tpl.get("languages") if isinstance(tpl.get("languages"), list) else ["es", "pt", "en", "ca"]
     languages = [str(x) for x in languages if x] or ["es"]
     plan = str(tpl.get("plan") or "base")
     config = tpl.get("config") if isinstance(tpl.get("config"), dict) else {}
 
-    # Ya es un flow completo con blocks dict
     if isinstance(data, dict) and isinstance(data.get("blocks"), dict) and data.get("blocks"):
         out = dict(data)
         if not isinstance(out.get("start_block"), str) or not out.get("start_block"):
@@ -332,14 +329,11 @@ def _normalize_to_flow(data: Any, *, filename: str, template: dict | None) -> di
     blocks: dict[str, Any] = {}
     start_block: str | None = None
 
-    # Flow con blocks list
     if isinstance(data, dict) and isinstance(data.get("blocks"), list):
         blocks = _normalize_blocks_list_to_dict(data.get("blocks") or [])
         start_block = data.get("start_block") if isinstance(data.get("start_block"), str) else None
-    # Lista de bloques directamente
     elif isinstance(data, list):
         blocks = _normalize_blocks_list_to_dict(data)
-    # Bloque suelto
     elif isinstance(data, dict) and ("id" in data and "type" in data):
         blocks = _normalize_blocks_list_to_dict([data])
         start_block = str(data.get("id") or "").strip() or None
@@ -349,7 +343,6 @@ def _normalize_to_flow(data: Any, *, filename: str, template: dict | None) -> di
     if not blocks:
         raise ValueError("missing_blocks")
 
-    # Elegir start_block: preferir template si existe en blocks, luego el del input, luego el primero.
     tpl_start = tpl.get("start_block") if isinstance(tpl.get("start_block"), str) else None
     if tpl_start and tpl_start in blocks:
         start_block = tpl_start
@@ -382,9 +375,7 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
     widget_key = f"{state_key}_ta_{st.session_state[rev_key]}"
     st.markdown(f"**{title}** (`{filename}`)")
     if _is_flow_filename(filename):
-        st.caption(
-            "Edición JSON (flow completo). Requiere `start_block` y `blocks` como objeto/dict (no lista)."
-        )
+        st.caption("Edición JSON (flow completo). Requiere `start_block` y `blocks` como objeto/dict.")
     else:
         st.caption("Edición JSON.")
     c1, c2 = st.columns([0.6, 0.4])
@@ -434,15 +425,12 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
         except Exception as exc:
             st.error(f"JSON inválido: {exc}")
             return
-        # Pre-validación amigable: evita el error típico "missing_blocks" por borrar la estructura.
         if _is_flow_filename(filename):
             if not isinstance(data, dict):
                 st.error("Este archivo debe ser un objeto JSON (flow completo).")
                 return
             if not isinstance(data.get("blocks"), dict) or not data.get("blocks"):
-                st.error(
-                    "Flow inválido: falta `blocks` (debe ser un objeto/dict con IDs de bloque como claves)."
-                )
+                st.error("Flow inválido: falta `blocks` (objeto con IDs de bloque).")
                 return
             if not isinstance(data.get("start_block"), str) or not data.get("start_block"):
                 st.error("Flow inválido: falta `start_block` (string).")
@@ -509,500 +497,871 @@ def _text_editor(*, vertical_key: str, title: str, filename: str, value: str):
             st.rerun()
 
 
-vertical_items, vertical_keys, vertical_labels, _ = ensure_vertical_catalog(ctx)
-if not vertical_items:
-    st.warning("No se han encontrado verticales.")
-    vertical_items = []
-    vertical_keys = []
-    vertical_labels = {}
+# -----------------------------------------------------------------------------
+# UI state helpers
+# -----------------------------------------------------------------------------
 
-with st.expander("➕ Crear vertical", expanded=False):
-    st.caption("Crea un vertical nuevo y su `flow_base.json` inicial (válido).")
-    with st.form("create-vertical"):
-        ck1, ck2 = st.columns([0.4, 0.6])
-        new_key = ck1.text_input("Key (slug)", placeholder="ej: dental_clinics", disabled=not write_enabled)
-        new_label = ck2.text_input("Label", placeholder="Nombre comercial", disabled=not write_enabled)
-        default_flow_id = st.text_input("Default flow id", placeholder="ej: dental_clinics_base_v1", disabled=not write_enabled)
-        flow_file = st.file_uploader("flow_base.json (opcional)", type=["json"], disabled=not write_enabled)
-        submitted = st.form_submit_button("Crear", use_container_width=True, disabled=not write_enabled)
-    if submitted:
-        flow_base = None
-        if flow_file is not None:
-            try:
-                import json as _json
 
-                flow_base = _json.loads(flow_file.getvalue().decode("utf-8"))
-            except Exception as exc:
-                st.error(f"flow_base.json inválido: {exc}")
-                flow_base = None
-        payload = {
-            "key": (new_key or "").strip(),
-            "label": (new_label or "").strip() or None,
-            "default_flow_id": (default_flow_id or "").strip() or None,
-            "flow_base": flow_base,
+def _get_catalog():
+    vertical_items, vertical_keys, vertical_labels, _ = ensure_vertical_catalog(ctx)
+    if not vertical_items:
+        return [], [], {}
+    return vertical_items, vertical_keys, vertical_labels
+
+
+def _search_filter(items: list[dict[str, Any]], term: str) -> list[dict[str, Any]]:
+    if not term:
+        return items
+    needle = term.strip().lower()
+    out = []
+    for v in items:
+        if not isinstance(v, dict):
+            continue
+        key = str(v.get("key") or "").lower()
+        label = str(v.get("label") or "").lower()
+        scope_items = v.get("scope_items") if isinstance(v.get("scope_items"), list) else []
+        scope_join = " ".join([str(s.get("label") or s.get("key") or "") for s in scope_items]).lower()
+        hay = " ".join([key, label, scope_join])
+        if needle in hay:
+            out.append(v)
+    return out
+
+
+def _vertical_counts(v: dict[str, Any]) -> tuple[int, int, str]:
+    scopes = v.get("scope_items") if isinstance(v.get("scope_items"), list) else []
+    scopes_count = len(scopes)
+    flow_ids = v.get("flow_ids") if isinstance(v.get("flow_ids"), list) else []
+    flow_count = len(flow_ids) if flow_ids else (1 if v.get("flow_template_exists") else 0)
+    flow_count = max(flow_count, scopes_count + (1 if v.get("flow_template_exists") else 0))
+    files = v.get("files") if isinstance(v.get("files"), dict) else {}
+    missing = [f for f, ok in files.items() if not ok]
+    status = "Atención" if missing else "OK"
+    return scopes_count, flow_count, status
+
+
+def _ensure_selected_vertical(items: list[dict[str, Any]]):
+    selected = st.session_state.get("vertical_selected")
+    keys = [str(v.get("key")) for v in items if v.get("key")]
+    if selected in keys:
+        return selected
+    if keys:
+        st.session_state["vertical_selected"] = keys[0]
+        return keys[0]
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Header + guide
+# -----------------------------------------------------------------------------
+
+
+def render_header(items: list[dict[str, Any]], vertical_labels: dict[str, str]):
+    st.title("Verticales")
+    st.caption("Define plantillas base: vertical → scopes → flows → subflows")
+
+    c1, c2, c3 = st.columns([0.5, 0.3, 0.2])
+    st.session_state["verticals_search"] = c1.text_input(
+        "Buscar",
+        value=st.session_state.get("verticals_search", ""),
+        placeholder="Buscar por vertical, scope o guion",
+    )
+
+    choices = ["Todos"] + [str(v.get("key")) for v in items if v.get("key")]
+    current_filter = st.session_state.get("verticals_filter", "Todos")
+    if current_filter not in choices:
+        current_filter = "Todos"
+    selection = c2.selectbox(
+        "Filtrar vertical",
+        options=choices,
+        index=choices.index(current_filter),
+        format_func=lambda k: "Todos" if k == "Todos" else vertical_labels.get(k, k),
+    )
+    st.session_state["verticals_filter"] = selection
+
+    st.session_state["verticals_show_advanced"] = c3.toggle(
+        "Mostrar opciones avanzadas",
+        value=bool(st.session_state.get("verticals_show_advanced")),
+    )
+
+    with st.expander("Guía rápida", expanded=False):
+        st.markdown(
+            """
+- Crea la **Plantilla principal** (Vertical)
+- Añade **Contextos/Alcances** (Scopes)
+- Define **Guiones** (Flows)
+- Añade **Subguiones** (Subflows) cuando quieras modularizar
+            """
+        )
+
+
+# -----------------------------------------------------------------------------
+# Wizard
+# -----------------------------------------------------------------------------
+
+
+def _wizard_init():
+    st.session_state.setdefault("vertical_wizard", {})
+    wiz = st.session_state["vertical_wizard"]
+    wiz.setdefault("step", 1)
+    wiz.setdefault("basic", {"key": "", "label": "", "description": "", "default_flow_id": ""})
+    wiz.setdefault("scopes", [])
+    wiz.setdefault("subflows", [])
+    wiz.setdefault("advanced", {"flow_base": None, "prompt_vertical": "", "prompt_extension": ""})
+    return wiz
+
+
+def _wizard_reset():
+    st.session_state["vertical_wizard"] = {
+        "step": 1,
+        "basic": {"key": "", "label": "", "description": "", "default_flow_id": ""},
+        "scopes": [],
+        "subflows": [],
+        "advanced": {"flow_base": None, "prompt_vertical": "", "prompt_extension": ""},
+    }
+
+
+def _wizard_add_scope(wiz: dict[str, Any], key: str, label: str):
+    k = (key or "").strip().lower()
+    if not k:
+        st.error("Falta el key del scope.")
+        return
+    if not _KEY_RE.match(k):
+        st.error("Scope inválido. Usa minúsculas, números, _ o -.")
+        return
+    existing = [s["key"] for s in wiz.get("scopes", [])]
+    if k in existing:
+        st.warning("Ese scope ya está en la lista.")
+        return
+    wiz.setdefault("scopes", []).append({"key": k, "label": (label or "").strip() or k})
+
+
+def _wizard_add_subflow(wiz: dict[str, Any], scope: str, save_to: str, key: str, label: str, template_key: str):
+    scope_key = (scope or "").strip().lower() or "default"
+    save_to = (save_to or "").strip().lower() or "intent"
+    sub_key = _slugify_subflow_key(key)
+    if not sub_key:
+        st.error("Falta key de subguion.")
+        return
+    wiz.setdefault("subflows", []).append(
+        {
+            "scope": scope_key,
+            "save_to": save_to,
+            "key": sub_key,
+            "label": (label or "").strip() or sub_key,
+            "template": template_key,
         }
-        res = create_vertical_admin(ctx.token, payload, api_key=ctx.api_key)
-        if isinstance(res, dict) and res.get("error"):
-            _show_api_error(res, "No se pudo crear el vertical")
-        else:
-            st.success("Vertical creado.")
-            st.session_state.pop("_admin_vertical_catalog", None)
+    )
+
+
+def _wizard_step_header(step: int, total: int = 3):
+    st.markdown(f"### Paso {step} de {total}")
+
+
+def render_wizard_create_vertical():
+    wiz = _wizard_init()
+    step = int(wiz.get("step", 1))
+
+    st.markdown("## Crear plantilla principal")
+    st.caption("Un flujo guiado para crear un vertical con sus contextos y guiones.")
+
+    _wizard_step_header(step)
+
+    if step == 1:
+        with st.form("wizard-step-1"):
+            c1, c2 = st.columns([0.5, 0.5])
+            wiz["basic"]["key"] = c1.text_input("Slug (key)", value=wiz["basic"].get("key", ""))
+            wiz["basic"]["label"] = c2.text_input("Nombre visible", value=wiz["basic"].get("label", ""))
+            wiz["basic"]["description"] = st.text_area(
+                "Descripción corta",
+                value=wiz["basic"].get("description", ""),
+                height=80,
+            )
+            if st.session_state.get("verticals_show_advanced"):
+                wiz["basic"]["default_flow_id"] = st.text_input(
+                    "Default flow id (avanzado)",
+                    value=wiz["basic"].get("default_flow_id", ""),
+                )
+                flow_file = st.file_uploader("flow_base.json (opcional)", type=["json"], key="wizard-flow-base")
+                if flow_file is not None:
+                    try:
+                        wiz["advanced"]["flow_base"] = json.loads(flow_file.getvalue().decode("utf-8"))
+                    except Exception as exc:
+                        st.error(f"flow_base.json inválido: {exc}")
+                wiz["advanced"]["prompt_vertical"] = st.text_area(
+                    "Prompt vertical (opcional)",
+                    value=wiz["advanced"].get("prompt_vertical", ""),
+                    height=80,
+                )
+                wiz["advanced"]["prompt_extension"] = st.text_area(
+                    "Extensión de prompt (opcional)",
+                    value=wiz["advanced"].get("prompt_extension", ""),
+                    height=80,
+                )
+            submitted = st.form_submit_button("Siguiente", use_container_width=True)
+        if submitted:
+            k = wiz["basic"].get("key", "").strip().lower()
+            if not k or not _KEY_RE.match(k):
+                st.error("Slug inválido. Usa minúsculas, números, _ o -.")
+                return
+            if not wiz["basic"].get("label", "").strip():
+                st.error("Falta el nombre visible.")
+                return
+            wiz["step"] = 2
             st.rerun()
 
-st.markdown("**Detalle de vertical**")
-selected_key = st.selectbox(
-    "Selecciona un vertical",
-    vertical_keys or [],
-    format_func=lambda v: vertical_labels.get(v, v),
-    key="vertical-detail-select",
-)
-if selected_key:
+    elif step == 2:
+        st.markdown("**Contextos / Alcances (Scopes)**")
+        st.caption("Define 1 o más contextos donde se usará el guion.")
+
+        c1, c2, c3 = st.columns([0.4, 0.4, 0.2])
+        scope_key = c1.text_input("Key", value="", key="wiz-scope-key")
+        scope_label = c2.text_input("Label", value="", key="wiz-scope-label")
+        if c3.button("Agregar", use_container_width=True):
+            _wizard_add_scope(wiz, scope_key, scope_label)
+
+        scopes = wiz.get("scopes", [])
+        if scopes:
+            for idx, s in enumerate(scopes):
+                cols = st.columns([0.6, 0.3, 0.1])
+                cols[0].write(f"{s['key']} — {s['label']}")
+                if cols[2].button("✕", key=f"wiz-scope-del-{idx}"):
+                    wiz["scopes"].pop(idx)
+                    st.rerun()
+        else:
+            st.info("Aún no añadiste scopes. Puedes avanzar si tu vertical no los necesita.")
+
+        c_prev, c_next = st.columns([0.5, 0.5])
+        if c_prev.button("Atrás", use_container_width=True):
+            wiz["step"] = 1
+            st.rerun()
+        if c_next.button("Siguiente", use_container_width=True):
+            wiz["step"] = 3
+            st.rerun()
+
+    elif step == 3:
+        st.markdown("**Guiones y subguiones**")
+        st.caption("Define subguiones opcionales por scope (si aplica).")
+
+        scopes = wiz.get("scopes", [])
+        scope_options = [s["key"] for s in scopes] or ["default"]
+        c1, c2, c3, c4 = st.columns([0.25, 0.2, 0.2, 0.35])
+        sf_scope = c1.selectbox("Scope", options=scope_options, key="wiz-sf-scope")
+        sf_save_to = c2.text_input("save_to", value="intent", key="wiz-sf-save")
+        sf_key = c3.text_input("key", value="", key="wiz-sf-key")
+        sf_label = c4.text_input("label", value="", key="wiz-sf-label")
+
+        template_options = [
+            "blank",
+            "intro_welcome",
+            "question_buttons",
+            "question_input",
+            "contact_capture",
+            "budget",
+            "urgency",
+            "appointment_offer",
+            "closing",
+        ]
+        template_key = st.selectbox("Plantilla", options=template_options, index=0, key="wiz-sf-tpl")
+        if st.button("Agregar subguion", use_container_width=True):
+            _wizard_add_subflow(wiz, sf_scope, sf_save_to, sf_key, sf_label, template_key)
+
+        subflows = wiz.get("subflows", [])
+        if subflows:
+            for idx, sf in enumerate(subflows):
+                cols = st.columns([0.7, 0.2, 0.1])
+                cols[0].write(f"{sf['scope']} / {sf['save_to']} → {sf['key']} ({sf['label']})")
+                cols[1].write(sf.get("template") or "blank")
+                if cols[2].button("✕", key=f"wiz-sf-del-{idx}"):
+                    wiz["subflows"].pop(idx)
+                    st.rerun()
+        else:
+            st.info("No añadiste subguiones (opcional).")
+
+        c_prev, c_save = st.columns([0.5, 0.5])
+        if c_prev.button("Atrás", use_container_width=True):
+            wiz["step"] = 2
+            st.rerun()
+        if c_save.button("Crear vertical", use_container_width=True, disabled=not write_enabled):
+            basic = wiz.get("basic", {})
+            payload = {
+                "key": (basic.get("key") or "").strip(),
+                "label": (basic.get("label") or "").strip() or None,
+                "default_flow_id": (basic.get("default_flow_id") or "").strip() or None,
+                "flow_base": wiz.get("advanced", {}).get("flow_base"),
+            }
+            payload = {k: v for k, v in payload.items() if v not in (None, "")}
+            with st.spinner("Creando vertical..."):
+                res = create_vertical_admin(ctx.token, payload, api_key=ctx.api_key)
+            if isinstance(res, dict) and res.get("error"):
+                _show_api_error(res, "No se pudo crear el vertical")
+                return
+
+            vkey = payload["key"].lower()
+            # metadata.json extras (description + scopes)
+            meta_payload = read_vertical_file_admin(ctx.token, vkey, "metadata.json", api_key=ctx.api_key)
+            meta_content = meta_payload.get("content") if isinstance(meta_payload, dict) and isinstance(meta_payload.get("content"), dict) else {}
+            if basic.get("description"):
+                meta_content["description"] = basic.get("description")
+            if scopes:
+                defs = meta_content.get("scope_definitions") if isinstance(meta_content.get("scope_definitions"), dict) else {}
+                for s in scopes:
+                    defs[s["key"]] = {"label": s.get("label") or s["key"]}
+                meta_content["scope_definitions"] = defs
+                out_meta = update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    "metadata.json",
+                    kind="json",
+                    content=meta_content,
+                    validate=True,
+                    api_key=ctx.api_key,
+                )
+                if isinstance(out_meta, dict) and out_meta.get("error"):
+                    _show_api_error(out_meta, "No se pudo guardar metadata")
+
+            # prompts base (si no existen, crear stub)
+            if wiz.get("advanced", {}).get("prompt_vertical"):
+                update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    "prompt_vertical.txt",
+                    kind="text",
+                    content=wiz.get("advanced", {}).get("prompt_vertical") or "",
+                    validate=False,
+                    api_key=ctx.api_key,
+                )
+            if wiz.get("advanced", {}).get("prompt_extension"):
+                update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    "prompt_vertical_extension.txt",
+                    kind="text",
+                    content=wiz.get("advanced", {}).get("prompt_extension") or "",
+                    validate=False,
+                    api_key=ctx.api_key,
+                )
+
+            # crear scope assets (prompt + flow_base_scope)
+            for s in scopes:
+                sk = s["key"]
+                stub = (
+                    f"Scope: {sk}\n"
+                    "Objetivo: describe la especialidad del negocio para este scope.\n"
+                    "Incluye: servicios, precios, horarios, materiales y políticas cuando aparezcan en los documentos.\n"
+                    "Estilo: claro, directo, orientado a captación y agenda.\n"
+                )
+                update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    f"prompt_scope_{sk}.txt",
+                    kind="text",
+                    content=stub,
+                    validate=False,
+                    api_key=ctx.api_key,
+                )
+                base_tpl = res.get("assets", {}).get("flow_base") if isinstance(res, dict) else None
+                base_flow = dict(base_tpl) if isinstance(base_tpl, dict) else {}
+                if isinstance(base_flow, dict) and base_flow:
+                    base_flow["version"] = f"{vkey}_{sk}_base"
+                update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    f"flow_base_scope_{sk}.json",
+                    kind="json",
+                    content=base_flow if isinstance(base_flow, dict) else {},
+                    validate=True,
+                    api_key=ctx.api_key,
+                )
+
+            # crear subflows
+            for sf in wiz.get("subflows", []):
+                scope_key = sf.get("scope") or "default"
+                save_to = sf.get("save_to") or "intent"
+                sub_key = sf.get("key") or "general"
+                sf_file = _subflow_filename(scope_key, save_to, sub_key)
+                sf_flow = _subflow_skeleton(
+                    vertical_key=vkey,
+                    scope_key=scope_key,
+                    save_to=save_to,
+                    subflow_key=sub_key,
+                    label=sf.get("label"),
+                    template_flow=wiz.get("advanced", {}).get("flow_base") or res.get("assets", {}).get("flow_base") if isinstance(res, dict) else None,
+                )
+                tpl_key = sf.get("template")
+                if tpl_key and tpl_key != "blank":
+                    tpl_blocks = _subflow_template_blocks(tpl_key, sf.get("label"))
+                    if isinstance(tpl_blocks, dict):
+                        sf_flow["blocks"] = tpl_blocks
+                        for bid in tpl_blocks.keys():
+                            if bid != "end":
+                                sf_flow["start_block"] = bid
+                                break
+                        sf_flow["end_block"] = "end"
+                update_vertical_file_admin(
+                    ctx.token,
+                    vkey,
+                    sf_file,
+                    kind="json",
+                    content=sf_flow,
+                    validate=True,
+                    api_key=ctx.api_key,
+                )
+
+            st.success("Vertical creado.")
+            st.session_state.pop("_admin_vertical_catalog", None)
+            st.session_state["vertical_selected"] = vkey
+            st.session_state["verticals_show_wizard"] = False
+            _wizard_reset()
+            st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# Left column: vertical list
+# -----------------------------------------------------------------------------
+
+
+def render_vertical_list(items: list[dict[str, Any]], vertical_labels: dict[str, str]):
+    st.markdown("### Lista de verticales")
+    if st.button("+ Crear vertical", use_container_width=True, disabled=not write_enabled):
+        st.session_state["verticals_show_wizard"] = True
+
+    if not items:
+        st.info("No se encontraron verticales.")
+        return
+
+    selected = st.session_state.get("vertical_selected")
+
+    for v in items:
+        key = str(v.get("key") or "")
+        label = str(v.get("label") or key)
+        scopes_count, flows_count, status = _vertical_counts(v)
+        is_active = key == selected
+
+        box = st.container()
+        with box:
+            c1, c2, c3 = st.columns([0.6, 0.2, 0.2])
+            c1.markdown(f"**{label}**")
+            c1.caption(key)
+            c2.write(f"Scopes: {scopes_count}")
+            c2.write(f"Guiones: {flows_count}")
+            c3.write(status)
+
+            a1, a2, a3 = st.columns([0.34, 0.33, 0.33])
+            if a1.button("Editar", key=f"select-{key}", use_container_width=True):
+                st.session_state["vertical_selected"] = key
+                st.session_state["verticals_show_wizard"] = False
+                st.rerun()
+            if a2.button("Duplicar", key=f"dup-{key}", use_container_width=True, disabled=not write_enabled):
+                st.session_state["verticals_dup_target"] = key
+            if a3.button("Eliminar", key=f"del-{key}", use_container_width=True, disabled=not write_enabled):
+                st.session_state["verticals_delete_target"] = key
+
+        if is_active:
+            st.session_state["vertical_selected"] = key
+
+    # Duplicate form
+    dup_key = st.session_state.get("verticals_dup_target")
+    if dup_key:
+        st.divider()
+        st.markdown("#### Duplicar vertical")
+        with st.form("dup-vertical-form"):
+            new_key = st.text_input("Nuevo slug (key)")
+            new_label = st.text_input("Nuevo nombre visible")
+            submitted = st.form_submit_button("Duplicar", use_container_width=True)
+        if submitted:
+            if not new_key or not _KEY_RE.match(new_key.strip().lower()):
+                st.error("Slug inválido para el duplicado.")
+            else:
+                with st.spinner("Duplicando..."):
+                    source = get_vertical(ctx.token, dup_key, api_key=ctx.api_key) or {}
+                    if source.get("error"):
+                        _show_api_error(source, "No se pudo cargar el vertical fuente")
+                        return
+                    payload = {
+                        "key": new_key.strip().lower(),
+                        "label": (new_label or "").strip() or f"{vertical_labels.get(dup_key, dup_key)} (Copia)",
+                        "default_flow_id": source.get("config", {}).get("default_flow_id"),
+                        "flow_base": source.get("assets", {}).get("flow_base"),
+                    }
+                    res = create_vertical_admin(ctx.token, payload, api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, "No se pudo duplicar el vertical")
+                        return
+                    # copiar archivos adicionales
+                    files_payload = list_vertical_files_admin(ctx.token, dup_key, api_key=ctx.api_key)
+                    files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+                    for it in files_items:
+                        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                        if fname in {"metadata.json", "flow_base.json"}:
+                            continue
+                        file_data = read_vertical_file_admin(ctx.token, dup_key, fname, api_key=ctx.api_key)
+                        content = file_data.get("content") if isinstance(file_data, dict) else None
+                        kind = file_data.get("kind") if isinstance(file_data, dict) else "json"
+                        if content is None:
+                            continue
+                        update_vertical_file_admin(
+                            ctx.token,
+                            new_key.strip().lower(),
+                            fname,
+                            kind=str(kind or "json"),
+                            content=content,
+                            validate=False,
+                            api_key=ctx.api_key,
+                        )
+                st.success("Duplicado creado.")
+                st.session_state.pop("_admin_vertical_catalog", None)
+                st.session_state["verticals_dup_target"] = None
+                st.rerun()
+
+    # Delete form (note: API does not delete registry; removes files only)
+    del_key = st.session_state.get("verticals_delete_target")
+    if del_key:
+        st.divider()
+        st.markdown("#### Eliminar vertical (confirmación)")
+        st.caption("Esta acción elimina los archivos del vertical. La entrada de registry puede permanecer.")
+        confirm = st.text_input("Escribe ELIMINAR para confirmar", value="")
+        if st.button("Eliminar definitivamente", use_container_width=True):
+            if confirm.strip().upper() != "ELIMINAR":
+                st.error("Confirmación incorrecta.")
+            else:
+                with st.spinner("Eliminando archivos del vertical..."):
+                    files_payload = list_vertical_files_admin(ctx.token, del_key, api_key=ctx.api_key)
+                    files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+                    for it in files_items:
+                        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                        if not fname:
+                            continue
+                        delete_vertical_file_admin(ctx.token, del_key, fname, api_key=ctx.api_key)
+                st.success("Archivos del vertical eliminados.")
+                st.session_state.pop("_admin_vertical_catalog", None)
+                st.session_state["verticals_delete_target"] = None
+                st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# Right column: details
+# -----------------------------------------------------------------------------
+
+
+def _load_vertical_detail(selected_key: str) -> dict[str, Any] | None:
+    if not selected_key:
+        return None
     detail = get_vertical(ctx.token, selected_key, api_key=ctx.api_key) or {}
     if detail.get("error"):
         _show_api_error(detail, "No se pudo cargar el vertical")
-    else:
-        cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
-        assets = detail.get("assets") if isinstance(detail.get("assets"), dict) else {}
-        files = detail.get("files") if isinstance(detail.get("files"), dict) else {}
-        meta = assets.get("metadata") if isinstance(assets.get("metadata"), dict) else {}
+        return None
+    return detail
 
-        st.markdown(f"**Key:** `{detail.get('key') or selected_key}`")
-        promise = cfg.get("promise_commercial")
-        if promise:
-            st.caption(f"Promesa: {promise}")
 
-        scope_defs = meta.get("scope_definitions") if isinstance(meta.get("scope_definitions"), dict) else {}
-        if not scope_defs:
-            scope_defs = cfg.get("scope_definitions") if isinstance(cfg.get("scope_definitions"), dict) else {}
-        scope_keys = sorted([str(k) for k in scope_defs.keys() if k])
+def _resolve_scope_defs(detail: dict[str, Any]) -> dict[str, Any]:
+    cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
+    assets = detail.get("assets") if isinstance(detail.get("assets"), dict) else {}
+    meta = assets.get("metadata") if isinstance(assets.get("metadata"), dict) else {}
+    scope_defs = meta.get("scope_definitions") if isinstance(meta.get("scope_definitions"), dict) else {}
+    if not scope_defs:
+        scope_defs = cfg.get("scope_definitions") if isinstance(cfg.get("scope_definitions"), dict) else {}
+    return scope_defs
 
-        missing_assets = [fname for fname, ok in files.items() if not ok] if isinstance(files, dict) else []
-        if missing_assets:
-            st.warning(f"Faltan archivos mínimos del vertical: {', '.join(missing_assets)}")
 
-        prompt_vertical_ok = bool((assets.get("prompt_vertical") or "").strip())
-        scope_prompt_missing: list[str] = []
-        scope_flow_base_missing: list[str] = []
-        for sk in scope_keys:
-            resp = read_vertical_file_admin(ctx.token, selected_key, f"prompt_scope_{sk}.txt", api_key=ctx.api_key)
-            ok = isinstance(resp, dict) and isinstance(resp.get("content"), str) and bool((resp.get("content") or "").strip())
-            if not ok:
-                scope_prompt_missing.append(sk)
-            resp_flow = read_vertical_file_admin(ctx.token, selected_key, f"flow_base_scope_{sk}.json", api_key=ctx.api_key)
-            ok_flow = isinstance(resp_flow, dict) and isinstance(resp_flow.get("content"), dict) and bool(resp_flow.get("content"))
-            if not ok_flow:
-                scope_flow_base_missing.append(sk)
+def _write_metadata(vertical_key: str, meta_content: dict[str, Any]):
+    out = update_vertical_file_admin(
+        ctx.token,
+        vertical_key,
+        "metadata.json",
+        kind="json",
+        content=meta_content,
+        validate=True,
+        api_key=ctx.api_key,
+    )
+    if isinstance(out, dict) and out.get("error"):
+        _show_api_error(out, "No se pudo guardar metadata")
+        return False
+    st.session_state.pop("_admin_vertical_catalog", None)
+    return True
 
-        if not prompt_vertical_ok:
-            st.warning("Falta `prompt_vertical.txt` (base del vertical).")
-        if scope_keys and scope_prompt_missing:
-            st.warning(f"Faltan prompts por scope: {', '.join(scope_prompt_missing)}")
-        if scope_keys and scope_flow_base_missing:
-            st.warning(f"Faltan flow base por scope: {', '.join(scope_flow_base_missing)}")
 
-        options = ["Overview", "Scopes", "Test IA"]
-        section_key = st.radio(
-            "Sección",
-            options=options,
-            horizontal=True,
-            key=f"vertical-section-{selected_key}",
-        )
+def render_vertical_detail(detail: dict[str, Any]):
+    selected_key = detail.get("key")
+    cfg = detail.get("config") if isinstance(detail.get("config"), dict) else {}
+    assets = detail.get("assets") if isinstance(detail.get("assets"), dict) else {}
+    files = detail.get("files") if isinstance(detail.get("files"), dict) else {}
+    meta = assets.get("metadata") if isinstance(assets.get("metadata"), dict) else {}
+    scope_defs = _resolve_scope_defs(detail)
+    scope_keys = sorted([str(k) for k in scope_defs.keys() if k])
 
-        if section_key == "Overview":
-            st.subheader("Overview")
-            st.caption("Checklist mínimo para operar: prompt vertical + (por scope) prompt + flow base.")
-            st.markdown("**Checklist (listo para generar)**")
-            st.write(
-                {
-                    "prompt_vertical_ok": prompt_vertical_ok,
-                    "scopes_defined": bool(scope_keys),
-                    "scope_prompts_missing": scope_prompt_missing,
-                    "scope_flow_base_missing": scope_flow_base_missing,
-                    "vertical_files_missing": missing_assets,
-                }
+    st.markdown("### Detalle de vertical")
+    st.markdown(f"**Plantilla principal:** {cfg.get('label') or selected_key}")
+    if cfg.get("promise_commercial"):
+        st.caption(f"Promesa: {cfg.get('promise_commercial')}")
+
+    missing_assets = [fname for fname, ok in files.items() if not ok] if isinstance(files, dict) else []
+    if missing_assets:
+        st.warning(f"Faltan archivos mínimos: {', '.join(missing_assets)}")
+
+    tab_resumen, tab_scopes, tab_flows = st.tabs(["Resumen", "Scopes", "Flows"])
+
+    with tab_resumen:
+        c1, c2, c3 = st.columns([0.34, 0.33, 0.33])
+        c1.metric("Vertical", cfg.get("label") or selected_key)
+        c2.metric("Scopes", len(scope_keys))
+        c3.metric("Guiones", len(scope_keys) + (1 if files.get("flow_base.json") else 0))
+
+        cta1, cta2 = st.columns([0.5, 0.5])
+        if cta1.button("Crear scope", use_container_width=True):
+            st.session_state["verticals_focus_tab"] = "scopes"
+        if cta2.button("Crear flow", use_container_width=True):
+            st.session_state["verticals_focus_tab"] = "flows"
+
+        st.markdown("#### Últimos cambios")
+        st.info("Sin datos de auditoría disponibles.")
+
+        if st.session_state.get("verticals_show_advanced"):
+            st.divider()
+            st.markdown("#### Textos base (avanzado)")
+            _text_editor(
+                vertical_key=selected_key,
+                title="prompt_vertical",
+                filename="prompt_vertical.txt",
+                value=assets.get("prompt_vertical") or "",
+            )
+            _text_editor(
+                vertical_key=selected_key,
+                title="prompt_vertical_extension",
+                filename="prompt_vertical_extension.txt",
+                value=assets.get("prompt_vertical_extension") or "",
             )
 
-        elif section_key == "Scopes":
-            st.subheader("Scopes (sub-verticals)")
-            st.caption("Cada scope tiene 1 prompt + 1 flow base (estructura). El tenant solo edita textos/labels.")
+    with tab_scopes:
+        st.markdown("#### Contextos / Alcances")
+        st.caption("Cada scope tiene su prompt y un flow base propio.")
 
-            items = []
+        if scope_keys:
             for sk in scope_keys:
                 entry = scope_defs.get(sk) if isinstance(scope_defs.get(sk), dict) else {}
-                label = entry.get("label") or sk
-                items.append(
-                    {
-                        "key": sk,
-                        "label": label,
-                        "prompt": "OK" if sk not in scope_prompt_missing else "MISSING",
-                        "flow_base": "OK" if sk not in scope_flow_base_missing else "MISSING",
-                    }
-                )
-            if items:
-                st.table(items)
+                cols = st.columns([0.5, 0.25, 0.25])
+                cols[0].write(f"{entry.get('label') or sk}")
+                if cols[1].button("Editar", key=f"scope-edit-{selected_key}-{sk}"):
+                    st.session_state["scope_edit_key"] = sk
+                if cols[2].button("Eliminar", key=f"scope-del-{selected_key}-{sk}", disabled=not write_enabled):
+                    st.session_state["scope_delete_key"] = sk
+        else:
+            st.info("No hay scopes aún.")
+
+        st.divider()
+        st.markdown("#### Crear scope")
+        with st.form(f"create-scope-{selected_key}"):
+            c1, c2 = st.columns([0.35, 0.65])
+            new_scope_key = c1.text_input("Key", placeholder="ej: reformas", max_chars=64)
+            new_scope_label = c2.text_input("Label", placeholder="Nombre visible (opcional)")
+            submitted = st.form_submit_button("Crear scope", use_container_width=True, disabled=not write_enabled)
+        if submitted:
+            k = (new_scope_key or "").strip().lower()
+            if not k:
+                st.error("Scope key requerido.")
+            elif not _KEY_RE.match(k):
+                st.error("Scope key inválido. Usa minúsculas, números, _ o -, 2–63 caracteres.")
             else:
-                st.info("Este vertical no tiene scopes definidos todavía.")
+                meta2 = dict(meta) if isinstance(meta, dict) else {}
+                defs = meta2.get("scope_definitions") if isinstance(meta2.get("scope_definitions"), dict) else {}
+                if k in defs:
+                    st.error("Ese scope ya existe.")
+                else:
+                    defs[k] = {"label": (new_scope_label or "").strip() or k}
+                    meta2["scope_definitions"] = defs
+                    if _write_metadata(selected_key, meta2):
+                        stub = (
+                            f"Scope: {k}\n"
+                            "Objetivo: describe la especialidad del negocio para este scope.\n"
+                            "Incluye: servicios, precios, horarios, materiales y políticas cuando aparezcan en los documentos.\n"
+                            "Estilo: claro, directo, orientado a captación y agenda.\n"
+                        )
+                        update_vertical_file_admin(
+                            ctx.token,
+                            selected_key,
+                            f"prompt_scope_{k}.txt",
+                            kind="text",
+                            content=stub,
+                            validate=False,
+                            api_key=ctx.api_key,
+                        )
+                        base_tpl = assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else {}
+                        base_flow = dict(base_tpl) if isinstance(base_tpl, dict) else {}
+                        if isinstance(base_flow, dict) and base_flow:
+                            base_flow["version"] = f"{selected_key}_{k}_base"
+                        update_vertical_file_admin(
+                            ctx.token,
+                            selected_key,
+                            f"flow_base_scope_{k}.json",
+                            kind="json",
+                            content=base_flow if isinstance(base_flow, dict) else {},
+                            validate=True,
+                            api_key=ctx.api_key,
+                        )
+                        st.success("Scope creado.")
+                        st.rerun()
 
-            if write_enabled:
-                with st.expander("➕ Crear scope + prompt (v2)", expanded=False):
-                    with st.form(f"create-scope-{selected_key}"):
-                        c1, c2 = st.columns([0.35, 0.65])
-                        new_scope_key = c1.text_input("Scope key", placeholder="ej: reformas", max_chars=64)
-                        new_scope_label = c2.text_input("Label", placeholder="Nombre visible (opcional)")
-                        submitted = st.form_submit_button("Crear", use_container_width=True)
-                    if submitted:
-                        k = (new_scope_key or "").strip().lower()
-                        if not k:
-                            st.error("Scope key requerido.")
-                        elif not _KEY_RE.match(k):
-                            st.error("Scope key inválido. Usa minúsculas, números, _ o -, 2–63 caracteres.")
-                        else:
-                            meta2 = dict(meta) if isinstance(meta, dict) else {}
-                            defs = meta2.get("scope_definitions")
-                            if not isinstance(defs, dict):
-                                defs = {}
-                            if k in defs:
-                                st.error("Ese scope ya existe.")
-                            else:
-                                defs[k] = {"label": (new_scope_label or "").strip() or k}
-                                meta2["scope_definitions"] = defs
-                                out = update_vertical_file_admin(
-                                    ctx.token,
-                                    selected_key,
-                                    "metadata.json",
-                                    kind="json",
-                                    content=meta2,
-                                    validate=True,
-                                    api_key=ctx.api_key,
-                                )
-                                if isinstance(out, dict) and out.get("error"):
-                                    _show_api_error(out, "No se pudo guardar metadata.json")
-                                else:
-                                    stub = (
-                                        f"Scope: {k}\n"
-                                        "Objetivo: describe la especialidad del negocio para este scope.\n"
-                                        "Incluye: servicios, precios, horarios, materiales y políticas cuando aparezcan en los documentos.\n"
-                                        "Estilo: claro, directo, orientado a captación y agenda.\n"
-                                    )
-                                    out2 = update_vertical_file_admin(
-                                        ctx.token,
-                                        selected_key,
-                                        f"prompt_scope_{k}.txt",
-                                        kind="text",
-                                        content=stub,
-                                        validate=False,
-                                        api_key=ctx.api_key,
-                                    )
-                                    if isinstance(out2, dict) and out2.get("error"):
-                                        _show_api_error(out2, f"No se pudo crear prompt_scope_{k}.txt")
-                                    base_tpl = assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else {}
-                                    base_flow = dict(base_tpl) if isinstance(base_tpl, dict) else {}
-                                    if isinstance(base_flow, dict) and base_flow:
-                                        base_flow["version"] = f"{selected_key}_{k}_base"
-                                    out3 = update_vertical_file_admin(
-                                        ctx.token,
-                                        selected_key,
-                                        f"flow_base_scope_{k}.json",
-                                        kind="json",
-                                        content=base_flow if isinstance(base_flow, dict) else {},
-                                        validate=True,
-                                        api_key=ctx.api_key,
-                                    )
-                                    if isinstance(out3, dict) and out3.get("error"):
-                                        _show_api_error(out3, f"No se pudo crear flow_base_scope_{k}.json")
-                                    st.success("Scope creado.")
-                                    st.session_state.pop("_admin_vertical_catalog", None)
-                                    st.rerun()
-
+        # Edit scope
+        edit_key = st.session_state.get("scope_edit_key")
+        if edit_key:
             st.divider()
-            st.markdown("### Editor de scope")
-            if not scope_keys:
-                st.info("Primero crea scopes.")
-            else:
-                scope_sel = st.selectbox("Scope", options=scope_keys, key=f"scope-edit-select-{selected_key}")
+            st.markdown(f"#### Editar scope: {edit_key}")
+            with st.form(f"edit-scope-{selected_key}-{edit_key}"):
+                label_val = (scope_defs.get(edit_key) or {}).get("label") or edit_key
+                new_label = st.text_input("Label", value=label_val)
+                saved = st.form_submit_button("Guardar", use_container_width=True, disabled=not write_enabled)
+            if saved:
+                meta2 = dict(meta) if isinstance(meta, dict) else {}
+                defs = meta2.get("scope_definitions") if isinstance(meta2.get("scope_definitions"), dict) else {}
+                if edit_key in defs:
+                    defs[edit_key]["label"] = new_label
+                    meta2["scope_definitions"] = defs
+                    if _write_metadata(selected_key, meta2):
+                        st.success("Scope actualizado.")
+                        st.session_state.pop("scope_edit_key", None)
+                        st.rerun()
 
-                st.markdown("#### Prompt del scope")
-                fname_prompt = f"prompt_scope_{scope_sel}.txt"
-                existing_text = ""
-                read_p = read_vertical_file_admin(ctx.token, selected_key, fname_prompt, api_key=ctx.api_key)
-                if isinstance(read_p, dict) and isinstance(read_p.get("content"), str):
-                    existing_text = read_p.get("content") or ""
-                _text_editor(vertical_key=selected_key, title=f"prompt_scope {scope_sel}", filename=fname_prompt, value=existing_text)
+        del_key = st.session_state.get("scope_delete_key")
+        if del_key:
+            st.divider()
+            st.markdown(f"#### Eliminar scope: {del_key}")
+            confirm = st.text_input("Escribe ELIMINAR para confirmar", key=f"scope-del-confirm-{selected_key}")
+            if st.button("Eliminar scope", use_container_width=True, disabled=not write_enabled):
+                if confirm.strip().upper() != "ELIMINAR":
+                    st.error("Confirmación incorrecta.")
+                else:
+                    meta2 = dict(meta) if isinstance(meta, dict) else {}
+                    defs = meta2.get("scope_definitions") if isinstance(meta2.get("scope_definitions"), dict) else {}
+                    defs.pop(del_key, None)
+                    meta2["scope_definitions"] = defs
+                    if _write_metadata(selected_key, meta2):
+                        # borrar archivos relacionados (best-effort)
+                        for fname in [f"prompt_scope_{del_key}.txt", f"flow_base_scope_{del_key}.json"]:
+                            delete_vertical_file_admin(ctx.token, selected_key, fname, api_key=ctx.api_key)
+                        st.success("Scope eliminado.")
+                        st.session_state.pop("scope_delete_key", None)
+                        st.rerun()
 
-                st.markdown("#### Flow base del scope (estructura)")
-                fname_flow = f"flow_base_scope_{scope_sel}.json"
-                existing_flow = {}
-                read_f = read_vertical_file_admin(ctx.token, selected_key, fname_flow, api_key=ctx.api_key)
-                if isinstance(read_f, dict) and isinstance(read_f.get("content"), dict):
-                    existing_flow = read_f.get("content") or {}
+        if st.session_state.get("verticals_show_advanced") and scope_keys:
+            st.divider()
+            st.markdown("#### Editor avanzado de scope")
+            scope_sel = st.selectbox("Scope", options=scope_keys, key=f"scope-edit-select-{selected_key}")
+            st.markdown("**Prompt del scope**")
+            fname_prompt = f"prompt_scope_{scope_sel}.txt"
+            existing_text = ""
+            read_p = read_vertical_file_admin(ctx.token, selected_key, fname_prompt, api_key=ctx.api_key)
+            if isinstance(read_p, dict) and isinstance(read_p.get("content"), str):
+                existing_text = read_p.get("content") or ""
+            _text_editor(vertical_key=selected_key, title=f"prompt_scope {scope_sel}", filename=fname_prompt, value=existing_text)
+
+            st.markdown("**Flow base del scope**")
+            fname_flow = f"flow_base_scope_{scope_sel}.json"
+            existing_flow = {}
+            read_f = read_vertical_file_admin(ctx.token, selected_key, fname_flow, api_key=ctx.api_key)
+            if isinstance(read_f, dict) and isinstance(read_f.get("content"), dict):
+                existing_flow = read_f.get("content") or {}
+            _json_editor(
+                vertical_key=selected_key,
+                title=f"flow_base_scope {scope_sel}",
+                filename=fname_flow,
+                value=existing_flow,
+                template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
+            )
+
+    with tab_flows:
+        st.markdown("#### Guiones (Flows) y subguiones")
+        st.caption("Organiza el guion base y los subguiones por scope.")
+
+        # Flow base (global)
+        with st.expander("Guion base (Flow) — flow_base.json", expanded=False):
+            st.write("Guion principal del vertical.")
+            if st.session_state.get("verticals_show_advanced"):
                 _json_editor(
                     vertical_key=selected_key,
-                    title=f"flow_base_scope {scope_sel}",
-                    filename=fname_flow,
-                    value=existing_flow,
-                    template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
+                    title="flow_base",
+                    filename="flow_base.json",
+                    value=assets.get("flow_base") or {},
+                    template=assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None,
                 )
 
-                st.markdown("#### Router + Subflows (v1-safe)")
-                st.caption(
-                    "Patrón recomendado: un bloque router (buttons/options) que clasifica y ramifica con `next_map` a subflows. "
-                    "Sin `condition`, sin `internal`. El router termina en `end` y el motor carga el sub-flow (archivo) correspondiente."
-                )
-                if not write_enabled:
-                    st.info("Modo solo lectura: scaffold de subflows deshabilitado.")
+        # Flows por scope + subflows
+        files_payload = list_vertical_files_admin(ctx.token, selected_key, api_key=ctx.api_key)
+        files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+
+        subflow_files_by_scope: dict[str, dict[str, str]] = {}
+        for it in files_items:
+            if not isinstance(it, dict):
+                continue
+            sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
+            if not isinstance(sf, dict):
+                continue
+            scope = str(sf.get("scope") or "")
+            save_to = str(sf.get("save_to") or "")
+            key = _slugify_subflow_key(sf.get("key"))
+            fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+            if scope and save_to and key and fname:
+                subflow_files_by_scope.setdefault(scope, {})[f"{save_to}::{key}"] = fname
+
+        for sk in scope_keys:
+            with st.expander(f"Guion de scope: {sk}", expanded=False):
+                fname_flow = f"flow_base_scope_{sk}.json"
+                st.caption("Guion específico del scope.")
+                if st.session_state.get("verticals_show_advanced"):
+                    existing_flow = {}
+                    read_f = read_vertical_file_admin(ctx.token, selected_key, fname_flow, api_key=ctx.api_key)
+                    if isinstance(read_f, dict) and isinstance(read_f.get("content"), dict):
+                        existing_flow = read_f.get("content") or {}
+                    _json_editor(
+                        vertical_key=selected_key,
+                        title=f"flow_base_scope {sk}",
+                        filename=fname_flow,
+                        value=existing_flow,
+                        template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
+                    )
+
+                st.markdown("**Subguiones (Subflows)**")
+                scope_sf = subflow_files_by_scope.get(sk, {})
+                if not scope_sf:
+                    st.info("No hay subguiones para este scope.")
                 else:
-                    # Siempre operar sobre el flow guardado (no sobre el editor en memoria)
-                    flow_live = existing_flow if isinstance(existing_flow, dict) else {}
-                    blocks = flow_live.get("blocks") if isinstance(flow_live.get("blocks"), dict) else {}
-                    router_candidates = [
-                        bid
-                        for bid, b in blocks.items()
-                        if isinstance(b, dict)
-                        and str(b.get("type") or "").strip().lower() in {"buttons", "options"}
-                        and isinstance(b.get("options"), list)
-                        and b.get("options")
-                    ]
-                    if not router_candidates:
-                        st.warning("No se detectaron bloques buttons/options con `options` para usar como router.")
-                    else:
-                        cfg = flow_live.get("config") if isinstance(flow_live.get("config"), dict) else {}
-                        cfg_router = cfg.get("router") if isinstance(cfg.get("router"), dict) else {}
-                        default_router = cfg_router.get("block_id")
-                        if default_router not in router_candidates:
-                            default_router = router_candidates[0]
-                        router_block_id = st.selectbox(
-                            "Bloque router",
-                            options=router_candidates,
-                            index=router_candidates.index(default_router) if default_router in router_candidates else 0,
-                            key=f"router-block-{selected_key}-{scope_sel}",
-                        )
-                        router_block = blocks.get(router_block_id) if isinstance(blocks.get(router_block_id), dict) else {}
-                        default_save_to = str(router_block.get("save_to") or cfg_router.get("save_to") or "intent")
-                        save_to = st.text_input(
-                            "Guardar selección en (save_to)",
-                            value=default_save_to,
-                            key=f"router-save-to-{selected_key}-{scope_sel}",
-                            help="Se guarda en vars para trazabilidad/analytics. El motor usa este valor para elegir el sub-flow.",
-                        )
-                        option_ids = [_option_id(o) for o in (router_block.get("options") or []) if _option_id(o)]
-                        default_fallback = "otro" if "otro" in option_ids else (option_ids[0] if option_ids else "general")
-                        fallback_key = st.text_input(
-                            "Fallback (si no hay match)",
-                            value=str(cfg_router.get("fallback_key") or default_fallback),
-                            key=f"router-fallback-{selected_key}-{scope_sel}",
-                            help="Si el usuario manda un valor inesperado, se usa este sub-flow por defecto.",
-                        )
-                        overwrite = st.checkbox(
-                            "Sobrescribir sub-flows existentes (scaffold)",
-                            value=False,
-                            key=f"router-overwrite-{selected_key}-{scope_sel}",
-                        )
-                        c1, c2 = st.columns([0.6, 0.4])
-                        if c1.button(
-                            "Scaffold subflows desde opciones",
-                            use_container_width=True,
-                            key=f"router-scaffold-{selected_key}-{scope_sel}",
-                        ):
-                            try:
-                                out = _scaffold_router_subflows(
-                                    json.loads(json.dumps(flow_live)),
-                                    router_block_id=str(router_block_id),
-                                    save_to=str(save_to or "").strip() or "intent",
-                                )
-                            except Exception as exc:
-                                st.error(f"No se pudo scaffold: {exc}")
+                    for label, fname in scope_sf.items():
+                        cols = st.columns([0.7, 0.15, 0.15])
+                        cols[0].write(label)
+                        if cols[1].button("Editar", key=f"sf-edit-{sk}-{label}"):
+                            st.session_state["sf_edit_file"] = fname
+                        if cols[2].button("Eliminar", key=f"sf-del-{sk}-{label}", disabled=not write_enabled):
+                            st.session_state["sf_delete_file"] = fname
+
+                # Subflow actions
+                if st.session_state.get("sf_edit_file") and st.session_state.get("verticals_show_advanced"):
+                    sf_file = st.session_state.get("sf_edit_file")
+                    sf_read = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
+                    sf_flow = sf_read.get("content") if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict) else {}
+                    _json_editor(
+                        vertical_key=selected_key,
+                        title=f"subflow {sf_file}",
+                        filename=str(sf_file),
+                        value=sf_flow,
+                        template=None,
+                    )
+
+                sf_del = st.session_state.get("sf_delete_file")
+                if sf_del:
+                    confirm = st.text_input("Escribe ELIMINAR para borrar subguion", key=f"sf-del-confirm-{sk}")
+                    if st.button("Eliminar subguion", use_container_width=True, disabled=not write_enabled):
+                        if confirm.strip().upper() != "ELIMINAR":
+                            st.error("Confirmación incorrecta.")
+                        else:
+                            res_del = delete_vertical_file_admin(ctx.token, selected_key, sf_del, api_key=ctx.api_key)
+                            if isinstance(res_del, dict) and res_del.get("error"):
+                                _show_api_error(res_del, f"No se pudo borrar {sf_del}")
                             else:
-                                updated = out.get("flow") if isinstance(out, dict) else None
-                                if not isinstance(updated, dict):
-                                    st.error("Scaffold falló: payload inválido.")
-                                else:
-                                    # 1) Guardar flow router (termina en end) + metadata de router con routes_file
-                                    routes_file = _routes_filename(scope_sel, str(save_to or "").strip() or "intent")
-                                    updated.setdefault("config", {})
-                                    if not isinstance(updated.get("config"), dict):
-                                        updated["config"] = {}
-                                    updated["config"]["router"] = {
-                                        "block_id": str(router_block_id),
-                                        "scope": str(scope_sel),
-                                        "save_to": str(save_to or "").strip() or "intent",
-                                        "mode": "handoff_end",
-                                        "routes_file": routes_file,
-                                        "fallback_key": _slugify_subflow_key(fallback_key) or "general",
-                                    }
-                                    res = update_vertical_file_admin(
-                                        ctx.token,
-                                        selected_key,
-                                        fname_flow,
-                                        kind="json",
-                                        content=updated,
-                                        validate=True,
-                                        api_key=ctx.api_key,
-                                    )
-                                    if isinstance(res, dict) and res.get("error"):
-                                        _show_api_error(res, "No se pudo guardar el flow tras scaffold")
-                                    else:
-                                        # 2) Crear sub-flows (archivos) + 3) Crear routes file (mapeo)
-                                        routes = out.get("routes") if isinstance(out, dict) else None
-                                        if not isinstance(routes, dict) or not routes:
-                                            st.error("No se pudieron derivar rutas del router.")
-                                            st.stop()
+                                st.success(f"Subguion borrado: {sf_del}")
+                                st.session_state.pop("sf_delete_file", None)
+                                st.rerun()
 
-                                        # Construir mapping a archivos de subflow
-                                        route_entries: dict[str, dict[str, str]] = {}
-                                        for opt_id, sub_key in routes.items():
-                                            if not opt_id or not sub_key:
-                                                continue
-                                            # Buscar label humano del option
-                                            lbl = None
-                                            for o in (router_block.get("options") or []):
-                                                if _option_id(o) == str(opt_id):
-                                                    if isinstance(o, dict):
-                                                        l = o.get("label") or o.get("text") or opt_id
-                                                        lbl = str(l) if not isinstance(l, dict) else str(next(iter(l.values()), opt_id))
-                                                    else:
-                                                        lbl = str(o)
-                                                    break
-                                            sf_file = _subflow_filename(scope_sel, str(save_to or "").strip() or "intent", str(sub_key))
-                                            sf_id = _subflow_flow_id(
-                                                vertical_key=selected_key,
-                                                scope_key=scope_sel,
-                                                save_to=str(save_to or "").strip() or "intent",
-                                                subflow_key=str(sub_key),
-                                            )
-                                            route_entries[str(opt_id)] = {"subflow_id": sf_id, "file": sf_file}
-
-                                            # Crear/actualizar subflow file
-                                            existing_sf = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
-                                            exists = isinstance(existing_sf, dict) and isinstance(existing_sf.get("content"), dict)
-                                            should_write = bool(overwrite or not exists)
-                                            if should_write:
-                                                sf_flow = _subflow_skeleton(
-                                                    vertical_key=selected_key,
-                                                    scope_key=scope_sel,
-                                                    save_to=str(save_to or "").strip() or "intent",
-                                                    subflow_key=str(sub_key),
-                                                    label=lbl,
-                                                    template_flow=updated,
-                                                )
-                                                out_sf = update_vertical_file_admin(
-                                                    ctx.token,
-                                                    selected_key,
-                                                    sf_file,
-                                                    kind="json",
-                                                    content=sf_flow,
-                                                    validate=True,
-                                                    api_key=ctx.api_key,
-                                                )
-                                                if isinstance(out_sf, dict) and out_sf.get("error"):
-                                                    _show_api_error(out_sf, f"No se pudo crear {sf_file}")
-
-                                        routes_payload = {
-                                            "router": {"block_id": str(router_block_id), "save_to": str(save_to or "").strip() or "intent", "scope": scope_sel},
-                                            "routes": route_entries,
-                                            "default": route_entries.get(_slugify_subflow_key(fallback_key) or str(default_fallback)) or next(iter(route_entries.values())),
-                                        }
-                                        out_routes = update_vertical_file_admin(
-                                            ctx.token,
-                                            selected_key,
-                                            routes_file,
-                                            kind="json",
-                                            content=routes_payload,
-                                            validate=False,
-                                            api_key=ctx.api_key,
-                                        )
-                                        if isinstance(out_routes, dict) and out_routes.get("error"):
-                                            _show_api_error(out_routes, f"No se pudo guardar {routes_file}")
-                                        st.success(f"Router actualizado + sub-flows listos. Archivo de rutas: `{routes_file}`.")
-                                        st.rerun()
-
-                        if c2.button(
-                            "Marcar como router (solo metadata)",
-                            use_container_width=True,
-                            key=f"router-mark-{selected_key}-{scope_sel}",
-                        ):
-                            try:
-                                updated = json.loads(json.dumps(flow_live))
-                                updated.setdefault("config", {})
-                                if not isinstance(updated["config"], dict):
-                                    updated["config"] = {}
-                                routes_file = _routes_filename(scope_sel, str(save_to or "").strip() or "intent")
-                                updated["config"]["router"] = {
-                                    "block_id": str(router_block_id),
-                                    "scope": str(scope_sel),
-                                    "save_to": str(save_to or "").strip() or "intent",
-                                    "mode": "handoff_end",
-                                    "routes_file": routes_file,
-                                    "fallback_key": _slugify_subflow_key(fallback_key) or "general",
-                                }
-                                res = update_vertical_file_admin(
-                                    ctx.token,
-                                    selected_key,
-                                    fname_flow,
-                                    kind="json",
-                                    content=updated,
-                                    validate=True,
-                                    api_key=ctx.api_key,
-                                )
-                                if isinstance(res, dict) and res.get("error"):
-                                    _show_api_error(res, "No se pudo guardar metadata de router")
-                                else:
-                                    st.success("Router metadata guardada. Recargando…")
-                                    st.rerun()
-                            except Exception as exc:
-                                st.error(f"No se pudo guardar metadata: {exc}")
-
-                    # Sub-flows del scope: colección abierta (independiente del router)
-                    st.markdown("#### Sub-flows del scope (colección abierta)")
-                    st.caption(
-                        "El scope es dueño de los sub-flows. El router solo referencia una `key` (guardada en `save_to`). "
-                        "Los sub-flows pueden existir aunque el router no los use todavía."
-                    )
-
-                    subflows_save_to_default = str(cfg_router.get("save_to") or router_block.get("save_to") or "intent")
-                    subflows_save_to = st.text_input(
-                        "save_to (colección de sub-flows)",
-                        value=subflows_save_to_default,
-                        key=f"sf-save-to-{selected_key}-{scope_sel}",
-                        help="Agrupa sub-flows por variable de router. Puedes crear sub-flows aunque el router todavía no exista.",
-                    )
-                    save_to_norm = str(subflows_save_to or "").strip().lower() or "intent"
-                    files_payload = list_vertical_files_admin(ctx.token, selected_key, api_key=ctx.api_key)
-                    files_items = files_payload.get("items") if isinstance(files_payload, dict) else None
-                    if not isinstance(files_items, list):
-                        _show_api_error(files_payload, "No se pudieron listar archivos del vertical")
-                        files_items = []
-
-                    subflow_files_by_key: dict[str, str] = {}
-                    for it in files_items:
-                        if not isinstance(it, dict):
-                            continue
-                        sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
-                        if not isinstance(sf, dict):
-                            continue
-                        if str(sf.get("scope") or "").strip().lower() != str(scope_sel).strip().lower():
-                            continue
-                        if str(sf.get("save_to") or "").strip().lower() != save_to_norm:
-                            continue
-                        k = _slugify_subflow_key(sf.get("key"))
-                        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
-                        if k and fname:
-                            subflow_files_by_key.setdefault(k, fname)
-
-                    # Cobertura: keys que el router podría emitir
-                    router_option_keys = [
-                        _slugify_subflow_key(_option_id(o))
-                        for o in (router_block.get("options") or [])
-                        if _option_id(o)
-                    ]
-                    router_option_keys = [k for k in router_option_keys if k]
-                    missing_for_router = [k for k in router_option_keys if k not in subflow_files_by_key]
-                    if router_option_keys:
-                        st.caption(
-                            f"Keys en opciones del router: {len(router_option_keys)} · "
-                            f"sub-flows existentes: {len(subflow_files_by_key)} · "
-                            f"faltan: {len(missing_for_router)}"
-                        )
-
+                if st.session_state.get("verticals_show_advanced"):
+                    st.divider()
+                    st.markdown("**Crear subguion (avanzado)**")
                     template_options = [
                         "blank",
                         "intro_welcome",
@@ -1015,31 +1374,31 @@ if selected_key:
                         "closing",
                     ]
                     template_key = st.selectbox(
-                        "Plantilla (opcional)",
+                        "Plantilla",
                         options=template_options,
                         index=0,
-                        key=f"sf-template-{selected_key}-{scope_sel}",
+                        key=f"sf-template-{selected_key}-{sk}",
                     )
                     c_new1, c_new2, c_new3 = st.columns([0.35, 0.45, 0.2])
                     new_key = c_new1.text_input(
                         "Nueva key",
                         value="",
-                        key=f"sf-new-key-{selected_key}-{scope_sel}",
-                        help="Identificador del sub-flow (ej: `implantes`).",
+                        key=f"sf-new-key-{selected_key}-{sk}",
                     )
                     new_label = c_new2.text_input(
                         "Label (opcional)",
                         value="",
-                        key=f"sf-new-label-{selected_key}-{scope_sel}",
+                        key=f"sf-new-label-{selected_key}-{sk}",
                     )
+                    save_to_norm = "intent"
                     if c_new3.button(
-                        "Crear sub-flow",
+                        "Crear subguion",
                         use_container_width=True,
-                        key=f"sf-new-create-{selected_key}-{scope_sel}",
+                        key=f"sf-new-create-{selected_key}-{sk}",
                     ):
                         try:
                             sub_key = _slugify_subflow_key(new_key)
-                            sf_file = _subflow_filename(scope_sel, save_to_norm, sub_key)
+                            sf_file = _subflow_filename(sk, save_to_norm, sub_key)
                             existing_sf = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
                             exists = isinstance(existing_sf, dict) and isinstance(existing_sf.get("content"), dict)
                             if exists:
@@ -1047,11 +1406,11 @@ if selected_key:
                             else:
                                 sf_flow = _subflow_skeleton(
                                     vertical_key=selected_key,
-                                    scope_key=scope_sel,
+                                    scope_key=sk,
                                     save_to=save_to_norm,
                                     subflow_key=sub_key,
                                     label=new_label.strip() or None,
-                                    template_flow=flow_live,
+                                    template_flow=assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None,
                                 )
                                 if template_key and template_key != "blank":
                                     tpl_blocks = _subflow_template_blocks(template_key, new_label.strip() or sub_key)
@@ -1074,222 +1433,15 @@ if selected_key:
                                 if isinstance(out_sf, dict) and out_sf.get("error"):
                                     _show_api_error(out_sf, f"No se pudo crear {sf_file}")
                                 else:
-                                    st.success(f"Sub-flow creado: `{sf_file}`")
+                                    st.success(f"Subguion creado: `{sf_file}`")
                                     st.rerun()
                         except Exception as exc:
-                            st.error(f"No se pudo crear sub-flow: {exc}")
+                            st.error(f"No se pudo crear subguion: {exc}")
 
-                    upload_sf = st.file_uploader(
-                        "Subir JSON de sub-flow (flow completo)",
-                        type=["json"],
-                        key=f"sf-upload-{selected_key}-{scope_sel}",
-                        disabled=not write_enabled,
-                    )
-                    if upload_sf is not None and write_enabled:
-                        try:
-                            parsed = json.loads(upload_sf.getvalue().decode("utf-8"))
-                            sub_key = _slugify_subflow_key(new_key or "general")
-                            sf_file = _subflow_filename(scope_sel, save_to_norm, sub_key)
-                            normalized = _normalize_to_flow(parsed, filename=sf_file, template=flow_live)
-                            normalized.setdefault("config", {})
-                            if not isinstance(normalized.get("config"), dict):
-                                normalized["config"] = {}
-                            normalized["config"] = dict(normalized.get("config") or {})
-                            normalized["config"]["subflow"] = {
-                                "vertical_key": str(selected_key),
-                                "scope": str(scope_sel),
-                                "router_save_to": str(save_to_norm),
-                                "key": str(sub_key),
-                                "label": (new_label or "").strip() or None,
-                            }
-                            out_sf = update_vertical_file_admin(
-                                ctx.token,
-                                selected_key,
-                                sf_file,
-                                kind="json",
-                                content=normalized,
-                                validate=True,
-                                api_key=ctx.api_key,
-                            )
-                            if isinstance(out_sf, dict) and out_sf.get("error"):
-                                _show_api_error(out_sf, f"No se pudo guardar {sf_file}")
-                            else:
-                                st.success(f"Sub-flow subido: `{sf_file}`")
-                                st.rerun()
-                        except Exception as exc:
-                            st.error(f"No se pudo subir sub-flow: {exc}")
-
-                    sf_keys = sorted(subflow_files_by_key.keys())
-                    if not sf_keys:
-                        st.info("No hay sub-flows para este scope/save_to todavía.")
-                    else:
-                        sf_choice_key = st.selectbox(
-                            "Sub-flow",
-                            options=sf_keys,
-                            key=f"sf-scope-select-{selected_key}-{scope_sel}",
-                            format_func=lambda k: f"{k} → {subflow_files_by_key.get(k)}",
-                        )
-                        sf_file = subflow_files_by_key.get(sf_choice_key)
-                        if sf_file:
-                            sf_read = read_vertical_file_admin(ctx.token, selected_key, str(sf_file), api_key=ctx.api_key)
-                            sf_flow = sf_read.get("content") if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict) else {}
-                            _json_editor(
-                                vertical_key=selected_key,
-                                title=f"subflow {sf_choice_key}",
-                                filename=str(sf_file),
-                                value=sf_flow,
-                                template=None,
-                            )
-
-                            c_del1, c_del2 = st.columns([0.7, 0.3])
-                            confirm = c_del1.checkbox(
-                                f"Confirmar borrado de `{sf_file}`",
-                                value=False,
-                                key=f"sf-del-confirm-{selected_key}-{scope_sel}-{sf_choice_key}",
-                                disabled=not write_enabled,
-                            )
-                            if c_del2.button(
-                                "Borrar sub-flow",
-                                use_container_width=True,
-                                key=f"sf-del-{selected_key}-{scope_sel}-{sf_choice_key}",
-                                disabled=not write_enabled or not confirm,
-                            ):
-                                res_del = delete_vertical_file_admin(ctx.token, selected_key, str(sf_file), api_key=ctx.api_key)
-                                if isinstance(res_del, dict) and res_del.get("error"):
-                                    _show_api_error(res_del, f"No se pudo borrar {sf_file}")
-                                else:
-                                    st.success(f"Sub-flow borrado: `{sf_file}`")
-                                    st.rerun()
-
-                    st.markdown("#### Orden recomendado (sequential)")
-                    meta_payload = read_vertical_file_admin(ctx.token, selected_key, "metadata.json", api_key=ctx.api_key)
-                    meta_content = meta_payload.get("content") if isinstance(meta_payload, dict) and isinstance(meta_payload.get("content"), dict) else {}
-                    sub_cfg = meta_content.get("subflows") if isinstance(meta_content.get("subflows"), dict) else {}
-                    rec_order = sub_cfg.get("recommended_order") if isinstance(sub_cfg.get("recommended_order"), list) else []
-                    locks_cfg = sub_cfg.get("locks") if isinstance(sub_cfg.get("locks"), dict) else {}
-                    order_keys = list(rec_order) if rec_order else list(subflow_files_by_key.keys())
-                    for k in subflow_files_by_key.keys():
-                        if k not in order_keys:
-                            order_keys.append(k)
-                    if "admin_sf_order" not in st.session_state or st.session_state.get("admin_sf_order_seed") != ",".join(order_keys):
-                        st.session_state["admin_sf_order"] = list(order_keys)
-                        st.session_state["admin_sf_order_seed"] = ",".join(order_keys)
-                    order_state = st.session_state.get("admin_sf_order", [])
-                    if order_state:
-                        sel_order = st.selectbox(
-                            "Mover sub-flow",
-                            options=order_state,
-                            key=f"admin-sf-order-{selected_key}-{scope_sel}",
-                        )
-                        c_up, c_down, c_save = st.columns([0.25, 0.25, 0.5])
-                        if c_up.button("Subir", use_container_width=True, key=f"admin-sf-up-{selected_key}-{scope_sel}"):
-                            idx = order_state.index(sel_order)
-                            if idx > 0:
-                                order_state[idx - 1], order_state[idx] = order_state[idx], order_state[idx - 1]
-                                st.session_state["admin_sf_order"] = order_state
-                                st.rerun()
-                        if c_down.button("Bajar", use_container_width=True, key=f"admin-sf-down-{selected_key}-{scope_sel}"):
-                            idx = order_state.index(sel_order)
-                            if idx < len(order_state) - 1:
-                                order_state[idx + 1], order_state[idx] = order_state[idx], order_state[idx + 1]
-                                st.session_state["admin_sf_order"] = order_state
-                                st.rerun()
-                        if c_save.button("Guardar orden", use_container_width=True, key=f"admin-sf-save-{selected_key}-{scope_sel}"):
-                            sub_cfg["recommended_order"] = order_state
-                            meta_content["subflows"] = sub_cfg
-                            out_meta = update_vertical_file_admin(
-                                ctx.token,
-                                selected_key,
-                                "metadata.json",
-                                kind="json",
-                                content=meta_content,
-                                validate=False,
-                                api_key=ctx.api_key,
-                            )
-                            if isinstance(out_meta, dict) and out_meta.get("error"):
-                                _show_api_error(out_meta, "No se pudo guardar metadata")
-                            else:
-                                st.success("Orden recomendado guardado.")
-                                st.rerun()
-
-                    st.markdown("#### Locks (required / editable)")
-                    if subflow_files_by_key:
-                        locks_updates: dict[str, dict[str, bool]] = {}
-                        for k in subflow_files_by_key.keys():
-                            entry = locks_cfg.get(k) if isinstance(locks_cfg.get(k), dict) else {}
-                            required_val = bool(entry.get("required"))
-                            editable_val = bool(entry.get("editable", True))
-                            c1, c2, c3 = st.columns([0.5, 0.25, 0.25])
-                            c1.markdown(f"- `{k}`")
-                            required_val = c2.checkbox("Required", value=required_val, key=f"lock-req-{selected_key}-{scope_sel}-{k}")
-                            editable_val = c3.checkbox("Editable", value=editable_val, key=f"lock-edit-{selected_key}-{scope_sel}-{k}")
-                            locks_updates[k] = {"required": required_val, "editable": editable_val}
-                        if st.button("Guardar locks", use_container_width=True, key=f"admin-sf-locks-save-{selected_key}-{scope_sel}"):
-                            sub_cfg["locks"] = locks_updates
-                            meta_content["subflows"] = sub_cfg
-                            out_meta = update_vertical_file_admin(
-                                ctx.token,
-                                selected_key,
-                                "metadata.json",
-                                kind="json",
-                                content=meta_content,
-                                validate=False,
-                                api_key=ctx.api_key,
-                            )
-                            if isinstance(out_meta, dict) and out_meta.get("error"):
-                                _show_api_error(out_meta, "No se pudo guardar locks")
-                            else:
-                                st.success("Locks guardados.")
-                                st.rerun()
-
-                    # Editor de subflows (si hay routes_file)
-                    try:
-                        flow_cfg = flow_live.get("config") if isinstance(flow_live.get("config"), dict) else {}
-                        router_meta = flow_cfg.get("router") if isinstance(flow_cfg.get("router"), dict) else {}
-                        routes_file = router_meta.get("routes_file")
-                        if routes_file:
-                            routes_payload = read_vertical_file_admin(ctx.token, selected_key, str(routes_file), api_key=ctx.api_key)
-                            if isinstance(routes_payload, dict) and isinstance(routes_payload.get("content"), dict):
-                                content = routes_payload["content"]
-                                route_entries = content.get("routes") if isinstance(content.get("routes"), dict) else {}
-                                if route_entries:
-                                    st.markdown("#### Sub-flows del router")
-                                    ids = list(route_entries.keys())
-                                    sf_choice = st.selectbox(
-                                        "Opción (router) → sub-flow",
-                                        options=ids,
-                                        format_func=lambda k: f"{k} → {(route_entries.get(k) or {}).get('subflow_id') or (route_entries.get(k) or {}).get('file')}",
-                                        key=f"sf-select-{selected_key}-{scope_sel}",
-                                    )
-                                    entry = route_entries.get(sf_choice) if isinstance(route_entries.get(sf_choice), dict) else {}
-                                    sf_file = entry.get("file")
-                                    if sf_file:
-                                        sf_read = read_vertical_file_admin(ctx.token, selected_key, str(sf_file), api_key=ctx.api_key)
-                                        sf_flow = sf_read.get("content") if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict) else {}
-                                        _json_editor(
-                                            vertical_key=selected_key,
-                                            title=f"subflow {sf_choice}",
-                                            filename=str(sf_file),
-                                            value=sf_flow,
-                                            template=None,
-                                        )
-                    except Exception:
-                        pass
-
-        else:
-            st.subheader("Test IA (admin)")
-            st.caption("Prueba la generación (preview/dry-run o real) para validar prompts. En producción, el tenant genera su draft.")
-
-            _text_editor(vertical_key=selected_key, title="prompt_vertical", filename="prompt_vertical.txt", value=assets.get("prompt_vertical") or "")
-            _text_editor(
-                vertical_key=selected_key,
-                title="prompt_vertical_extension",
-                filename="prompt_vertical_extension.txt",
-                value=assets.get("prompt_vertical_extension") or "",
-            )
-
+        if st.session_state.get("verticals_show_advanced"):
             st.divider()
-            st.markdown("### Test de generación (admin)")
+            st.markdown("#### Test IA (avanzado)")
+            st.caption("Prueba la generación para validar prompts. En producción, el tenant genera su draft.")
             test_mode = st.radio(
                 "Modo",
                 options=["Dry-run (preview prompt)", "Real (llama IA)"],
@@ -1310,12 +1462,11 @@ if selected_key:
             )
             tenant_name = st.text_input("Nombre de tenant (opcional)", value="", key=f"gen-tenant-name-{selected_key}")
             business_knowledge = st.text_area(
-                "Business knowledge (opcional, texto de ejemplo)",
+                "Business knowledge (opcional)",
                 value="",
                 height=140,
                 key=f"gen-kb-{selected_key}",
             )
-
             model = None
             temperature = 0.3
             if test_mode.startswith("Real"):
@@ -1350,7 +1501,7 @@ if selected_key:
                     "temperature": temperature,
                 }
                 payload = {k: v for k, v in payload.items() if v is not None}
-                with st.spinner("Ejecutando…"):
+                with st.spinner("Ejecutando..."):
                     res = preview_vertical_flow_generator(ctx.token, selected_key, payload, api_key=ctx.api_key)
                 if isinstance(res, dict) and res.get("error"):
                     _show_api_error(res, "No se pudo ejecutar el test")
@@ -1364,32 +1515,33 @@ if selected_key:
                         with st.expander("Raw (debug)", expanded=False):
                             st.json(res.get("patch") or {})
 
-st.divider()
-st.subheader("Lista")
-for v in vertical_items:
-    key = v.get("key")
-    label = v.get("label") or key
-    with st.expander(f"{label} — {key}", expanded=False):
-        promise = v.get("promise_commercial")
-        if promise:
-            st.markdown(f"**Promesa comercial:** {promise}")
-        st.markdown(f"**Default flow:** `{v.get('default_flow_id') or 'n/d'}`")
-        ci = v.get("conversational_intelligence") or {}
-        if isinstance(ci, dict) and ci:
-            st.markdown("**CI v1.1:**")
-            st.json(ci)
-        scope = v.get("scope") or {}
-        if isinstance(scope, dict) and scope:
-            st.markdown("**Scope:**")
-            st.json(scope)
-        files = v.get("files") or {}
-        if isinstance(files, dict) and files:
-            missing = [fname for fname, ok in files.items() if not ok]
-            if missing:
-                st.warning(f"Faltan archivos: {', '.join(missing)}")
-            else:
-                st.success("Archivos mínimos OK.")
-        if v.get("flow_template_exists") is False:
-            st.warning("No hay flujo disponible (falta `flow_base.json` y no hay fallback en `backend/app/flows/`).")
-        else:
-            st.caption(f"Fuente de flujo en runtime: `{v.get('flow_source') or 'n/d'}`")
+
+# -----------------------------------------------------------------------------
+# Main layout
+# -----------------------------------------------------------------------------
+
+vertical_items, vertical_keys, vertical_labels = _get_catalog()
+render_header(vertical_items, vertical_labels)
+
+# Filter + search
+items = vertical_items
+filter_key = st.session_state.get("verticals_filter")
+if filter_key and filter_key != "Todos":
+    items = [v for v in items if str(v.get("key")) == str(filter_key)]
+items = _search_filter(items, st.session_state.get("verticals_search", ""))
+selected_key = _ensure_selected_vertical(items)
+
+left, right = st.columns([0.3, 0.7], gap="large")
+
+with left:
+    render_vertical_list(items, vertical_labels)
+
+with right:
+    if st.session_state.get("verticals_show_wizard"):
+        render_wizard_create_vertical()
+    elif not selected_key:
+        st.info("Selecciona un vertical para ver el detalle.")
+    else:
+        detail = _load_vertical_detail(selected_key)
+        if detail:
+            render_vertical_detail(detail)
