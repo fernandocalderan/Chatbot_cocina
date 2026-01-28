@@ -15,7 +15,7 @@ REGISTRY_PATH = VERT_DIR / "registry.json"
 RE_VERTICAL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 RE_SCOPE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 RE_GROUP = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
-RE_PROBLEM = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
+RE_PROBLEM = re.compile(r"^[a-z0-9][a-z0-9_-]{0,80}$")
 
 
 class Collector:

@@ -1,0 +1,25 @@
+{
+  "version": "flow_kitchens__banos_lavaderos__intent__router__v1",
+  "router_save_to": "intent",
+  "label": "Intent (placeholder)",
+  "symptoms": [
+    "Scope aún no segmentado"
+  ],
+  "questions": [],
+  "capture": [],
+  "response": {
+    "type": "text",
+    "text": "Scope 'banos_lavaderos' aún no tiene playbook V2. Usando intent general (cocinas_completas)."
+  },
+  "config": {
+    "subflow": {
+      "scope": "cocinas_completas"
+    },
+    "problem": {
+      "group": "intent",
+      "key": "router_placeholder",
+      "scope": "banos_lavaderos",
+      "layout": "v2"
+    }
+  }
+}
