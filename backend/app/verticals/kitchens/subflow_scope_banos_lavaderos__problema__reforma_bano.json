@@ -1,0 +1,51 @@
+{
+  "version": "flow_kitchens__banos_lavaderos__problema__reforma_bano__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "banos_lavaderos",
+      "router_save_to": "problema",
+      "key": "reforma_bano",
+      "label": "Reforma de baño"
+    },
+    "problem": {
+      "group": "problema",
+      "title": "Reforma de baño",
+      "symptoms": [
+        "Reforma baño"
+      ],
+      "key_questions": [
+        "¿Estado?",
+        "¿Plazo?"
+      ],
+      "base_answer": "Reforma completa.",
+      "cta": "Agenda visita",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Reforma de baño",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

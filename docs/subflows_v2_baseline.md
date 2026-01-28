@@ -15,7 +15,7 @@ Este documento congela el contrato y las piezas existentes antes de añadir el m
   - `panel/pages/flujo_v2.py` → editor v2 (draft/publish + subflow editor básico).
   - `panel/api_client.py` → calls `/tenant/flows/subflows`.
 - Panel admin:
-  - `admin_panel/pages/03_🧩_Verticals.py` → scaffolding de subflows + edición de archivos de vertical.
+  - `admin_panel/pages/03_verticals.py` → scaffolding de subflows + edición de archivos de vertical.
   - `admin_panel/api_client.py` → calls `/v1/admin/verticals/*`.
 
 ## Contrato actual (compatibilidad)

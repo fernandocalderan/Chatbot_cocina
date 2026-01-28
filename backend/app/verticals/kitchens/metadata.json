@@ -80,5 +80,63 @@
         "editable": true
       }
     }
+  },
+  "scope_definitions": {
+    "cocinas_completas": {
+      "label": "Cocinas completas",
+      "flow_id": "kitchens__cocinas_completas__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    },
+    "banos_lavaderos": {
+      "label": "Baños/Lavaderos",
+      "flow_id": "kitchens__banos_lavaderos__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    },
+    "muebles_medida": {
+      "label": "Muebles a medida",
+      "flow_id": "kitchens__muebles_medida__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    }
+  },
+  "scope": {
+    "included": [
+      "cocinas_completas",
+      "banos_lavaderos",
+      "muebles_medida"
+    ]
+  },
+  "archived": false,
+  "default_scope": "cocinas_completas",
+  "scopes": {
+    "cocinas_completas": {
+      "label": "Cocinas completas",
+      "flow_id": "flow_base_scope_cocinas_completas.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
+    },
+    "banos_lavaderos": {
+      "label": "Baños/Lavaderos",
+      "flow_id": "flow_base_scope_banos_lavaderos.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
+    },
+    "muebles_medida": {
+      "label": "Muebles a medida",
+      "flow_id": "flow_base_scope_muebles_medida.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
+    }
   }
 }

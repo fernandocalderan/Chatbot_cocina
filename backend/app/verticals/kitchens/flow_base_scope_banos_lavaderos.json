@@ -1,0 +1,206 @@
+{
+  "version": "kitchens__banos_lavaderos__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "welcome",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": "Hola, vamos a preparar tu proyecto.",
+      "next": "project_type"
+    },
+    "project_type": {
+      "id": "project_type",
+      "type": "buttons",
+      "text": "¿Qué tipo de proyecto es?",
+      "options": [
+        {
+          "label": "Nuevo",
+          "value": "nuevo"
+        },
+        {
+          "label": "Reforma",
+          "value": "reforma"
+        },
+        {
+          "label": "Mobiliario",
+          "value": "mobiliario"
+        }
+      ],
+      "save_to": "project_type",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": "¿En qué ciudad o zona?",
+      "save_to": "location",
+      "next": "space_status"
+    },
+    "space_status": {
+      "id": "space_status",
+      "type": "buttons",
+      "text": "¿Cómo está el espacio actualmente?",
+      "options": [
+        {
+          "label": "Obra nueva",
+          "value": "obra_nueva"
+        },
+        {
+          "label": "Para reformar",
+          "value": "reformar"
+        },
+        {
+          "label": "A medias",
+          "value": "medias"
+        }
+      ],
+      "save_to": "space_status",
+      "next": "surface_area"
+    },
+    "surface_area": {
+      "id": "surface_area",
+      "type": "input",
+      "text": "¿Qué superficie aproximada tiene?",
+      "save_to": "surface_area",
+      "next": "space_shape"
+    },
+    "space_shape": {
+      "id": "space_shape",
+      "type": "buttons",
+      "text": "¿Qué forma tiene la estancia?",
+      "options": [
+        {
+          "label": "Lineal",
+          "value": "lineal"
+        },
+        {
+          "label": "L",
+          "value": "l"
+        },
+        {
+          "label": "U",
+          "value": "u"
+        },
+        {
+          "label": "Isla",
+          "value": "isla"
+        }
+      ],
+      "save_to": "space_shape",
+      "next": "style"
+    },
+    "style": {
+      "id": "style",
+      "type": "buttons",
+      "text": "¿Qué estilo buscas?",
+      "options": [
+        {
+          "label": "Moderno",
+          "value": "moderno"
+        },
+        {
+          "label": "Clásico",
+          "value": "clasico"
+        },
+        {
+          "label": "Minimalista",
+          "value": "minimalista"
+        },
+        {
+          "label": "Industrial",
+          "value": "industrial"
+        }
+      ],
+      "save_to": "style",
+      "next": "investment_range"
+    },
+    "investment_range": {
+      "id": "investment_range",
+      "type": "buttons",
+      "text": "¿Cuál es tu rango de inversión?",
+      "options": [
+        {
+          "label": "<10k",
+          "value": "<10k"
+        },
+        {
+          "label": "10-20k",
+          "value": "10-20k"
+        },
+        {
+          "label": ">20k",
+          "value": ">20k"
+        }
+      ],
+      "save_to": "investment_range",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": "¿En qué plazo quieres empezar?",
+      "options": [
+        {
+          "label": "1-2 semanas",
+          "value": "2_sem"
+        },
+        {
+          "label": "1-2 meses",
+          "value": "2_mes"
+        },
+        {
+          "label": "Sin prisa",
+          "value": "sin_prisa"
+        }
+      ],
+      "save_to": "urgency",
+      "next": "contact_name"
+    },
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": "¿Cuál es tu nombre?",
+      "save_to": "contact_name",
+      "next": "contact_phone"
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": "¿Cuál es tu teléfono o WhatsApp?",
+      "save_to": "contact_phone",
+      "next": "lead_scoring"
+    },
+    "lead_scoring": {
+      "id": "lead_scoring",
+      "type": "internal",
+      "action": "calculate_scoring",
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": "Elige una franja horaria para tu visita o videollamada:",
+      "save_to": "cita_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": "Gracias, nuestro equipo te contactará.",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

@@ -10,7 +10,11 @@
       "cerramientos",
       "persianas_toldos",
       "electricidad",
-      "fontaneria"
+      "fontaneria",
+      "climatizacion_solar",
+      "reformas_carpinteria",
+      "fontaneria_electricidad",
+      "cristaleria"
     ],
     "excluded": [
       "urgencias_medicas"
@@ -53,7 +57,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "instaladores_solar": {
       "label": "Solar (placas)",
@@ -67,7 +73,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "reformas_parciales": {
       "label": "Reformas parciales",
@@ -81,7 +89,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "carpinteria_metalica": {
       "label": "Carpintería metálica",
@@ -95,7 +105,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "cerramientos": {
       "label": "Cerramientos",
@@ -109,7 +121,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "persianas_toldos": {
       "label": "Persianas y toldos",
@@ -123,7 +137,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "electricidad": {
       "label": "Electricidad",
@@ -137,7 +153,9 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "fontaneria": {
       "label": "Fontanería",
@@ -151,10 +169,122 @@
             "next": "urgency"
           }
         }
-      }
+      },
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
     },
     "cristaleria": {
-      "label": "Cristaleria"
+      "label": "Cristaleria",
+      "flow_id": "home_services_base_v1",
+      "problem_groups": []
+    },
+    "climatizacion_solar": {
+      "label": "Climatización & Solar",
+      "flow_id": "home_services__climatizacion_solar__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    },
+    "reformas_carpinteria": {
+      "label": "Reformas y Carpintería",
+      "flow_id": "home_services__reformas_carpinteria__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    },
+    "fontaneria_electricidad": {
+      "label": "Fontanería & Electricidad",
+      "flow_id": "home_services__fontaneria_electricidad__v1",
+      "problem_groups": [
+        "problema"
+      ]
+    }
+  },
+  "archived": false,
+  "subflows": {
+    "composition_default": "router",
+    "recommended_order": [],
+    "locks": {}
+  },
+  "default_scope": "instaladores_clima",
+  "scopes": {
+    "instaladores_clima": {
+      "label": "Climatización (A/A, calefacción)",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "instaladores_solar": {
+      "label": "Solar (placas)",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "reformas_parciales": {
+      "label": "Reformas parciales",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "carpinteria_metalica": {
+      "label": "Carpintería metálica",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "cerramientos": {
+      "label": "Cerramientos",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "persianas_toldos": {
+      "label": "Persianas y toldos",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "electricidad": {
+      "label": "Electricidad",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "fontaneria": {
+      "label": "Fontanería",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "cristaleria": {
+      "label": "Cristaleria",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "climatizacion_solar": {
+      "label": "Climatización & Solar",
+      "flow_id": "flow_base_scope_climatizacion_solar.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
+    },
+    "reformas_carpinteria": {
+      "label": "Reformas y Carpintería",
+      "flow_id": "flow_base_scope_reformas_carpinteria.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
+    },
+    "fontaneria_electricidad": {
+      "label": "Fontanería & Electricidad",
+      "flow_id": "flow_base_scope_fontaneria_electricidad.json",
+      "problem_groups": [
+        "problema"
+      ],
+      "archived": false
     }
   }
 }

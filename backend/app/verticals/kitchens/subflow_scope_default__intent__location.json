@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "location",
       "label": "Ubicación"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Ubicación",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

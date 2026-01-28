@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "intro_welcome",
       "label": "Bienvenida"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Bienvenida",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

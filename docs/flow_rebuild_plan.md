@@ -83,7 +83,7 @@ Existe un overlay de copy/UX por tenant:
 ### 1.5 Frontends (paneles) relacionados con flujos
 SuperAdmin (`admin_panel`):
 - Gestión de tenants + toggle `custom_flow_enabled` y editor JSON de flow publicado: `admin_panel/pages/02_🏢_Tenants.py` (usa endpoints `/v1/admin/tenants/{id}/flow`).
-- Gestión de verticals y assets: `admin_panel/pages/03_🧩_Verticals.py` (edita `flow_base.json`, prompts, etc.).
+- Gestión de verticals y assets: `admin_panel/pages/03_verticals.py` (edita `flow_base.json`, prompts, etc.).
   - Router + Sub‑flows:
     - botón de “Scaffold subflows desde opciones” crea `router_routes_scope_*` + `subflow_scope_*` (flow completo).
     - editor JSON por sub‑flow.
@@ -282,7 +282,7 @@ Implementado en el repo:
 - Motor Router → Sub‑flow (handoff fuera del JSON): `backend/app/api/chat.py`.
 - Assets por scope + sub‑flows: ver `backend/app/verticals/<vertical>/flow_base_scope_<scope>.json` y `subflow_scope_*`.
 - Autoría en SuperAdmin:
-  - router + scaffold subflows + editor JSON: `admin_panel/pages/03_🧩_Verticals.py`.
+  - router + scaffold subflows + editor JSON: `admin_panel/pages/03_verticals.py`.
 - Panel tenant (v2):
   - flow draft/publish y editor por bloque: `panel/pages/flujo_v2.py`.
   - editor de sub‑flows (textos/opciones) sobre overrides por tenant.

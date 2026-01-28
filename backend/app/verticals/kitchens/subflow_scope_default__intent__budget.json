@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "budget",
       "label": "Presupuesto"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Presupuesto",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "appointment_offer",
       "label": "Cita inicial"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Cita inicial",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

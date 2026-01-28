@@ -1,0 +1,4 @@
+Especialidad: Reformas y Carpintería
+Objetivo: captar solicitudes y datos esenciales del servicio.
+Incluye: tipo de trabajo, urgencia, inmueble, acceso, ubicación y contacto.
+Estilo: claro, directo, orientado a agenda.

@@ -8,7 +8,8 @@
       "osteopatia",
       "psicologia_privada",
       "podologia",
-      "rehabilitacion"
+      "rehabilitacion",
+      "fisioterapia_osteopatia"
     ],
     "excluded": [
       "estetica",
@@ -43,51 +44,175 @@
   "scope_definitions": {
     "dental": {
       "label": "Dental",
-      "defaults": {"specialty": "dental"},
+      "defaults": {
+        "specialty": "dental"
+      },
       "flow_overrides": {
         "version": "clinics_private__dental__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private__dental__router_v1",
+      "problem_groups": [
+        "motivo_consulta"
+      ]
     },
     "fisioterapia": {
       "label": "Fisioterapia",
-      "defaults": {"specialty": "fisio"},
+      "defaults": {
+        "specialty": "fisio"
+      },
       "flow_overrides": {
         "version": "clinics_private__fisioterapia__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private_base_v1",
+      "problem_groups": []
     },
     "osteopatia": {
       "label": "Osteopatía",
-      "defaults": {"specialty": "fisio"},
+      "defaults": {
+        "specialty": "fisio"
+      },
       "flow_overrides": {
         "version": "clinics_private__osteopatia__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private_base_v1",
+      "problem_groups": []
     },
     "psicologia_privada": {
       "label": "Psicología privada",
-      "defaults": {"specialty": "psicologia"},
+      "defaults": {
+        "specialty": "psicologia"
+      },
       "flow_overrides": {
         "version": "clinics_private__psicologia_privada__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private__psicologia_privada__v1",
+      "problem_groups": [
+        "motivo_consulta"
+      ]
     },
     "podologia": {
       "label": "Podología",
-      "defaults": {"specialty": "podologia"},
+      "defaults": {
+        "specialty": "podologia"
+      },
       "flow_overrides": {
         "version": "clinics_private__podologia__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private__podologia__v1",
+      "problem_groups": [
+        "motivo_consulta"
+      ]
     },
     "rehabilitacion": {
       "label": "Rehabilitación",
-      "defaults": {"specialty": "rehab"},
+      "defaults": {
+        "specialty": "rehab"
+      },
       "flow_overrides": {
         "version": "clinics_private__rehabilitacion__v1",
-        "blocks": {"service_type": {"next": "urgency"}}
-      }
+        "blocks": {
+          "service_type": {
+            "next": "urgency"
+          }
+        }
+      },
+      "flow_id": "clinics_private__rehabilitacion__v1",
+      "problem_groups": [
+        "motivo_consulta"
+      ]
+    },
+    "fisioterapia_osteopatia": {
+      "label": "Fisioterapia/Osteopatía",
+      "flow_id": "clinics_private__fisioterapia_osteopatia__v1",
+      "problem_groups": [
+        "motivo_consulta"
+      ]
+    }
+  },
+  "archived": false,
+  "subflows": {
+    "composition_default": "router",
+    "recommended_order": [],
+    "locks": {}
+  },
+  "default_scope": "dental",
+  "scopes": {
+    "dental": {
+      "label": "Dental",
+      "flow_id": "flow_base_scope_dental.json",
+      "problem_groups": [
+        "motivo_consulta"
+      ],
+      "archived": false
+    },
+    "fisioterapia": {
+      "label": "Fisioterapia",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "osteopatia": {
+      "label": "Osteopatía",
+      "flow_id": "flow_base.json",
+      "problem_groups": [],
+      "archived": false
+    },
+    "psicologia_privada": {
+      "label": "Psicología privada",
+      "flow_id": "flow_base_scope_psicologia_privada.json",
+      "problem_groups": [
+        "motivo_consulta"
+      ],
+      "archived": false
+    },
+    "podologia": {
+      "label": "Podología",
+      "flow_id": "flow_base_scope_podologia.json",
+      "problem_groups": [
+        "motivo_consulta"
+      ],
+      "archived": false
+    },
+    "rehabilitacion": {
+      "label": "Rehabilitación",
+      "flow_id": "flow_base_scope_rehabilitacion.json",
+      "problem_groups": [
+        "motivo_consulta"
+      ],
+      "archived": false
+    },
+    "fisioterapia_osteopatia": {
+      "label": "Fisioterapia/Osteopatía",
+      "flow_id": "flow_base_scope_fisioterapia_osteopatia.json",
+      "problem_groups": [
+        "motivo_consulta"
+      ],
+      "archived": false
     }
   }
 }

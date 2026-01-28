@@ -1,14 +1,26 @@
 {
   "version": "flow_clinics_private__dental__motivo_consulta__otro__v1",
   "plan": "base",
-  "languages": ["es"],
+  "languages": [
+    "es"
+  ],
   "start_block": "intro",
   "config": {
     "subflow": {
       "scope": "dental",
       "router_save_to": "motivo_consulta",
       "key": "otro",
-      "label": "Otro motivo"
+      "label": "Otro motivo",
+      "vertical_key": "clinics_private"
+    },
+    "problem": {
+      "group": "motivo_consulta",
+      "title": "Otro motivo",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {
@@ -23,7 +35,11 @@
       "type": "input",
       "text": "Describe en una frase tu consulta",
       "save_to": "motivo_detalle",
-      "validation": {"type": "text_length", "min_chars": 5, "max_chars": 300},
+      "validation": {
+        "type": "text_length",
+        "min_chars": 5,
+        "max_chars": 300
+      },
       "next": "disclaimer"
     },
     "disclaimer": {
@@ -37,7 +53,11 @@
       "type": "input",
       "text": "Para continuar, indícanos tu nombre completo",
       "save_to": "nombre",
-      "validation": {"type": "text_length", "min_chars": 2, "max_chars": 80},
+      "validation": {
+        "type": "text_length",
+        "min_chars": 2,
+        "max_chars": 80
+      },
       "next": "telefono"
     },
     "telefono": {
@@ -45,7 +65,9 @@
       "type": "input",
       "text": "¿Cuál es tu número de teléfono?",
       "save_to": "telefono",
-      "validation": {"type": "phone"},
+      "validation": {
+        "type": "phone"
+      },
       "next": "agenda"
     },
     "agenda": {
@@ -61,6 +83,9 @@
       "text": "Perfecto. En breve el equipo de la clínica continuará contigo. Gracias por contactar con nosotros.",
       "next": "end"
     },
-    "end": {"id": "end", "type": "end"}
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
   }
 }

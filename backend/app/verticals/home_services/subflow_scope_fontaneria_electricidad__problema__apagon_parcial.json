@@ -1,0 +1,51 @@
+{
+  "version": "flow_home_services__fontaneria_electricidad__problema__apagon_parcial__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "home_services",
+      "scope": "fontaneria_electricidad",
+      "router_save_to": "problema",
+      "key": "apagon_parcial",
+      "label": "Electricidad: apagón parcial"
+    },
+    "problem": {
+      "group": "problema",
+      "title": "Electricidad: apagón parcial",
+      "symptoms": [
+        "Zona sin luz"
+      ],
+      "key_questions": [
+        "¿Qué zonas?",
+        "¿Salta el automático?"
+      ],
+      "base_answer": "Revisamos el cuadro.",
+      "cta": "Agenda visita",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Electricidad: apagón parcial",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

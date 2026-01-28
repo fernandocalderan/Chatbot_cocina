@@ -1,0 +1,51 @@
+{
+  "version": "flow_clinics_private__podologia__motivo_consulta__callosidades__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "clinics_private",
+      "scope": "podologia",
+      "router_save_to": "motivo_consulta",
+      "key": "callosidades",
+      "label": "Callosidades"
+    },
+    "problem": {
+      "group": "motivo_consulta",
+      "title": "Callosidades",
+      "symptoms": [
+        "Callos"
+      ],
+      "key_questions": [
+        "¿Zona?",
+        "¿Dolor?"
+      ],
+      "base_answer": "Tratamiento podológico.",
+      "cta": "Agenda visita",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Callosidades",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "version": "home_services__fontaneria_electricidad__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "welcome",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": "Hola, soy tu asesor. Vamos a recoger los datos del servicio.",
+      "next": "service_type"
+    },
+    "service_type": {
+      "id": "service_type",
+      "type": "buttons",
+      "text": "¿Qué necesitas?",
+      "options": [
+        {
+          "label": "Instalación",
+          "value": "instalacion"
+        },
+        {
+          "label": "Reparación",
+          "value": "reparacion"
+        },
+        {
+          "label": "Presupuesto",
+          "value": "presupuesto"
+        }
+      ],
+      "save_to": "service_type",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": "¿Es urgente?",
+      "options": [
+        {
+          "label": "Hoy",
+          "value": "hoy"
+        },
+        {
+          "label": "Esta semana",
+          "value": "semana"
+        },
+        {
+          "label": "Sin urgencia",
+          "value": "sin_urgencia"
+        }
+      ],
+      "save_to": "urgency",
+      "next": "property_type"
+    },
+    "property_type": {
+      "id": "property_type",
+      "type": "buttons",
+      "text": "¿Qué tipo de inmueble es?",
+      "options": [
+        {
+          "label": "Vivienda",
+          "value": "vivienda"
+        },
+        {
+          "label": "Local",
+          "value": "local"
+        },
+        {
+          "label": "Oficina",
+          "value": "oficina"
+        }
+      ],
+      "save_to": "property_type",
+      "next": "access"
+    },
+    "access": {
+      "id": "access",
+      "type": "buttons",
+      "text": "¿Hay acceso disponible?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        }
+      ],
+      "save_to": "access",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": "¿En qué zona estás?",
+      "save_to": "location",
+      "next": "availability"
+    },
+    "availability": {
+      "id": "availability",
+      "type": "input",
+      "text": "¿Qué horarios tienes disponibles?",
+      "save_to": "availability",
+      "next": "contact_name"
+    },
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": "¿Cuál es tu nombre?",
+      "save_to": "contact_name",
+      "next": "contact_phone"
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": "¿Cuál es tu teléfono o WhatsApp?",
+      "save_to": "contact_phone",
+      "next": "lead_scoring"
+    },
+    "lead_scoring": {
+      "id": "lead_scoring",
+      "type": "internal",
+      "action": "calculate_scoring",
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": "Elige una franja horaria para visita o llamada técnica:",
+      "save_to": "cita_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": "Gracias. Un técnico te contactará en breve.",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

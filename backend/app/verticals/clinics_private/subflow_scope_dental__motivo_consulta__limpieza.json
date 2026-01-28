@@ -22,6 +22,15 @@
       "router_save_to": "motivo_consulta",
       "key": "limpieza",
       "label": null
+    },
+    "problem": {
+      "group": "motivo_consulta",
+      "title": "limpieza",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

@@ -124,7 +124,7 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         st.page_link(_resolve_entrypoint_script(), label="Inicio", icon="🏠")
         st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
-        st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
+        st.page_link("pages/03_verticals.py", label="Verticals", icon="🧩")
         st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
         st.page_link("pages/05_🧾_Auditoría.py", label="Auditoría", icon="🧾")
         if show_tools:
@@ -162,6 +162,20 @@ def ensure_vertical_catalog(
         items_raw = payload.get("items") or []
         items = [v for v in items_raw if isinstance(v, dict) and v.get("key")]
         items = sorted(items, key=lambda v: str(v.get("label") or v.get("key") or "").lower())
+        # Enriquecer con metadata (archived) para controles UI.
+        try:
+            from admin_panel.api_client import get_vertical  # local import to avoid cycles
+
+            for v in items:
+                vkey = v.get("key")
+                if not vkey:
+                    continue
+                detail = get_vertical(ctx.token, vkey, api_key=ctx.api_key) or {}
+                meta = detail.get("assets", {}).get("metadata") if isinstance(detail.get("assets"), dict) else {}
+                if isinstance(meta, dict):
+                    v["archived"] = bool(meta.get("archived"))
+        except Exception:
+            pass
         st.session_state[cache_key] = {"items": items}
     keys = [v.get("key") for v in items if v.get("key")]
     labels = {v.get("key"): v.get("label") for v in items if v.get("key")}

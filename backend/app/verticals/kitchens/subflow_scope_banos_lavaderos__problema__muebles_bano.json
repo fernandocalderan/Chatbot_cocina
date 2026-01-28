@@ -1,0 +1,51 @@
+{
+  "version": "flow_kitchens__banos_lavaderos__problema__muebles_bano__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "kitchens",
+      "scope": "banos_lavaderos",
+      "router_save_to": "problema",
+      "key": "muebles_bano",
+      "label": "Muebles de baño"
+    },
+    "problem": {
+      "group": "problema",
+      "title": "Muebles de baño",
+      "symptoms": [
+        "Muebles"
+      ],
+      "key_questions": [
+        "¿Medidas?",
+        "¿Estilo?"
+      ],
+      "base_answer": "Muebles personalizados.",
+      "cta": "Solicita presupuesto",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Muebles de baño",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

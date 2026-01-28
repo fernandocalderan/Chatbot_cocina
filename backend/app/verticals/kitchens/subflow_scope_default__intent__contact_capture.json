@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "contact_capture",
       "label": "Datos de contacto"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Datos de contacto",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

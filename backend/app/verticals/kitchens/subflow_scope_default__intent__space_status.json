@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "space_status",
       "label": "Estado del espacio"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Estado del espacio",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

@@ -16,6 +16,15 @@
       "router_save_to": "intent",
       "key": "dimensions_area",
       "label": "Dimensiones y forma"
+    },
+    "problem": {
+      "group": "intent",
+      "title": "Dimensiones y forma",
+      "symptoms": [],
+      "key_questions": [],
+      "base_answer": "",
+      "cta": "",
+      "fields_to_capture": []
     }
   },
   "blocks": {

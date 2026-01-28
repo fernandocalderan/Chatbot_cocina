@@ -1,0 +1,4 @@
+Especialidad: Rehabilitación
+Objetivo: entender motivo de consulta y urgencia.
+Incluye: primera visita, horarios y ubicación.
+Estilo: claro, empático, orientado a cita.

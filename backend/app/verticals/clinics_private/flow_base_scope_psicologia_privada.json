@@ -1,0 +1,141 @@
+{
+  "version": "clinics_private__psicologia_privada__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "welcome",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false
+  },
+  "blocks": {
+    "welcome": {
+      "id": "welcome",
+      "type": "message",
+      "text": "Hola, vamos a recoger los datos de tu consulta.",
+      "next": "consulta_tipo"
+    },
+    "consulta_tipo": {
+      "id": "consulta_tipo",
+      "type": "buttons",
+      "text": "¿Qué necesitas?",
+      "options": [
+        {
+          "label": "Consulta",
+          "value": "consulta"
+        },
+        {
+          "label": "Tratamiento",
+          "value": "tratamiento"
+        },
+        {
+          "label": "Valoración",
+          "value": "valoracion"
+        }
+      ],
+      "save_to": "consulta_tipo",
+      "next": "urgency"
+    },
+    "urgency": {
+      "id": "urgency",
+      "type": "buttons",
+      "text": "¿Es urgente?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "urgente"
+        },
+        {
+          "label": "No",
+          "value": "no_urgente"
+        }
+      ],
+      "save_to": "urgency",
+      "next": "first_visit"
+    },
+    "first_visit": {
+      "id": "first_visit",
+      "type": "buttons",
+      "text": "¿Es tu primera visita?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "primera"
+        },
+        {
+          "label": "No",
+          "value": "seguimiento"
+        }
+      ],
+      "save_to": "first_visit",
+      "next": "preferred_time"
+    },
+    "preferred_time": {
+      "id": "preferred_time",
+      "type": "buttons",
+      "text": "¿Qué horario prefieres?",
+      "options": [
+        {
+          "label": "Mañana",
+          "value": "manana"
+        },
+        {
+          "label": "Tarde",
+          "value": "tarde"
+        },
+        {
+          "label": "Indiferente",
+          "value": "indiferente"
+        }
+      ],
+      "save_to": "preferred_time",
+      "next": "location"
+    },
+    "location": {
+      "id": "location",
+      "type": "input",
+      "text": "¿En qué zona estás?",
+      "save_to": "location",
+      "next": "contact_name"
+    },
+    "contact_name": {
+      "id": "contact_name",
+      "type": "input",
+      "text": "¿Cuál es tu nombre?",
+      "save_to": "contact_name",
+      "next": "contact_phone"
+    },
+    "contact_phone": {
+      "id": "contact_phone",
+      "type": "input",
+      "text": "¿Cuál es tu teléfono?",
+      "save_to": "contact_phone",
+      "next": "lead_scoring"
+    },
+    "lead_scoring": {
+      "id": "lead_scoring",
+      "type": "internal",
+      "action": "calculate_scoring",
+      "next": "appointment_offer"
+    },
+    "appointment_offer": {
+      "id": "appointment_offer",
+      "type": "calendar",
+      "text": "Elige una franja horaria para tu cita:",
+      "save_to": "cita_slot",
+      "next": "closing_message"
+    },
+    "closing_message": {
+      "id": "closing_message",
+      "type": "message",
+      "text": "Gracias, te confirmaremos la cita.",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

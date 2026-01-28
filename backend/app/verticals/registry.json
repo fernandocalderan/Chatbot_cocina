@@ -4,20 +4,26 @@
     "default_flow_id": "kitchens_base_v1",
     "flow_ids": [
       "kitchens_base_v1"
-    ]
+    ],
+    "archived": false,
+    "path": "kitchens"
   },
   "clinics_private": {
     "label": "Clínicas Privadas",
     "default_flow_id": "clinics_private_base_v1",
     "flow_ids": [
       "clinics_private_base_v1"
-    ]
+    ],
+    "archived": false,
+    "path": "clinics_private"
   },
   "home_services": {
     "label": "Servicios para el Hogar",
     "default_flow_id": "home_services_base_v1",
     "flow_ids": [
       "home_services_base_v1"
-    ]
+    ],
+    "archived": false,
+    "path": "home_services"
   }
 }

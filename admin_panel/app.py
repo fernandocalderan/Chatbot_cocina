@@ -23,7 +23,7 @@ def main() -> None:
     with c2:
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
     with c3:
-        st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
+        st.page_link("pages/03_verticals.py", label="Verticals", icon="🧩")
 
 
 if __name__ == "__main__":

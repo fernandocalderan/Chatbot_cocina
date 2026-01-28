@@ -1,0 +1,51 @@
+{
+  "version": "flow_clinics_private__psicologia_privada__motivo_consulta__urgencia_emocional__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "clinics_private",
+      "scope": "psicologia_privada",
+      "router_save_to": "motivo_consulta",
+      "key": "urgencia_emocional",
+      "label": "Urgencia emocional"
+    },
+    "problem": {
+      "group": "motivo_consulta",
+      "title": "Urgencia emocional",
+      "symptoms": [
+        "Crisis"
+      ],
+      "key_questions": [
+        "¿Te sientes seguro/a?",
+        "¿Necesitas apoyo inmediato?"
+      ],
+      "base_answer": "Podemos ayudarte y derivar si es necesario.",
+      "cta": "Contactar servicios de crisis local",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Urgencia emocional",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

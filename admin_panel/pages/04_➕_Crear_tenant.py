@@ -20,6 +20,10 @@ st.title("Crear tenant")
 st.caption("Crea un tenant y provisiona el vertical/scopes.")
 
 vertical_items, vertical_keys, vertical_labels, vertical_by_key = ensure_vertical_catalog(ctx)
+visible_items = [v for v in vertical_items if not v.get("archived")]
+vertical_keys = [v.get("key") for v in visible_items if v.get("key")]
+vertical_labels = {v.get("key"): v.get("label") for v in visible_items if v.get("key")}
+vertical_by_key = {v.get("key"): v for v in visible_items if v.get("key")}
 
 col_a, col_b = st.columns(2)
 with col_a:

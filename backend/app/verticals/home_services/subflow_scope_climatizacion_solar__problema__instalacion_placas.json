@@ -1,0 +1,51 @@
+{
+  "version": "flow_home_services__climatizacion_solar__problema__instalacion_placas__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "home_services",
+      "scope": "climatizacion_solar",
+      "router_save_to": "problema",
+      "key": "instalacion_placas",
+      "label": "Instalación de placas solares"
+    },
+    "problem": {
+      "group": "problema",
+      "title": "Instalación de placas solares",
+      "symptoms": [
+        "Autoconsumo"
+      ],
+      "key_questions": [
+        "¿Consumo mensual?",
+        "¿Tipo de tejado?"
+      ],
+      "base_answer": "Preparamos estudio de viabilidad.",
+      "cta": "Solicita presupuesto",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Instalación de placas solares",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

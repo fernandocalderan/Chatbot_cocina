@@ -1,0 +1,51 @@
+{
+  "version": "flow_clinics_private__psicologia_privada__motivo_consulta__primera_terapia__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "subflow": {
+      "vertical_key": "clinics_private",
+      "scope": "psicologia_privada",
+      "router_save_to": "motivo_consulta",
+      "key": "primera_terapia",
+      "label": "Primera terapia"
+    },
+    "problem": {
+      "group": "motivo_consulta",
+      "title": "Primera terapia",
+      "symptoms": [
+        "Primera vez"
+      ],
+      "key_questions": [
+        "¿Motivo principal?",
+        "¿Objetivo?"
+      ],
+      "base_answer": "Te asignamos un profesional.",
+      "cta": "Agenda primera sesión",
+      "fields_to_capture": []
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Problema: Primera terapia",
+      "next": "details"
+    },
+    "details": {
+      "id": "details",
+      "type": "input",
+      "text": "Cuéntanos más detalles para ayudarte mejor.",
+      "save_to": "problem_details",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}
