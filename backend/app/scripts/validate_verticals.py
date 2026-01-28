@@ -22,15 +22,24 @@ class Collector:
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.errors: list[str] = []
-        self.warnings: list[str] = []
+        self.data_warnings: list[str] = []
         self.orphans: list[str] = []
         self.fixes: dict[str, dict[str, Any]] = {}
+        self.migration_warnings: dict[str, list[str]] = {}
+        self._migration_keys: set[tuple[str, str]] = set()
 
     def err(self, msg: str) -> None:
         self.errors.append(msg)
 
-    def warn(self, msg: str) -> None:
-        self.warnings.append(msg)
+    def warn_data(self, msg: str) -> None:
+        self.data_warnings.append(msg)
+
+    def warn_migration(self, vkey: str, code: str, msg: str) -> None:
+        key = (vkey, code)
+        if key in self._migration_keys:
+            return
+        self._migration_keys.add(key)
+        self.migration_warnings.setdefault(vkey, []).append(msg)
 
     def orphan(self, msg: str) -> None:
         self.orphans.append(msg)
@@ -96,7 +105,7 @@ def collect_subflows(vdir: Path, col: Collector) -> tuple[dict[str, dict[str, se
         for sf in vdir.glob("subflow_scope_*__*__*.json"):
             parsed = parse_legacy_subflow_filename(sf.name)
             if not parsed:
-                col.warn(f"{sf}: nombre inválido")
+                col.warn_data(f"{sf}: nombre inválido")
                 continue
             scope, group, problem = parsed
             by_scope.setdefault(scope, {}).setdefault(group, set()).add(problem)
@@ -108,26 +117,20 @@ def validate_playbook_v2(flow: dict[str, Any], *, vkey: str, scope_key: str, col
     objectives = flow.get("objectives") if isinstance(flow.get("objectives"), list) else []
     steps = flow.get("steps") if isinstance(flow.get("steps"), list) else []
 
-    def _mark(level: str, msg: str) -> None:
-        if level == "error":
-            col.err(msg)
-        else:
-            col.warn(msg)
-
     if not identity:
-        _mark("warning", f"{vkey}/{scope_key}: playbook V2 sin identity")
+        col.warn_data(f"{vkey}/{scope_key}: playbook V2 sin identity")
         return
 
     role = str(identity.get("role") or "").strip()
     tone = str(identity.get("tone") or "").strip()
     if not role or not tone:
-        _mark("warning", f"{vkey}/{scope_key}: identity.role/tone incompletos")
+        col.warn_data(f"{vkey}/{scope_key}: identity.role/tone incompletos")
 
     if len([o for o in objectives if str(o).strip()]) < 2:
-        _mark("warning", f"{vkey}/{scope_key}: objectives insuficientes")
+        col.warn_data(f"{vkey}/{scope_key}: objectives insuficientes")
 
     if len(steps) < 5:
-        _mark("warning", f"{vkey}/{scope_key}: steps insuficientes (<5)")
+        col.warn_data(f"{vkey}/{scope_key}: steps insuficientes (<5)")
 
     # Cobertura mínima de categorías (si hay campos).
     categories = set()
@@ -144,18 +147,10 @@ def validate_playbook_v2(flow: dict[str, Any], *, vkey: str, scope_key: str, col
     if categories:
         missing = [c for c in required if all(c not in x for x in categories)]
         if missing:
-            _mark("warning", f"{vkey}/{scope_key}: faltan categorías {', '.join(missing)}")
-
-    if col.strict:
-        # En modo strict, elevar warnings de playbook V2 a errores.
-        last_warns = [w for w in col.warnings if f"{vkey}/{scope_key}" in w]
-        for msg in last_warns:
-            if msg in col.warnings:
-                col.warnings.remove(msg)
-            col.err(msg.replace("warning", "error"))
+            col.warn_data(f"{vkey}/{scope_key}: faltan categorías {', '.join(missing)}")
 
 
-def resolve_scopes(meta: dict[str, Any], col: Collector) -> dict[str, dict[str, Any]]:
+def resolve_scopes(meta: dict[str, Any], col: Collector, *, vkey: str) -> dict[str, dict[str, Any]]:
     scopes = meta.get("scopes")
     if isinstance(scopes, dict) and scopes:
         return scopes
@@ -163,13 +158,17 @@ def resolve_scopes(meta: dict[str, Any], col: Collector) -> dict[str, dict[str, 
     scope_cfg = meta.get("scope") if isinstance(meta.get("scope"), dict) else {}
     included = scope_cfg.get("included") if isinstance(scope_cfg.get("included"), list) else list(scope_defs.keys())
     if not included:
-        col.warn("metadata sin scopes definidos")
+        col.warn_migration(
+            vkey,
+            "missing_scopes_v2",
+            "MIGRATION: metadata missing scopes V2 (legacy válido, pero no editable en modo profesional hasta migrar a scopes V2)",
+        )
         return {}
     legacy = {}
     for sk in included:
         entry = scope_defs.get(sk) if isinstance(scope_defs.get(sk), dict) else {}
         legacy[sk] = {"label": entry.get("label") or sk}
-    col.warn("metadata.scopes ausente (legacy scope_definitions)")
+    # Nota: el warning de migración se emite en validate_vertical (resumen por vertical).
     return legacy
 
 
@@ -178,9 +177,9 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
         col.err(f"registry.json: vertical_key inválido: {vkey}")
         return
     if "path" not in entry:
-        col.warn(f"{vkey}: registry sin path")
+        col.warn_data(f"{vkey}: registry sin path")
     if "archived" not in entry:
-        col.warn(f"{vkey}: registry sin archived")
+        col.warn_data(f"{vkey}: registry sin archived")
 
     vdir = VERT_DIR / str(entry.get("path") or vkey)
     if not vdir.exists():
@@ -192,18 +191,29 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
         return
     meta = load_json(meta_path, col)
     if str(meta.get("vertical_key") or vkey) != vkey:
-        col.warn(f"{vkey}: metadata.vertical_key no coincide")
+        col.warn_data(f"{vkey}: metadata.vertical_key no coincide")
 
-    scopes = resolve_scopes(meta, col)
+    scopes = resolve_scopes(meta, col, vkey=vkey)
     default_scope = meta.get("default_scope")
     if not default_scope and scopes:
-        col.warn(f"{vkey}: default_scope faltante")
+        col.warn_data(f"{vkey}: default_scope faltante")
         if fix_dry_run:
             col.add_fix(vkey, "default_scope", next(iter(scopes.keys())))
 
     problems_by_scope, used_canonical = collect_subflows(vdir, col)
+    legacy_count = sum(len(items) for groups in problems_by_scope.values() for items in groups.values())
     if not used_canonical:
-        col.warn(f"{vkey}: layout legacy de subflows (subflow_scope_*)")
+        col.warn_migration(
+            vkey,
+            "legacy_subflows",
+            f"MIGRATION: legacy layout detected ({legacy_count} items)",
+        )
+    if not isinstance(meta.get("scopes"), dict):
+        col.warn_migration(
+            vkey,
+            "missing_scopes_v2",
+            "MIGRATION: metadata missing scopes V2 (legacy válido, pero no editable en modo profesional hasta migrar a scopes V2)",
+        )
 
     # Build groups for dry-run fix (from subflows on disk).
     if fix_dry_run and "scopes" not in meta:
@@ -243,11 +253,11 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
             if isinstance(flow, dict) and ("steps" in flow or "identity" in flow):
                 validate_playbook_v2(flow, vkey=vkey, scope_key=scope_key, col=col)
             else:
-                col.warn(f"{vkey}/{scope_key}: flow legacy (blocks) sin playbook V2")
+                col.warn_data(f"{vkey}/{scope_key}: flow legacy (blocks) sin playbook V2")
 
         groups = sdef.get("problem_groups")
         if groups is None:
-            col.warn(f"{vkey}: scope {scope_key} sin problem_groups")
+            col.warn_data(f"{vkey}: scope {scope_key} sin problem_groups")
             groups = []
         if not isinstance(groups, list):
             col.err(f"{vkey}: scope {scope_key} problem_groups no es lista")
@@ -296,9 +306,14 @@ def main() -> int:
         print("Errores:")
         for msg in col.errors:
             print(f"- {msg}")
-    if col.warnings:
+    if col.migration_warnings:
+        print("Migration warnings:")
+        for vkey, items in col.migration_warnings.items():
+            summary = "; ".join(items)
+            print(f"- {vkey}: {summary}")
+    if col.data_warnings:
         print("Advertencias:")
-        for msg in col.warnings:
+        for msg in col.data_warnings:
             print(f"- {msg}")
     if col.orphans:
         print("Orphans:")

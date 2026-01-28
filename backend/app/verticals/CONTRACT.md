@@ -127,3 +127,8 @@ backend/app/verticals/
 3) Nombres/keys deben ser slug-safe (sin espacios/acentos) para paths.  
 4) No puede existir scope en metadata sin su flow correspondiente en disco.  
 5) No puede existir subflow en disco que no esté referenciado por groups del scope (o debe marcarse como “orphan” en QA).  
+
+## MIGRATION warnings (QA)
+- Si `metadata.scopes` no existe, el validador emite:  
+  **“MIGRATION: metadata missing scopes V2 (legacy válido, pero no editable en modo profesional hasta migrar a scopes V2)”**  
+- Este warning **no rompe** `--strict`, pero deja constancia para migración controlada.
