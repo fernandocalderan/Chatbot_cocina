@@ -424,11 +424,34 @@ def vertical_read_asset_json(vertical_key: str | None, filename: str) -> dict[st
     if not vertical_key:
         return None
     name = str(filename or "").strip()
-    if not name or "/" in name or "\\" in name:
+    if not name:
         return None
     vdir = _vertical_dir(str(vertical_key))
+    # Allow V2 subflow paths under subflows/<scope>/<group>/<problem>.json
+    if "/" in name or "\\" in name:
+        if not name.startswith("subflows/"):
+            return None
+        if ".." in name:
+            return None
+        path = vdir / name
+        data = _read_json(path)
+        return data if isinstance(data, dict) else None
+
     path = vdir / name
     data = _read_json(path)
+    if isinstance(data, dict) and data:
+        return data
+
+    # Fallback: map legacy subflow filename to V2 layout
+    parsed = parse_vertical_subflow_filename(name)
+    if parsed:
+        scope = parsed.get("scope")
+        save_to = parsed.get("save_to")
+        key = parsed.get("key")
+        if scope and save_to and key:
+            v2_path = vdir / "subflows" / scope / save_to / f"{key}.json"
+            data = _read_json(v2_path)
+            return data if isinstance(data, dict) else None
     return data if isinstance(data, dict) else None
 
 
@@ -495,6 +518,32 @@ def vertical_list_subflows(
     save_to_norm = str(save_to or "").strip().lower() or None
     items: list[dict[str, str]] = []
     try:
+        # V2 layout: subflows/<scope>/<group>/<problem>.json
+        subflows_root = vdir / "subflows"
+        if subflows_root.exists():
+            for scope_dir in sorted(subflows_root.iterdir()):
+                if not scope_dir.is_dir():
+                    continue
+                scope_key = scope_dir.name.strip().lower()
+                if scope_norm and scope_key != scope_norm:
+                    continue
+                for group_dir in sorted(scope_dir.iterdir()):
+                    if not group_dir.is_dir():
+                        continue
+                    save_to_key = group_dir.name.strip().lower()
+                    if save_to_norm and save_to_key != save_to_norm:
+                        continue
+                    for path in sorted(group_dir.glob("*.json")):
+                        key = path.stem.strip().lower()
+                        items.append(
+                            {
+                                "filename": f"subflows/{scope_key}/{save_to_key}/{key}.json",
+                                "scope": scope_key,
+                                "save_to": save_to_key,
+                                "key": key,
+                            }
+                        )
+
         for path in sorted(vdir.glob(f"{_VERTICAL_SUBFLOW_PREFIX}*.json")):
             meta = parse_vertical_subflow_filename(path.name)
             if not meta:

@@ -28,6 +28,7 @@ _TEXT_FILES = {
 _FLOW_SCOPE_PREFIXES = ("flow_scope_", "flow_base_scope_")
 _ROUTER_ROUTES_PREFIX = "router_routes_scope_"
 _SUBFLOW_PREFIX = "subflow_scope_"
+_SUBFLOW_V2_PREFIX = "subflows/"
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,23 @@ def _allowed_filename(filename: str) -> tuple[str, str]:
     Devuelve (normalized_filename, kind) donde kind ∈ {"json","text","flow_scope"}.
     """
     name = str(filename or "").strip()
+    # V2 subflows layout: subflows/<scope>/<group>/<problem>.json
+    if name.startswith(_SUBFLOW_V2_PREFIX) and name.endswith(".json"):
+        rest = name.removeprefix(_SUBFLOW_V2_PREFIX)
+        parts = [p for p in rest.split("/") if p]
+        if len(parts) != 3:
+            raise ValueError("invalid_subflow_v2_filename")
+        scope_raw, save_to_raw, key_raw = parts
+        scope_norm = str(scope_raw or "").strip().lower()
+        save_to_norm = str(save_to_raw or "").strip().lower()
+        key_norm = str(key_raw or "").strip().lower()
+        if not scope_norm or not _KEY_RE.match(scope_norm):
+            raise ValueError("invalid_scope_key")
+        if not save_to_norm or not _KEY_RE.match(save_to_norm):
+            raise ValueError("invalid_router_save_to")
+        if not key_norm or not _KEY_RE.match(key_norm):
+            raise ValueError("invalid_subflow_key")
+        return f"{_SUBFLOW_V2_PREFIX}{scope_norm}/{save_to_norm}/{key_norm}.json", "flow_subflow"
     if name in _JSON_FILES:
         return name, "json"
     if name in _TEXT_FILES:
@@ -355,6 +373,30 @@ def list_vertical_files(*, vertical_key: str) -> dict[str, Any]:
 
     items: list[dict[str, Any]] = []
     try:
+        # V2 subflows
+        subflows_root = vdir / "subflows"
+        if subflows_root.exists():
+            for scope_dir in sorted(subflows_root.iterdir()):
+                if not scope_dir.is_dir():
+                    continue
+                scope_key = scope_dir.name.strip().lower()
+                for group_dir in sorted(scope_dir.iterdir()):
+                    if not group_dir.is_dir():
+                        continue
+                    save_to_key = group_dir.name.strip().lower()
+                    for path in sorted(group_dir.glob("*.json")):
+                        key = path.stem.strip().lower()
+                        rel = f"subflows/{scope_key}/{save_to_key}/{key}.json"
+                        info: dict[str, Any] = {
+                            "filename": rel,
+                            "normalized_filename": rel,
+                            "kind": "flow_subflow",
+                            "size": int(path.stat().st_size),
+                            "is_canonical_name": True,
+                            "subflow": {"scope": scope_key, "save_to": save_to_key, "key": key},
+                        }
+                        items.append(info)
+
         for path in sorted(vdir.iterdir()):
             if not path.is_file():
                 continue
