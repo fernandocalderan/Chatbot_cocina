@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+import json
 
 from sqlalchemy.orm import Session
 
@@ -70,6 +72,67 @@ def _active_or_latest_published_flow(db: Session, tenant: Tenant) -> FlowVersion
     return row
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _deep_merge(base_obj: dict[str, Any], override_obj: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base_obj)
+    for k, v in override_obj.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = _deep_merge(merged.get(k, {}), v)
+        else:
+            merged[k] = v
+    return merged
+
+
+def resolve_flow_for_scope(
+    vertical_key: str | None,
+    scope_key: str | None,
+    *,
+    base_dir: Path | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """
+    Resuelve el flow base por scope (filesystem).
+    Prioridad:
+      1) flow_base_scope_<scope>.json
+      2) flow_scope_<scope>.json (legacy)
+      3) flow_overrides en metadata.json
+      4) flow_base.json
+    """
+    if not vertical_key:
+        return {}, None
+    vkey = str(vertical_key).strip()
+    vdir = (base_dir or (Path(__file__).resolve().parent.parent / "verticals")) / vkey
+    base_path = vdir / "flow_base.json"
+    if not base_path.exists():
+        return {}, None
+    base = _read_json(base_path)
+
+    skey = str(scope_key or "").strip().lower()
+    if skey:
+        scoped = vdir / f"flow_base_scope_{skey}.json"
+        legacy = vdir / f"flow_scope_{skey}.json"
+        if scoped.exists():
+            return _read_json(scoped), str(scoped)
+        if legacy.exists():
+            return _read_json(legacy), str(legacy)
+        meta_path = vdir / "metadata.json"
+        if meta_path.exists():
+            meta = _read_json(meta_path)
+            defs = meta.get("scope_definitions") if isinstance(meta.get("scope_definitions"), dict) else {}
+            entry = defs.get(skey) if isinstance(defs.get(skey), dict) else {}
+            overrides = entry.get("flow_overrides") if isinstance(entry, dict) else None
+            if isinstance(overrides, dict) and overrides:
+                return _deep_merge(base, overrides), "metadata.flow_overrides"
+    return base, str(base_path)
+
+
 def resolve_runtime_flow(
     *,
     db: Session,
@@ -104,21 +167,29 @@ def resolve_runtime_flow(
                 if flow_row and isinstance(flow_row.schema_json, dict):
                     flow_data = flow_row.schema_json
             if not flow_data:
+                scopes = tenant_vertical_scopes(tenant)
+                scope_key = str(scopes[0]).strip().lower() if scopes else None
+                flow_data, _ = resolve_flow_for_scope(str(vertical_key), scope_key)
+                if not flow_data:
+                    flow_data = load_flow_template(
+                        flow_id_override,
+                        plan_value=plan_value,
+                        vertical_key=str(vertical_key) if vertical_key else None,
+                        scopes=scopes,
+                    )
+    else:
+        # v1: comportamiento actual (respetar custom_flow_enabled para tenants verticales).
+        if vertical_key and not tenant_custom_flow_enabled(tenant):
+            scopes = tenant_vertical_scopes(tenant)
+            scope_key = str(scopes[0]).strip().lower() if scopes else None
+            flow_data, _ = resolve_flow_for_scope(str(vertical_key), scope_key)
+            if not flow_data:
                 flow_data = load_flow_template(
                     flow_id_override,
                     plan_value=plan_value,
                     vertical_key=str(vertical_key) if vertical_key else None,
-                    scopes=tenant_vertical_scopes(tenant),
+                    scopes=scopes,
                 )
-    else:
-        # v1: comportamiento actual (respetar custom_flow_enabled para tenants verticales).
-        if vertical_key and not tenant_custom_flow_enabled(tenant):
-            flow_data = load_flow_template(
-                flow_id_override,
-                plan_value=plan_value,
-                vertical_key=str(vertical_key) if vertical_key else None,
-                scopes=tenant_vertical_scopes(tenant),
-            )
         else:
             flow_row = _active_or_latest_published_flow(db, tenant)
             if flow_row and isinstance(flow_row.schema_json, dict):
@@ -132,12 +203,16 @@ def resolve_runtime_flow(
                 if flow_row and isinstance(flow_row.schema_json, dict):
                     flow_data = flow_row.schema_json
             if not flow_data:
-                flow_data = load_flow_template(
-                    flow_id_override,
-                    plan_value=plan_value,
-                    vertical_key=str(vertical_key) if vertical_key else None,
-                    scopes=tenant_vertical_scopes(tenant),
-                )
+                scopes = tenant_vertical_scopes(tenant)
+                scope_key = str(scopes[0]).strip().lower() if scopes else None
+                flow_data, _ = resolve_flow_for_scope(str(vertical_key), scope_key)
+                if not flow_data:
+                    flow_data = load_flow_template(
+                        flow_id_override,
+                        plan_value=plan_value,
+                        vertical_key=str(vertical_key) if vertical_key else None,
+                        scopes=scopes,
+                    )
 
     if not isinstance(flow_data, dict):
         flow_data = {}
