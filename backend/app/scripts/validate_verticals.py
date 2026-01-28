@@ -25,7 +25,8 @@ class Collector:
         self.data_warnings: list[str] = []
         self.orphans: list[str] = []
         self.fixes: dict[str, dict[str, Any]] = {}
-        self.migration_warnings: dict[str, list[str]] = {}
+        self.migration_details: dict[str, list[str]] = {}
+        self.migration_stats: dict[str, dict[str, int]] = {}
         self._migration_keys: set[tuple[str, str]] = set()
 
     def err(self, msg: str) -> None:
@@ -34,12 +35,22 @@ class Collector:
     def warn_data(self, msg: str) -> None:
         self.data_warnings.append(msg)
 
-    def warn_migration(self, vkey: str, code: str, msg: str) -> None:
+    def warn_migration(self, vkey: str, code: str, msg: str, *, count: int = 0) -> None:
         key = (vkey, code)
         if key in self._migration_keys:
             return
         self._migration_keys.add(key)
-        self.migration_warnings.setdefault(vkey, []).append(msg)
+        self.migration_details.setdefault(vkey, []).append(msg)
+        stats = self.migration_stats.setdefault(
+            vkey,
+            {"registry_missing": 0, "scopes_v2_missing": 0, "legacy_layout_items": 0},
+        )
+        if code == "registry_missing_path" or code == "registry_missing_archived":
+            stats["registry_missing"] += 1
+        elif code == "missing_scopes_v2":
+            stats["scopes_v2_missing"] = 1
+        elif code == "legacy_subflows":
+            stats["legacy_layout_items"] = max(stats.get("legacy_layout_items", 0), count)
 
     def orphan(self, msg: str) -> None:
         self.orphans.append(msg)
@@ -215,6 +226,7 @@ def validate_vertical(vkey: str, entry: dict[str, Any], col: Collector, *, fix_d
             vkey,
             "legacy_subflows",
             f"MIGRATION: legacy layout detected ({legacy_count} items)",
+            count=legacy_count,
         )
     if is_legacy:
         col.warn_migration(
@@ -291,6 +303,7 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="Fail on orphans")
     parser.add_argument("--vertical", action="append", help="Filter by vertical_key (repeatable)")
     parser.add_argument("--fix-dry-run", action="store_true", help="Print suggested fixes without writing")
+    parser.add_argument("--verbose", action="store_true", help="Print detailed migration warnings")
     args = parser.parse_args()
 
     col = Collector(strict=args.strict)
@@ -314,11 +327,18 @@ def main() -> int:
         print("Errores:")
         for msg in col.errors:
             print(f"- {msg}")
-    if col.migration_warnings:
+    if col.migration_stats:
         print("Migration warnings:")
-        for vkey, items in col.migration_warnings.items():
-            summary = "; ".join(items)
-            print(f"- {vkey}: {summary}")
+        for vkey, stats in col.migration_stats.items():
+            print(
+                f"- {vkey}: MIGRATION [registry_missing={stats['registry_missing']}, "
+                f"scopes_v2_missing={stats['scopes_v2_missing']}, "
+                f"legacy_layout_items={stats['legacy_layout_items']}]"
+            )
+            if args.verbose:
+                details = col.migration_details.get(vkey, [])
+                for msg in details:
+                    print(f"  - {msg}")
     if col.data_warnings:
         print("Advertencias:")
         for msg in col.data_warnings:

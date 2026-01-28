@@ -133,3 +133,6 @@ backend/app/verticals/
   **“MIGRATION: metadata missing scopes V2 (legacy válido, pero no editable en modo profesional hasta migrar a scopes V2)”**  
 - Este warning **no rompe** `--strict`, pero deja constancia para migración controlada.
 - Si `registry.json` está incompleto (faltan `path` / `archived`) en verticales legacy, se reporta como **MIGRATION** (no error).
+- Salida por defecto (compacta): 1 línea por vertical con conteos.  
+  Ej: `MIGRATION [registry_missing=2, scopes_v2_missing=1, legacy_layout_items=10]`
+- Detalle completo: `validate_verticals.py --verbose`
