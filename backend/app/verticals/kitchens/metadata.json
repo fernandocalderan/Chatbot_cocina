@@ -80,5 +80,32 @@
         "editable": true
       }
     }
+  },
+  "default_scope": "cocinas_completas",
+  "scopes": {
+    "cocinas_completas": {
+      "label": "Cocinas completas",
+      "flow_id": "flow_base.json",
+      "problem_groups": [
+        "intent"
+      ],
+      "archived": false
+    },
+    "banos_lavaderos": {
+      "label": "Baños/Lavaderos",
+      "flow_id": "flow_base.json",
+      "problem_groups": [
+        "intent"
+      ],
+      "archived": false
+    },
+    "muebles_medida": {
+      "label": "Muebles a medida",
+      "flow_id": "flow_base.json",
+      "problem_groups": [
+        "intent"
+      ],
+      "archived": false
+    }
   }
 }
