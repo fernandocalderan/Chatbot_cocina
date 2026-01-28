@@ -1,5 +1,5 @@
 {
-  "version": "flow_kitchens__default__intent__closing__v1",
+  "version": "flow_kitchens__cocinas_completas__intent__closing__v1",
   "plan": "base",
   "languages": [
     "es",
@@ -12,10 +12,17 @@
   "config": {
     "subflow": {
       "vertical_key": "kitchens",
-      "scope": "default",
+      "scope": "cocinas_completas",
       "router_save_to": "intent",
       "key": "closing",
       "label": "Cierre"
+    },
+    "problem": {
+      "label": "Cierre",
+      "symptoms": [],
+      "questions": [],
+      "response": "",
+      "capture": []
     }
   },
   "blocks": {
@@ -41,5 +48,10 @@
       "id": "end",
       "type": "end"
     }
-  }
+  },
+  "label": "Cierre",
+  "symptoms": [],
+  "questions": [],
+  "response": "",
+  "capture": []
 }

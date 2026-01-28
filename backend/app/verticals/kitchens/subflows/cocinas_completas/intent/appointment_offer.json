@@ -1,5 +1,5 @@
 {
-  "version": "flow_kitchens__default__intent__appointment_offer__v1",
+  "version": "flow_kitchens__cocinas_completas__intent__appointment_offer__v1",
   "plan": "base",
   "languages": [
     "es",
@@ -12,10 +12,17 @@
   "config": {
     "subflow": {
       "vertical_key": "kitchens",
-      "scope": "default",
+      "scope": "cocinas_completas",
       "router_save_to": "intent",
       "key": "appointment_offer",
       "label": "Cita inicial"
+    },
+    "problem": {
+      "label": "Cita inicial",
+      "symptoms": [],
+      "questions": [],
+      "response": "",
+      "capture": []
     }
   },
   "blocks": {
@@ -48,5 +55,10 @@
       "id": "end",
       "type": "end"
     }
-  }
+  },
+  "label": "Cita inicial",
+  "symptoms": [],
+  "questions": [],
+  "response": "",
+  "capture": []
 }

@@ -1,5 +1,5 @@
 {
-  "version": "flow_kitchens__default__intent__location__v1",
+  "version": "flow_kitchens__cocinas_completas__intent__location__v1",
   "plan": "base",
   "languages": [
     "es",
@@ -12,10 +12,17 @@
   "config": {
     "subflow": {
       "vertical_key": "kitchens",
-      "scope": "default",
+      "scope": "cocinas_completas",
       "router_save_to": "intent",
       "key": "location",
       "label": "Ubicación"
+    },
+    "problem": {
+      "label": "Ubicación",
+      "symptoms": [],
+      "questions": [],
+      "response": "",
+      "capture": []
     }
   },
   "blocks": {
@@ -38,5 +45,10 @@
       "id": "end",
       "type": "end"
     }
-  }
+  },
+  "label": "Ubicación",
+  "symptoms": [],
+  "questions": [],
+  "response": "",
+  "capture": []
 }

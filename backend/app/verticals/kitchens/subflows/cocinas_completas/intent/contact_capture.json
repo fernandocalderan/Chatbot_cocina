@@ -1,5 +1,5 @@
 {
-  "version": "flow_kitchens__default__intent__contact_capture__v1",
+  "version": "flow_kitchens__cocinas_completas__intent__contact_capture__v1",
   "plan": "base",
   "languages": [
     "es",
@@ -12,10 +12,17 @@
   "config": {
     "subflow": {
       "vertical_key": "kitchens",
-      "scope": "default",
+      "scope": "cocinas_completas",
       "router_save_to": "intent",
       "key": "contact_capture",
       "label": "Datos de contacto"
+    },
+    "problem": {
+      "label": "Datos de contacto",
+      "symptoms": [],
+      "questions": [],
+      "response": "",
+      "capture": []
     }
   },
   "blocks": {
@@ -56,5 +63,10 @@
       "id": "end",
       "type": "end"
     }
-  }
+  },
+  "label": "Datos de contacto",
+  "symptoms": [],
+  "questions": [],
+  "response": "",
+  "capture": []
 }
