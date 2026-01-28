@@ -464,8 +464,16 @@ def _json_editor(
             st.rerun()
 
 
-def _text_editor(*, vertical_key: str, title: str, filename: str, value: str):
+def _text_editor(
+    *,
+    vertical_key: str,
+    title: str,
+    filename: str,
+    value: str,
+    instance_key: str | None = None,
+):
     state_key = f"_v_edit_{vertical_key}_{filename}"
+    suffix = instance_key or state_key
     widget_key = f"{state_key}_ta"
     if state_key not in st.session_state:
         st.session_state[state_key] = (value or "").strip()
@@ -474,12 +482,14 @@ def _text_editor(*, vertical_key: str, title: str, filename: str, value: str):
     st.markdown(f"**{title}** (`{filename}`)")
     txt = st.text_area(
         f"{filename} editor",
-        key=widget_key,
+        key=f"{widget_key}_{suffix}",
         height=240,
         disabled=not write_enabled,
     )
     c1, c2 = st.columns([0.6, 0.4])
-    upload = c2.file_uploader(f"Subir {filename}", type=["txt"], key=f"{state_key}_up", disabled=not write_enabled)
+    upload = c2.file_uploader(
+        f"Subir {filename}", type=["txt"], key=f"{state_key}_{suffix}_up", disabled=not write_enabled
+    )
     if upload is not None and write_enabled:
         try:
             content = upload.getvalue().decode("utf-8")
@@ -489,7 +499,7 @@ def _text_editor(*, vertical_key: str, title: str, filename: str, value: str):
             st.rerun()
         except Exception as exc:
             st.error(f"No se pudo leer archivo: {exc}")
-    if c1.button(f"Guardar {filename}", key=f"{state_key}_save", disabled=not write_enabled):
+    if c1.button(f"Guardar {filename}", key=f"{state_key}_{suffix}_save", disabled=not write_enabled):
         out = update_vertical_file_admin(
             ctx.token,
             vertical_key,
@@ -1134,12 +1144,14 @@ def render_vertical_detail(detail: dict[str, Any]):
                 title="prompt_vertical",
                 filename="prompt_vertical.txt",
                 value=assets.get("prompt_vertical") or "",
+                instance_key=f"{selected_key}__prompt_vertical.txt",
             )
             _text_editor(
                 vertical_key=selected_key,
                 title="prompt_vertical_extension",
                 filename="prompt_vertical_extension.txt",
                 value=assets.get("prompt_vertical_extension") or "",
+                instance_key=f"{selected_key}__prompt_vertical_extension.txt",
             )
 
     with tab_scopes:
@@ -1262,7 +1274,13 @@ def render_vertical_detail(detail: dict[str, Any]):
             read_p = read_vertical_file_admin(ctx.token, selected_key, fname_prompt, api_key=ctx.api_key)
             if isinstance(read_p, dict) and isinstance(read_p.get("content"), str):
                 existing_text = read_p.get("content") or ""
-            _text_editor(vertical_key=selected_key, title=f"prompt_scope {scope_sel}", filename=fname_prompt, value=existing_text)
+            _text_editor(
+                vertical_key=selected_key,
+                title=f"prompt_scope {scope_sel}",
+                filename=fname_prompt,
+                value=existing_text,
+                instance_key=f"{selected_key}__{scope_sel}__{fname_prompt}",
+            )
 
             st.markdown("**Flow base del scope**")
             fname_flow = f"flow_base_scope_{scope_sel}.json"
