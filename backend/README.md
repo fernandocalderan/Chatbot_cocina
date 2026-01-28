@@ -20,3 +20,4 @@ Healthcheck: `http://localhost:8100/v1/health` (ver puertos en `docker-compose.y
 ## Notas
 - Configuración en `.env` (copiado de `.env.example`).
 - Alembic ya está inicializado en `backend/alembic`, metadata en `app/db/base.py`.
+- Contrato V2 de verticales: `backend/app/verticals/CONTRACT.md`.
