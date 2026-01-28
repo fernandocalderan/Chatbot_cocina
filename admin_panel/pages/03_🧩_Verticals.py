@@ -362,8 +362,17 @@ def _normalize_to_flow(data: Any, *, filename: str, template: dict | None) -> di
     }
 
 
-def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, template: dict | None = None):
+def _json_editor(
+    *,
+    vertical_key: str,
+    title: str,
+    filename: str,
+    value: dict,
+    template: dict | None = None,
+    instance_key: str | None = None,
+):
     state_key = f"_v_edit_{vertical_key}_{filename}"
+    suffix = instance_key or state_key
     rev_key = f"{state_key}_rev"
     text_key = f"{state_key}_text"
     if rev_key not in st.session_state:
@@ -372,7 +381,7 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
         st.session_state[state_key] = value or {}
     if text_key not in st.session_state:
         st.session_state[text_key] = json.dumps(st.session_state[state_key] or {}, ensure_ascii=False, indent=2)
-    widget_key = f"{state_key}_ta_{st.session_state[rev_key]}"
+    widget_key = f"{state_key}_ta_{suffix}_{st.session_state[rev_key]}"
     st.markdown(f"**{title}** (`{filename}`)")
     if _is_flow_filename(filename):
         st.caption("Edición JSON (flow completo). Requiere `start_block` y `blocks` como objeto/dict.")
@@ -380,13 +389,13 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
         st.caption("Edición JSON.")
     c1, c2 = st.columns([0.6, 0.4])
     if template and write_enabled:
-        if c2.button("Restaurar plantilla", key=f"{state_key}_reset", use_container_width=True):
+        if c2.button("Restaurar plantilla", key=f"{state_key}_{suffix}_reset", use_container_width=True):
             st.session_state[state_key] = template or {}
             st.session_state[text_key] = json.dumps(template or {}, ensure_ascii=False, indent=2)
             st.session_state[rev_key] = int(st.session_state.get(rev_key, 0) or 0) + 1
             st.rerun()
     if write_enabled and _is_flow_filename(filename):
-        if c2.button("Normalizar a flow", key=f"{state_key}_normalize", use_container_width=True):
+        if c2.button("Normalizar a flow", key=f"{state_key}_{suffix}_normalize", use_container_width=True):
             try:
                 candidate = json.loads(st.session_state.get(text_key) or "null")
                 normalized = _normalize_to_flow(candidate, filename=filename, template=template)
@@ -398,7 +407,9 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
             st.session_state[rev_key] = int(st.session_state.get(rev_key, 0) or 0) + 1
             st.success("Normalizado a flow completo.")
             st.rerun()
-    upload = c2.file_uploader(f"Subir {filename}", type=["json"], key=f"{state_key}_up", disabled=not write_enabled)
+    upload = c2.file_uploader(
+        f"Subir {filename}", type=["json"], key=f"{state_key}_{suffix}_up", disabled=not write_enabled
+    )
     if upload is not None and write_enabled:
         try:
             parsed = json.loads(upload.getvalue().decode("utf-8"))
@@ -419,7 +430,7 @@ def _json_editor(*, vertical_key: str, title: str, filename: str, value: dict, t
         disabled=not write_enabled,
     )
     st.session_state[text_key] = txt
-    if c1.button(f"Guardar {filename}", key=f"{state_key}_save", disabled=not write_enabled):
+    if c1.button(f"Guardar {filename}", key=f"{state_key}_{suffix}_save", disabled=not write_enabled):
         try:
             data = json.loads(txt or "{}")
         except Exception as exc:
@@ -1265,6 +1276,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                 filename=fname_flow,
                 value=existing_flow,
                 template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
+                instance_key=f"{selected_key}__{scope_sel}__{fname_flow}",
             )
 
     with tab_flows:
@@ -1281,6 +1293,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                     filename="flow_base.json",
                     value=assets.get("flow_base") or {},
                     template=assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None,
+                    instance_key=f"{selected_key}__flow_base.json",
                 )
 
         # Flows por scope + subflows
@@ -1316,6 +1329,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                         filename=fname_flow,
                         value=existing_flow,
                         template=(assets.get("flow_base") if isinstance(assets.get("flow_base"), dict) else None),
+                        instance_key=f"{selected_key}__{sk}__{fname_flow}",
                     )
 
                 st.markdown("**Subguiones (Subflows)**")
@@ -1342,6 +1356,7 @@ def render_vertical_detail(detail: dict[str, Any]):
                         filename=str(sf_file),
                         value=sf_flow,
                         template=None,
+                        instance_key=f"{selected_key}__{sf_file}",
                     )
 
                 sf_del = st.session_state.get("sf_delete_file")
