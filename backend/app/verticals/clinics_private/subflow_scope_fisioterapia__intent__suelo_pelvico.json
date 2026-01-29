@@ -1,0 +1,107 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Gracias por confiar 🤍 Te haré unas preguntas breves para orientarte en suelo pélvico.",
+      "next": "perfil"
+    },
+    "perfil": {
+      "type": "buttons",
+      "text": "¿En qué situación te encuentras?",
+      "options": [
+        {
+          "label": "Embarazo",
+          "value": "embarazo"
+        },
+        {
+          "label": "Postparto",
+          "value": "postparto"
+        },
+        {
+          "label": "Incontinencia",
+          "value": "incontinencia"
+        },
+        {
+          "label": "Dolor pélvico",
+          "value": "dolor_pelvico"
+        },
+        {
+          "label": "Prevención / fortalecimiento",
+          "value": "prevencion"
+        },
+        {
+          "label": "Otro / no lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "suelo_pelvico_motivo",
+      "next": "tiempo"
+    },
+    "tiempo": {
+      "type": "buttons",
+      "text": "¿Desde cuándo ocurre o te preocupa?",
+      "options": [
+        {
+          "label": "Reciente",
+          "value": "reciente"
+        },
+        {
+          "label": "Semanas",
+          "value": "semanas"
+        },
+        {
+          "label": "Meses",
+          "value": "meses"
+        },
+        {
+          "label": "Siempre",
+          "value": "cronico"
+        }
+      ],
+      "save_to": "suelo_pelvico_tiempo",
+      "next": "impacto"
+    },
+    "impacto": {
+      "type": "buttons",
+      "text": "¿Cómo te afecta en el día a día?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "suelo_pelvico_impacto",
+      "next": "especialista"
+    },
+    "especialista": {
+      "type": "buttons",
+      "text": "¿Has sido valorado/a antes por un/a especialista en suelo pélvico?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        }
+      ],
+      "save_to": "suelo_pelvico_valoracion_previa",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En suelo pélvico hacemos una valoración específica y adaptamos el tratamiento a cada caso (embarazo, postparto, prevención o dolor).\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

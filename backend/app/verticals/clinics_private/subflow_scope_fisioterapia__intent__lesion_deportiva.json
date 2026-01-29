@@ -1,0 +1,33 @@
+{
+  "version": "flow_clinics_private__fisioterapia__intent__lesion_deportiva__v1",
+  "plan": "base",
+  "languages": [
+    "es"
+  ],
+  "start_block": "intro",
+  "end_block": "end",
+  "config": {
+    "ia_enabled": true,
+    "ia_generation_level": 0,
+    "pdf_enabled": false,
+    "subflow": {
+      "vertical_key": "clinics_private",
+      "scope": "fisioterapia",
+      "router_save_to": "intent",
+      "key": "lesion_deportiva",
+      "label": "Lesión deportiva"
+    }
+  },
+  "blocks": {
+    "intro": {
+      "id": "intro",
+      "type": "message",
+      "text": "Sub-flow `Lesión deportiva` (pendiente de configurar).",
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  }
+}

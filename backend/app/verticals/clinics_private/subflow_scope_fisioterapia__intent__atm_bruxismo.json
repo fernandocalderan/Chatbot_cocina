@@ -1,0 +1,107 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Vamos con ATM / bruxismo 😬 Te haré 4 preguntas rápidas para orientarte mejor.",
+      "next": "sintomas"
+    },
+    "sintomas": {
+      "type": "buttons",
+      "text": "¿Qué notas principalmente?",
+      "options": [
+        {
+          "label": "Dolor en mandíbula",
+          "value": "dolor_mandibula"
+        },
+        {
+          "label": "Chasquidos al abrir/cerrar",
+          "value": "chasquidos"
+        },
+        {
+          "label": "Bloqueo o dificultad al abrir",
+          "value": "bloqueo"
+        },
+        {
+          "label": "Dolor de cabeza / sienes",
+          "value": "cefalea"
+        },
+        {
+          "label": "Dolor cuello + mandíbula",
+          "value": "mixto"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "atm_sintoma_principal",
+      "next": "bruxismo"
+    },
+    "bruxismo": {
+      "type": "buttons",
+      "text": "¿Aprietas o rechinas los dientes (sobre todo por la noche) o te lo han dicho?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "atm_bruxismo",
+      "next": "ferula"
+    },
+    "ferula": {
+      "type": "buttons",
+      "text": "¿Usas férula de descarga?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "La tengo pero no la uso",
+          "value": "tengo_no_uso"
+        }
+      ],
+      "save_to": "atm_ferula",
+      "next": "impacto"
+    },
+    "impacto": {
+      "type": "buttons",
+      "text": "¿Te afecta al comer, hablar o dormir?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "atm_impacto",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En ATM/bruxismo solemos valorar tensión muscular, movilidad mandibular y hábitos (estrés/apretamiento) para ajustar el tratamiento y pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

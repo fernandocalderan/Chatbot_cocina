@@ -1,0 +1,83 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Entiendo 👍 Vamos a ver tu caso de espalda o cervicales.",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Dónde lo notas más?",
+      "options": [
+        {
+          "label": "Cervicales (cuello)",
+          "value": "cervical"
+        },
+        {
+          "label": "Dorsal (parte media)",
+          "value": "dorsal"
+        },
+        {
+          "label": "Lumbar (parte baja)",
+          "value": "lumbar"
+        },
+        {
+          "label": "No estoy seguro/a",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "zona_espalda",
+      "next": "irradiacion"
+    },
+    "irradiacion": {
+      "type": "buttons",
+      "text": "¿El dolor se irradia hacia brazo o pierna?",
+      "options": [
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Hacia el brazo",
+          "value": "brazo"
+        },
+        {
+          "label": "Hacia la pierna",
+          "value": "pierna"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "irradiacion",
+      "next": "origen"
+    },
+    "origen": {
+      "type": "buttons",
+      "text": "¿Cómo empezó?",
+      "options": [
+        {
+          "label": "Mala postura / estrés",
+          "value": "postura_estres"
+        },
+        {
+          "label": "Esfuerzo o giro",
+          "value": "esfuerzo_giro"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "sin_claro"
+        }
+      ],
+      "save_to": "origen_dolor",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En espalda y cervicales solemos hacer una valoración para localizar el origen (músculo, articulación o carga postural) y aplicar tratamiento + pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

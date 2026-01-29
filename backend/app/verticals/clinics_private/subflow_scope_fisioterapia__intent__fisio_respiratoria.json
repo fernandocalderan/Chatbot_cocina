@@ -1,0 +1,113 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Perfecto. Para fisio respiratoria necesito 4 datos rápidos para orientarte.",
+      "next": "motivo"
+    },
+    "motivo": {
+      "type": "buttons",
+      "text": "¿Qué te preocupa principalmente?",
+      "options": [
+        {
+          "label": "Falta de aire (leve/moderada)",
+          "value": "disnea"
+        },
+        {
+          "label": "Mucosidad / secreciones",
+          "value": "mucosidad"
+        },
+        {
+          "label": "Tos persistente",
+          "value": "tos"
+        },
+        {
+          "label": "Recuperación post-COVID",
+          "value": "post_covid"
+        },
+        {
+          "label": "EPOC / patología crónica",
+          "value": "cronico"
+        },
+        {
+          "label": "Otro / no lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "resp_motivo",
+      "next": "tiempo"
+    },
+    "tiempo": {
+      "type": "buttons",
+      "text": "¿Desde cuándo ocurre?",
+      "options": [
+        {
+          "label": "Días",
+          "value": "dias"
+        },
+        {
+          "label": "Semanas",
+          "value": "semanas"
+        },
+        {
+          "label": "Meses",
+          "value": "meses"
+        },
+        {
+          "label": "Es crónico",
+          "value": "cronico"
+        }
+      ],
+      "save_to": "resp_tiempo",
+      "next": "alarma"
+    },
+    "alarma": {
+      "type": "buttons",
+      "text": "Por seguridad: ¿tienes dificultad respiratoria fuerte, dolor en el pecho, fiebre alta o te falta el aire en reposo?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si",
+          "next": "derivar"
+        },
+        {
+          "label": "No",
+          "value": "no",
+          "next": "impacto"
+        }
+      ],
+      "save_to": "resp_red_flags"
+    },
+    "derivar": {
+      "type": "message",
+      "text": "Gracias. En ese caso, por seguridad, es importante valoración médica/urgencias antes de iniciar fisio respiratoria.\n\nSi quieres, te ayudamos a contactar con la clínica.",
+      "end": true
+    },
+    "impacto": {
+      "type": "buttons",
+      "text": "¿Cómo te limita en el día a día?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "resp_impacto",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En fisio respiratoria solemos trabajar con técnicas de ventilación, higiene bronquial y reeducación del esfuerzo según tu caso.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

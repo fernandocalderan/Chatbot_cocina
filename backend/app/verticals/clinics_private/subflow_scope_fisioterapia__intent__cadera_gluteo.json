@@ -1,0 +1,111 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Vamos con cadera / glúteo 🧠🦵 Te haré 4 preguntas rápidas.",
+      "next": "lado"
+    },
+    "lado": {
+      "type": "buttons",
+      "text": "¿En qué lado lo notas más?",
+      "options": [
+        {
+          "label": "Derecho",
+          "value": "derecho"
+        },
+        {
+          "label": "Izquierdo",
+          "value": "izquierdo"
+        },
+        {
+          "label": "Ambos",
+          "value": "ambos"
+        }
+      ],
+      "save_to": "cadera_lado",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Dónde lo notas principalmente?",
+      "options": [
+        {
+          "label": "Ingle (parte delantera)",
+          "value": "ingle"
+        },
+        {
+          "label": "Lateral de la cadera",
+          "value": "lateral"
+        },
+        {
+          "label": "Glúteo",
+          "value": "gluteo"
+        },
+        {
+          "label": "Baja hacia la pierna",
+          "value": "baja_pierna"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "cadera_zona",
+      "next": "cuando"
+    },
+    "cuando": {
+      "type": "buttons",
+      "text": "¿Cuándo molesta más?",
+      "options": [
+        {
+          "label": "Al caminar",
+          "value": "caminar"
+        },
+        {
+          "label": "Al estar sentado/a",
+          "value": "sentado"
+        },
+        {
+          "label": "Al subir escaleras",
+          "value": "escaleras"
+        },
+        {
+          "label": "Al dormir de lado",
+          "value": "dormir_lado"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "cadera_cuando_molesta",
+      "next": "irradiacion"
+    },
+    "irradiacion": {
+      "type": "buttons",
+      "text": "¿Notas hormigueo o corriente hacia la pierna?",
+      "options": [
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "cadera_irradiacion",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En cadera/glúteo solemos valorar carga, movilidad y tejidos (tendón, musculatura, zona lumbar) para ajustar el tratamiento y pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

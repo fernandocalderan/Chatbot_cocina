@@ -1,0 +1,103 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Vamos con el hombro 💪 Para orientarte bien, necesito 3 datos rápidos.",
+      "next": "lado"
+    },
+    "lado": {
+      "type": "buttons",
+      "text": "¿Qué hombro es?",
+      "options": [
+        {
+          "label": "Derecho",
+          "value": "derecho"
+        },
+        {
+          "label": "Izquierdo",
+          "value": "izquierdo"
+        },
+        {
+          "label": "Ambos",
+          "value": "ambos"
+        }
+      ],
+      "save_to": "hombro_lado",
+      "next": "movimiento"
+    },
+    "movimiento": {
+      "type": "buttons",
+      "text": "¿En qué movimiento duele más?",
+      "options": [
+        {
+          "label": "Al levantar el brazo",
+          "value": "elevar_brazo"
+        },
+        {
+          "label": "Al rotar (poner mano detrás)",
+          "value": "rotacion"
+        },
+        {
+          "label": "Al empujar / hacer fuerza",
+          "value": "fuerza"
+        },
+        {
+          "label": "En reposo",
+          "value": "reposo"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "hombro_movimiento_dolor",
+      "next": "noche"
+    },
+    "noche": {
+      "type": "buttons",
+      "text": "¿Te molesta al dormir (especialmente de lado sobre ese hombro)?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "A veces",
+          "value": "a_veces"
+        }
+      ],
+      "save_to": "hombro_dolor_noche",
+      "next": "limitacion"
+    },
+    "limitacion": {
+      "type": "buttons",
+      "text": "¿Te limita en tareas del día a día (vestirte, peinarte, coger cosas)?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "hombro_limitacion",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En dolor de hombro solemos valorar movilidad, estabilidad y tejidos (tendón/bursa) para ajustar el tratamiento y las pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Vamos con la rodilla 🦵 Te haré 4 preguntas rápidas para orientarte bien.",
+      "next": "lado"
+    },
+    "lado": {
+      "type": "buttons",
+      "text": "¿Qué rodilla es?",
+      "options": [
+        {
+          "label": "Derecha",
+          "value": "derecha"
+        },
+        {
+          "label": "Izquierda",
+          "value": "izquierda"
+        },
+        {
+          "label": "Ambas",
+          "value": "ambas"
+        }
+      ],
+      "save_to": "rodilla_lado",
+      "next": "situacion"
+    },
+    "situacion": {
+      "type": "buttons",
+      "text": "¿Cuándo duele más?",
+      "options": [
+        {
+          "label": "Bajando/subiendo escaleras",
+          "value": "escaleras"
+        },
+        {
+          "label": "Al correr/saltar",
+          "value": "correr_saltar"
+        },
+        {
+          "label": "Al agacharte/sentadilla",
+          "value": "sentadilla"
+        },
+        {
+          "label": "Después de estar sentado (arranque)",
+          "value": "arranque"
+        },
+        {
+          "label": "En reposo",
+          "value": "reposo"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "rodilla_cuando_duele",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Dónde lo notas más?",
+      "options": [
+        {
+          "label": "Delante (rótula)",
+          "value": "rotula"
+        },
+        {
+          "label": "Interior",
+          "value": "interior"
+        },
+        {
+          "label": "Exterior",
+          "value": "exterior"
+        },
+        {
+          "label": "Detrás",
+          "value": "detras"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "rodilla_zona",
+      "next": "hinchazon"
+    },
+    "hinchazon": {
+      "type": "buttons",
+      "text": "¿Hay hinchazón, bloqueo o sensación de inestabilidad (que se 'va')?",
+      "options": [
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Sí, hinchazón",
+          "value": "hinchazon"
+        },
+        {
+          "label": "Sí, bloqueo",
+          "value": "bloqueo"
+        },
+        {
+          "label": "Sí, inestabilidad",
+          "value": "inestabilidad"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "rodilla_signos",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En dolor de rodilla solemos valorar carga, movilidad y control de la rótula/menisco para definir el tratamiento y las pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Entiendo 👍 Vamos a orientarte en tu rehabilitación post-quirúrgica.",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Qué zona te han operado?",
+      "options": [
+        {
+          "label": "Rodilla",
+          "value": "rodilla"
+        },
+        {
+          "label": "Hombro",
+          "value": "hombro"
+        },
+        {
+          "label": "Cadera",
+          "value": "cadera"
+        },
+        {
+          "label": "Columna",
+          "value": "columna"
+        },
+        {
+          "label": "Otra",
+          "value": "otra"
+        }
+      ],
+      "save_to": "cirugia_zona",
+      "next": "tiempo"
+    },
+    "tiempo": {
+      "type": "buttons",
+      "text": "¿Cuánto tiempo hace de la cirugía?",
+      "options": [
+        {
+          "label": "Menos de 2 semanas",
+          "value": "menos_2_semanas"
+        },
+        {
+          "label": "2–6 semanas",
+          "value": "2_6_semanas"
+        },
+        {
+          "label": "Más de 6 semanas",
+          "value": "mas_6_semanas"
+        }
+      ],
+      "save_to": "cirugia_tiempo",
+      "next": "protocolo"
+    },
+    "protocolo": {
+      "type": "buttons",
+      "text": "¿Te han indicado un protocolo o pautas médicas de rehabilitación?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "cirugia_protocolo",
+      "next": "limitacion"
+    },
+    "limitacion": {
+      "type": "buttons",
+      "text": "¿Cómo te limita ahora mismo?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "cirugia_limitacion",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En rehabilitación post-quirúrgica trabajamos siguiendo el protocolo médico y tus objetivos para recuperar función y seguridad.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true
+    }
+  }
+}

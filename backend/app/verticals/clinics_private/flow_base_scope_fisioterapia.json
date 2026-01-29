@@ -1,0 +1,184 @@
+{
+  "start_block": "welcome",
+  "blocks": {
+    "welcome": {
+      "type": "message",
+      "text": "Hola 👋 Soy el asistente de la clínica. Te ayudo a orientarte y, si quieres, a reservar una cita de fisioterapia.\n\n¿Te parece bien que te haga unas preguntas rápidas?",
+      "next": "consent"
+    },
+    "consent": {
+      "type": "buttons",
+      "text": "¿Cómo prefieres continuar?",
+      "options": [
+        {
+          "label": "Sí, adelante",
+          "value": "yes",
+          "next": "motivo"
+        },
+        {
+          "label": "Prefiero llamar",
+          "value": "call",
+          "next": "call_info"
+        }
+      ],
+      "save_to": "consent"
+    },
+    "call_info": {
+      "type": "message",
+      "text": "Perfecto 😊 Puedes llamarnos directamente y te atendemos sin problema.\n\n📞 Teléfono: 000 000 000\n🕒 Horario: L–V de 9:00 a 20:00",
+      "end": true
+    },
+    "motivo": {
+      "type": "buttons",
+      "text": "¿Qué necesitas hoy?",
+      "options": [
+        {
+          "label": "Dolor de espalda o cuello",
+          "value": "espalda"
+        },
+        {
+          "label": "Lesión deportiva",
+          "value": "lesion"
+        },
+        {
+          "label": "Dolor de hombro, rodilla o cadera",
+          "value": "articulacion"
+        },
+        {
+          "label": "Rehabilitación post-quirúrgica",
+          "value": "rehab"
+        },
+        {
+          "label": "Suelo pélvico",
+          "value": "suelo_pelvico"
+        },
+        {
+          "label": "ATM / Bruxismo",
+          "value": "atm"
+        },
+        {
+          "label": "Otro / no lo tengo claro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "intent_primary",
+      "next": "route_intent"
+    },
+    "route_intent": {
+      "type": "router",
+      "router_save_to": "intent",
+      "scope": "fisioterapia",
+      "fallback": "triage"
+    },
+    "triage": {
+      "type": "message",
+      "text": "Gracias. Para orientarte mejor necesito unos datos rápidos.",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "input",
+      "input_type": "text",
+      "text": "¿En qué zona notas el dolor o la molestia?",
+      "save_to": "zona",
+      "next": "inicio"
+    },
+    "inicio": {
+      "type": "buttons",
+      "text": "¿Desde cuándo ocurre?",
+      "options": [
+        {
+          "label": "Hoy – 3 días",
+          "value": "reciente"
+        },
+        {
+          "label": "1–2 semanas",
+          "value": "semanas"
+        },
+        {
+          "label": "1–3 meses",
+          "value": "meses"
+        },
+        {
+          "label": "Más de 3 meses",
+          "value": "cronico"
+        }
+      ],
+      "save_to": "inicio_rango",
+      "next": "intensidad"
+    },
+    "intensidad": {
+      "type": "input",
+      "input_type": "number",
+      "text": "Del 0 al 10, ¿qué intensidad tiene ahora?",
+      "save_to": "intensidad",
+      "next": "red_flags"
+    },
+    "red_flags": {
+      "type": "buttons",
+      "text": "¿Tienes fiebre, pérdida de fuerza importante o has sufrido un accidente fuerte recientemente?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "yes",
+          "next": "derivacion"
+        },
+        {
+          "label": "No",
+          "value": "no",
+          "next": "contacto_intro"
+        }
+      ],
+      "save_to": "red_flags"
+    },
+    "derivacion": {
+      "type": "message",
+      "text": "Por seguridad, en este caso es importante una valoración médica previa antes de iniciar fisioterapia.\n\nSi quieres, te ayudamos a contactar con la clínica.",
+      "end": true
+    },
+    "contacto_intro": {
+      "type": "message",
+      "text": "Perfecto 👍 Con esto ya podemos ayudarte. ¿Cómo prefieres que te confirmemos la cita?",
+      "next": "contacto"
+    },
+    "contacto": {
+      "type": "buttons",
+      "options": [
+        {
+          "label": "WhatsApp",
+          "value": "whatsapp",
+          "next": "telefono"
+        },
+        {
+          "label": "Llamada",
+          "value": "llamada",
+          "next": "telefono"
+        },
+        {
+          "label": "Email",
+          "value": "email",
+          "next": "email"
+        }
+      ],
+      "save_to": "contact_channel"
+    },
+    "telefono": {
+      "type": "input",
+      "input_type": "text",
+      "text": "Escribe tu número de teléfono, por favor.",
+      "save_to": "telefono",
+      "next": "cierre"
+    },
+    "email": {
+      "type": "input",
+      "input_type": "text",
+      "text": "Escribe tu email, por favor.",
+      "save_to": "email",
+      "next": "cierre"
+    },
+    "cierre": {
+      "type": "message",
+      "text": "Gracias 😊 Un especialista revisará tu caso y te contactará para confirmar la cita lo antes posible.",
+      "end": true
+    }
+  }
+}
