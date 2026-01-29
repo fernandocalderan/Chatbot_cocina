@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.models.flows import Flow
+from app.models.scopes import Scope
 from app.models.tenants import Tenant
 from app.schemas.catalog import CatalogFlow, CatalogScope, CatalogVertical, CatalogWarning, CatalogResponse
 from app.services import verticals
@@ -70,19 +72,21 @@ def _scope_has_filesystem_definition(assets: dict[str, int | bool]) -> bool:
 
 
 def _catalog_status(flows: list[CatalogFlow], *, tenant_id: str | None) -> str:
-    published = [f for f in flows if f.published]
     if tenant_id:
+        tenant_flows = [f for f in flows if str(f.owner_type or "").upper() == "TENANT"]
+        published = [f for f in tenant_flows if f.published]
         published_count = len(published)
         if published_count > 1:
             return "MULTIPLE_PUBLISHED"
         if published_count == 1:
             return "PUBLISHED_OK"
-        if flows:
+        if tenant_flows:
             return "DRAFT_ONLY"
         return "NO_FLOW_YET"
 
     # When aggregating multiple tenants, only flag MULTIPLE_PUBLISHED
     # if the same owner_id has >1 published.
+    published = [f for f in flows if f.published]
     by_owner: dict[str, int] = defaultdict(int)
     for f in published:
         owner = str(f.owner_id or f.owner_type or "GLOBAL")
@@ -141,9 +145,32 @@ def list_catalog(
                 status="NO_FLOW_YET",
             )
 
-    q = db.query(Flow).join(Tenant, Flow.tenant_id == Tenant.id)
+    # Merge DB scopes (if any)
+    try:
+        db_scopes = db.query(Scope).all()
+        for scope in db_scopes:
+            vkey = str(scope.vertical_key)
+            skey = str(scope.scope_key)
+            scopes_by_vertical.setdefault(vkey, {})
+            if skey not in scopes_by_vertical[vkey]:
+                scopes_by_vertical[vkey][skey] = CatalogScope(
+                    scope_key=skey,
+                    source="DB_ONLY",
+                    has_filesystem_definition=False,
+                    flows=[],
+                    status="NO_FLOW_YET",
+                )
+    except Exception:
+        pass
+
+    q = db.query(Flow)
     if tenant_id:
-        q = q.filter(Flow.tenant_id == tenant_id)
+        q = q.filter(
+            sa.or_(
+                sa.and_(Flow.owner_type == "TENANT", Flow.owner_id == tenant_id),
+                sa.and_(Flow.owner_type == "GLOBAL", Flow.owner_id.is_(None)),
+            )
+        )
 
     flows = q.all()
     tenant_map: dict[str, Tenant] = {str(t.id): t for t in db.query(Tenant).all()}
@@ -151,7 +178,9 @@ def list_catalog(
     flows_by_scope: dict[tuple[str, str], list[CatalogFlow]] = defaultdict(list)
     db_only_scopes: set[tuple[str, str]] = set()
     for flow in flows:
-        tenant = tenant_map.get(str(flow.tenant_id))
+        tenant = tenant_map.get(str(flow.tenant_id)) if flow.tenant_id else None
+        owner_type = str(getattr(flow, "owner_type", "") or "TENANT").upper()
+        owner_id = str(getattr(flow, "owner_id", "") or "").strip() or None
         t_vertical = (flow.vertical_key or getattr(tenant, "vertical_key", None) or "").strip() or None
         if vertical_key and t_vertical != vertical_key:
             continue
@@ -161,9 +190,11 @@ def list_catalog(
             )
             continue
 
-        branding = getattr(tenant, "branding", {}) or {}
-        scopes = _normalize_scopes(branding.get("vertical_scopes") or [])
-        scope_key = scopes[0] if scopes else "unknown"
+        scope_key = str(getattr(flow, "scope_key", "") or "").strip() or None
+        if not scope_key:
+            branding = getattr(tenant, "branding", {}) or {}
+            scopes = _normalize_scopes(branding.get("vertical_scopes") or [])
+            scope_key = scopes[0] if scopes else "unknown"
         if scope_key == "unknown":
             warnings.append(
                 CatalogWarning(code="tenant_missing_scope", detail=f"tenant_id={flow.tenant_id} vertical={t_vertical}")
@@ -175,12 +206,12 @@ def list_catalog(
 
         entry = CatalogFlow(
             flow_id=str(flow.id),
-            name=f"tenant_flow_v{flow.version}",
+            name=f"{str(getattr(flow, 'flow_kind', '') or 'flow')}_v{flow.version}",
             version=flow.version,
             published=str(flow.estado or "").lower() == "published",
             published_at=flow.published_at.isoformat() if flow.published_at else None,
-            owner_type="TENANT",
-            owner_id=str(flow.tenant_id),
+            owner_type=owner_type,
+            owner_id=owner_id or (str(flow.tenant_id) if flow.tenant_id else None),
         )
         flows_by_scope[(t_vertical, scope_key)].append(entry)
         if t_vertical not in scopes_by_vertical or scope_key not in scopes_by_vertical.get(t_vertical, {}):

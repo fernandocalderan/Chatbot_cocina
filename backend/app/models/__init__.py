@@ -1,6 +1,7 @@
 from app.models.tenants import Tenant
 from app.models.users import User
 from app.models.flows import Flow
+from app.models.scopes import Scope
 from app.models.sessions import Session
 from app.models.leads import Lead
 from app.models.appointments import Appointment
@@ -20,6 +21,7 @@ __all__ = [
     "Tenant",
     "User",
     "Flow",
+    "Scope",
     "Session",
     "Lead",
     "Appointment",

@@ -11,8 +11,12 @@ class Flow(Base):
     __table_args__ = (sa.UniqueConstraint("tenant_id", "version", name="uq_flow_version_per_tenant"),)
 
     id = sa.Column(pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = sa.Column(pg.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = sa.Column(pg.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True)
     vertical_key = sa.Column(sa.String(64), nullable=True)
+    scope_key = sa.Column(sa.String(64), nullable=True)
+    owner_type = sa.Column(sa.String(32), nullable=False, server_default="TENANT")
+    owner_id = sa.Column(pg.UUID(as_uuid=True), nullable=True)
+    flow_kind = sa.Column(sa.String(32), nullable=False, server_default="base")
     version = sa.Column(sa.Integer, nullable=False)
     schema_json = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     estado = sa.Column(sa.String(30), nullable=False, server_default="draft")
