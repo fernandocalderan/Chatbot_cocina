@@ -117,7 +117,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En dolor de rodilla solemos valorar carga, movilidad y control de la rótula/menisco para definir el tratamiento y las pautas.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }

@@ -105,7 +105,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En cadera/glúteo solemos valorar carga, movilidad y tejidos (tendón, musculatura, zona lumbar) para ajustar el tratamiento y pautas.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }

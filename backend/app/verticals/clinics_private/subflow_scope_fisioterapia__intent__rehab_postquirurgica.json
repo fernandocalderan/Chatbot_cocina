@@ -97,7 +97,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En rehabilitación post-quirúrgica trabajamos siguiendo el protocolo médico y tus objetivos para recuperar función y seguridad.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }

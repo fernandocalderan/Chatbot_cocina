@@ -77,7 +77,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En espalda y cervicales solemos hacer una valoración para localizar el origen (músculo, articulación o carga postural) y aplicar tratamiento + pautas.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }

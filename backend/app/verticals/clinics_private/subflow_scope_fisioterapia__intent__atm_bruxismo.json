@@ -101,7 +101,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En ATM/bruxismo solemos valorar tensión muscular, movilidad mandibular y hábitos (estrés/apretamiento) para ajustar el tratamiento y pautas.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }

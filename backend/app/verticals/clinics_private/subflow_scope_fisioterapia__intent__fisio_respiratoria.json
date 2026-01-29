@@ -82,7 +82,8 @@
     "derivar": {
       "type": "message",
       "text": "Gracias. En ese caso, por seguridad, es importante valoración médica/urgencias antes de iniciar fisio respiratoria.\n\nSi quieres, te ayudamos a contactar con la clínica.",
-      "end": true
+      "end": true,
+      "next": "end"
     },
     "impacto": {
       "type": "buttons",
@@ -107,7 +108,13 @@
     "cierre_subflow": {
       "type": "message",
       "text": "Gracias. En fisio respiratoria solemos trabajar con técnicas de ventilación, higiene bronquial y reeducación del esfuerzo según tu caso.\n\nAhora seguimos para ayudarte con la cita.",
-      "end": true
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
     }
-  }
+  },
+  "end_block": "end"
 }
