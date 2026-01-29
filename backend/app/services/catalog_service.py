@@ -69,11 +69,27 @@ def _scope_has_filesystem_definition(assets: dict[str, int | bool]) -> bool:
     ) > 0
 
 
-def _catalog_status(flows: list[CatalogFlow]) -> str:
-    published_count = len([f for f in flows if f.published])
-    if published_count > 1:
+def _catalog_status(flows: list[CatalogFlow], *, tenant_id: str | None) -> str:
+    published = [f for f in flows if f.published]
+    if tenant_id:
+        published_count = len(published)
+        if published_count > 1:
+            return "MULTIPLE_PUBLISHED"
+        if published_count == 1:
+            return "PUBLISHED_OK"
+        if flows:
+            return "DRAFT_ONLY"
+        return "NO_FLOW_YET"
+
+    # When aggregating multiple tenants, only flag MULTIPLE_PUBLISHED
+    # if the same owner_id has >1 published.
+    by_owner: dict[str, int] = defaultdict(int)
+    for f in published:
+        owner = str(f.owner_id or f.owner_type or "GLOBAL")
+        by_owner[owner] += 1
+    if any(count > 1 for count in by_owner.values()):
         return "MULTIPLE_PUBLISHED"
-    if published_count == 1:
+    if published:
         return "PUBLISHED_OK"
     if flows:
         return "DRAFT_ONLY"
@@ -194,7 +210,7 @@ def list_catalog(
     for vkey in sorted(scopes_by_vertical.keys()):
         scope_items = list(scopes_by_vertical[vkey].values())
         for scope_item in scope_items:
-            scope_item.status = _catalog_status(scope_item.flows)
+            scope_item.status = _catalog_status(scope_item.flows, tenant_id=tenant_id)
             if scope_item.status == "NO_FLOW_YET" and not include_empty_scopes:
                 continue
         scope_items = [s for s in scope_items if include_empty_scopes or s.status != "NO_FLOW_YET"]
