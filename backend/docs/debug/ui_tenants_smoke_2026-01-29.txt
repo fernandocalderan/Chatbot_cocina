@@ -1,0 +1,14 @@
+UI Smoke — Tenants (Streamlit)
+Date: 2026-01-29
+Tenant: 3708018b-954d-4115-ae4a-fb42fa1076c3
+
+- A) Abrir Tenants → seleccionar tenant: BLOCKED (sin UI interactiva en este entorno)
+- B) Bloque “Plantilla y Sync (override)” visible: BLOCKED
+- C) Click “Ver diff”: BLOCKED
+- D) Click “Sync now”: BLOCKED
+- E) Click “Publish override”: BLOCKED
+- F) Re-cargar página: BLOCKED
+- G) Tenant sin vertical_key → warning + botones deshabilitados: BLOCKED
+
+Notas:
+- Pendiente de validación manual en Streamlit. Cambios en UI y backend ya aplicados.
