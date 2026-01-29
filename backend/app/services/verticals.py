@@ -699,10 +699,14 @@ def provision_vertical_assets(db, tenant: Tenant) -> dict[str, Any] | None:
                 new_flow = FlowVersioned(
                     tenant_id=tenant.id,
                     vertical_key=str(tenant.vertical_key) if tenant.vertical_key else None,
+                    scope_key=(tenant_vertical_scopes(tenant)[0] if tenant_vertical_scopes(tenant) else None),
                     version=1,
                     schema_json=flow,
                     estado="published",
                     published_at=datetime.now(timezone.utc),
+                    owner_type="TENANT",
+                    owner_id=tenant.id,
+                    flow_kind="base",
                 )
                 db.add(new_flow)
                 # Asociar flow activo (si el modelo lo soporta)

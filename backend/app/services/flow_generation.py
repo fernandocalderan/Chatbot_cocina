@@ -651,10 +651,14 @@ def generate_flow_draft(
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        scope_key=(scopes[0] if scopes else None),
         version=_next_flow_version(db, str(tenant.id)),
         schema_json=sanitized,
         estado="draft",
         published_at=None,
+        owner_type="TENANT",
+        owner_id=tenant.id,
+        flow_kind="base",
     )
     db.add(new_flow)
     db.commit()

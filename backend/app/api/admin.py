@@ -1038,13 +1038,19 @@ def publish_tenant_flow(tenant_id: str, payload: dict, request: Request, db=Depe
     db.query(FlowVersioned).filter(
         FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published"
     ).update({"estado": "draft", "published_at": None})
+    scopes = tenant_vertical_scopes(tenant)
+    scope_key = scopes[0] if scopes else None
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        scope_key=scope_key,
         version=next_version,
         schema_json=payload,
         estado="published",
         published_at=now,
+        owner_type="TENANT",
+        owner_id=tenant.id,
+        flow_kind="base",
     )
     db.add(new_flow)
     db.flush()
@@ -1106,13 +1112,19 @@ def reset_tenant_flow_to_vertical_base(tenant_id: str, request: Request, db=Depe
     db.query(FlowVersioned).filter(
         FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published"
     ).update({"estado": "draft", "published_at": None})
+    scopes = tenant_vertical_scopes(tenant)
+    scope_key = scopes[0] if scopes else None
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        scope_key=scope_key,
         version=next_version,
         schema_json=base,
         estado="published",
         published_at=now,
+        owner_type="TENANT",
+        owner_id=tenant.id,
+        flow_kind="base",
     )
     db.add(new_flow)
     db.flush()

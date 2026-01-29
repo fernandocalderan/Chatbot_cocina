@@ -534,10 +534,14 @@ def reset_draft_from_current_runtime(
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        scope_key=(scopes[0] if scopes else None),
         version=_next_version(db, tenant),
         schema_json=base,
         estado="draft",
         published_at=None,
+        owner_type="TENANT",
+        owner_id=tenant.id,
+        flow_kind="base",
     )
     db.add(new_flow)
     _ensure_flow_system_v2(db, tenant)
@@ -761,10 +765,14 @@ def publish_draft(
     published = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
+        scope_key=(scopes[0] if scopes else None),
         version=_next_version(db, tenant),
         schema_json=draft.schema_json,
         estado="published",
         published_at=now,
+        owner_type="TENANT",
+        owner_id=tenant.id,
+        flow_kind="base",
     )
     db.add(published)
     db.flush()
