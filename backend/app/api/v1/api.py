@@ -11,6 +11,7 @@ from app.api.v1.endpoints.tenant_ia_settings import (
 from app.api.v1.endpoints.billing import router as billing_router
 from app.api.v1.endpoints.stripe_webhook import router as stripe_webhook_router
 from app.api.v1.endpoints.tenants_admin import router as tenants_admin_router
+from app.api.v1.catalog import router as catalog_router
 
 api_router = APIRouter()
 
@@ -46,4 +47,9 @@ api_router.include_router(
     tenants_admin_router,
     prefix="",
     tags=["tenants"],
+)
+api_router.include_router(
+    catalog_router,
+    prefix="",
+    tags=["catalog"],
 )
