@@ -1,0 +1,32 @@
+Debug flow visibility report @ 2026-01-29T13:43:48.631266+00:00
+
+==========================================================================================
+VERTICAL CATALOG (filesystem-backed)
+==========================================================================================
+- clinics_private | scopes=6
+  • dental: state=HAS_SUBFLOWS flow_base_scope=True legacy_subflows=6 v2_subflows=0
+  • fisioterapia: state=HAS_SUBFLOWS flow_base_scope=True legacy_subflows=9 v2_subflows=0
+  • osteopatia: state=HAS_SUBFLOWS flow_base_scope=True legacy_subflows=8 v2_subflows=0
+  • psicologia_privada: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • podologia: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • rehabilitacion: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+- home_services | scopes=9
+  • instaladores_clima: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • instaladores_solar: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • reformas_parciales: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • carpinteria_metalica: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • cerramientos: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • persianas_toldos: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • electricidad: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • fontaneria: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+  • cristaleria: state=NO_FLOW_YET flow_base_scope=False legacy_subflows=0 v2_subflows=0
+- kitchens | scopes=3
+  • cocinas_completas: state=HAS_SUBFLOWS flow_base_scope=False legacy_subflows=0 v2_subflows=10
+  • banos_lavaderos: state=HAS_SUBFLOWS flow_base_scope=False legacy_subflows=0 v2_subflows=1
+  • muebles_medida: state=HAS_SUBFLOWS flow_base_scope=False legacy_subflows=0 v2_subflows=1
+
+==========================================================================================
+DB FLOWS (per tenant)
+==========================================================================================
+- ERROR: database connection failed (OperationalError)
+  Hint: ensure DATABASE_URL is reachable (e.g. docker compose db).
