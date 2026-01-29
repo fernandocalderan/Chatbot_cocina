@@ -1,4 +1,4 @@
-Debug flow visibility report @ 2026-01-29T13:43:48.631266+00:00
+Debug flow visibility report @ 2026-01-29T13:48:48.103540+00:00
 
 ==========================================================================================
 VERTICAL CATALOG (filesystem-backed)
@@ -28,5 +28,63 @@ VERTICAL CATALOG (filesystem-backed)
 ==========================================================================================
 DB FLOWS (per tenant)
 ==========================================================================================
-- ERROR: database connection failed (OperationalError)
-  Hint: ensure DATABASE_URL is reachable (e.g. docker compose db).
+- tenant=ad927f08-f688-4743-8e0d-05ddaedd95b6 vertical=— scopes=[] flows_total=4 published=4 drafts=0 latest_published=ee6196a3-da2d-4d42-9b2d-7377f0530faf v4
+  ! MULTIPLE_PUBLISHED
+- tenant=f5608cb6-4418-4443-96b0-54fc33d1a8b3 vertical=kitchens scopes=[] flows_total=2 published=2 drafts=0 latest_published=f38af5df-dd94-40c2-8a31-69764b261089 v2
+  ! MULTIPLE_PUBLISHED
+- tenant=1b5e5541-2ea5-42ed-beb9-adde4649bd32 vertical=home_services scopes=['carpinteria_metalica', 'electricidad', 'reformas_parciales'] flows_total=2 published=2 drafts=0 latest_published=31fb0a87-263a-4beb-8c30-3d578c9afca8 v2
+  ! MULTIPLE_PUBLISHED
+- tenant=982a775d-f488-412d-8cc8-f3b00b3c9571 vertical=home_services scopes=['instaladores_solar'] flows_total=6 published=4 drafts=2 latest_published=037256cd-45cc-4b69-863e-763a14ab2c2c v4
+  ! MULTIPLE_PUBLISHED
+- tenant=d2cde248-c9f7-4b05-baca-47117650d737 vertical=home_services scopes=['fontaneria'] flows_total=10 published=4 drafts=6 latest_published=6c79b2c4-be3a-45bf-98f9-23ec0c01766a v9
+  ! MULTIPLE_PUBLISHED
+- tenant=15ef6341-887a-492b-a415-a08c2d8697a6 vertical=kitchens scopes=[] flows_total=1 published=1 drafts=0 latest_published=78251dc9-4ec5-486f-a15f-be085c6ef334 v1
+- tenant=d3789458-9480-4b22-9e2d-75f44c08b057 vertical=kitchens scopes=[] flows_total=2 published=2 drafts=0 latest_published=0eef6f62-06f8-454b-a560-bf6da0c5cca3 v2
+  ! MULTIPLE_PUBLISHED
+- tenant=9b3a1b29-0f4f-4e62-a8d7-f06b1db88e63 vertical=clinics_private scopes=['dental'] flows_total=10 published=6 drafts=4 latest_published=6468ab9b-36f4-4c03-89ff-e15b8b323431 v8
+  ! MULTIPLE_PUBLISHED
+- tenant=6542f77f-0c5d-4600-8630-1866a0b83451 vertical=kitchens scopes=[] flows_total=5 published=3 drafts=2 latest_published=a76e11f3-675f-42d7-af3a-b07bceac93ee v4
+  ! MULTIPLE_PUBLISHED
+- tenant=f1885885-2720-4de1-9a1e-ac4572b4babc vertical=clinics_private scopes=['fisioterapia'] flows_total=6 published=5 drafts=1 latest_published=ae5d90b9-7c46-4338-80ea-b59f72ca3a7a v6
+  ! MULTIPLE_PUBLISHED
+- tenant=3708018b-954d-4115-ae4a-fb42fa1076c3 vertical=clinics_private scopes=['osteopatia'] flows_total=7 published=4 drafts=3 latest_published=5037b3b0-016f-45d5-b011-819d04ace992 v5
+  ! MULTIPLE_PUBLISHED
+
+==========================================================================================
+INCONSISTENCIES
+==========================================================================================
+- flows without tenant_id: 0
+- tenants missing vertical_key: 1
+
+==========================================================================================
+CONFIG OVERRIDES (tenant configs)
+==========================================================================================
+- agenda_rules: 1
+- response_times: 1
+- tenant_ai_config: 10
+- tenant_flow_materials: 25
+- tenant_kpi_defaults: 10
+- tenant_semantic_schema: 10
+- tenant_subflow_overrides: 1
+- tenant_widget_config: 3
+
+==========================================================================================
+CONCLUSIONES (ACCIONABLES)
+==========================================================================================
+1) Inconsistencia crítica: múltiples flows publicados por tenant.
+   - 9/11 tenants listados tienen MULTIPLE_PUBLISHED.
+   - Impacto: resolver puede devolver 409 o un flow no determinista si no se fuerza único.
+   - Acción Fase 1: enforce unique published + unpublish automático (backend) + cleanup DB.
+
+2) Catálogo FS vs DB: scopes viven en filesystem, no en DB.
+   - DB no representa scopes vacíos (NO_FLOW_YET) porque no hay tabla scopes.
+   - Impacto: panel basado en DB puede “ocultar” scopes sin flows.
+   - Acción Fase 1: catálogo único que combine FS (scopes) + DB (flows).
+
+3) Tenants sin vertical_key.
+   - 1 tenant sin vertical_key → no puede mapear a scopes/flow base correctamente.
+   - Acción: corregir datos o excluirlo del catálogo.
+
+4) FS tiene muchos scopes sin flows (home_services, clínicas).
+   - Estado esperado: NO_FLOW_YET debe aparecer en catálogo, no ocultarse.
+   - Acción: en listados, include_empty_scopes=true por defecto.
