@@ -21,6 +21,10 @@
           "next": "call_info"
         }
       ],
+      "next_map": {
+        "yes": "motivo",
+        "call": "call_info"
+      },
       "save_to": "consent"
     },
     "call_info": {
@@ -128,6 +132,10 @@
           "next": "contacto_intro"
         }
       ],
+      "next_map": {
+        "yes": "derivacion",
+        "no": "contacto_intro"
+      },
       "save_to": "red_flags"
     },
     "derivacion": {
@@ -159,6 +167,11 @@
           "next": "email"
         }
       ],
+      "next_map": {
+        "whatsapp": "telefono",
+        "llamada": "telefono",
+        "email": "email"
+      },
       "save_to": "contact_channel"
     },
     "telefono": {
