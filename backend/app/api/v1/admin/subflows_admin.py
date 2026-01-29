@@ -111,6 +111,13 @@ def _next_version_for_subflow(
     parent_flow_id: str,
     subflow_key: str,
 ) -> int:
+    if str(owner_type or "").upper() == "TENANT" and owner_id:
+        latest = (
+            db.query(sa.func.max(FlowVersioned.version))
+            .filter(FlowVersioned.tenant_id == owner_id)
+            .scalar()
+        )
+        return int(latest or 0) + 1
     q = db.query(sa.func.max(FlowVersioned.version)).filter(
         FlowVersioned.owner_type == owner_type,
         FlowVersioned.flow_kind == "subflow",
