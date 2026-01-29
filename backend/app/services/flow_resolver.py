@@ -252,6 +252,6 @@ def resolve_runtime_flow(
     except Exception:
         pass
     logger.info(
-        f\"Resolved active flow → tenant={tenant_id} source={getattr(flow_row,'source','unknown')} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}\"
+        f"Resolved active flow -> tenant={tenant_id} source={getattr(flow_row,'source','unknown')} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}"
     )
     return flow_data
