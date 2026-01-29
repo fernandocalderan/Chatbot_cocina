@@ -105,7 +105,68 @@ def test_list_published_subflows_prefers_tenant():
         owner_type="GLOBAL",
         owner_id=None,
     )
-    db = DBStub({FlowVersioned: [tenant_flow, global_flow]})
-    flows, source = subflow_router.list_published_subflows(db, tenant_id="tenant-1", base_flow_id="base-1")
+    import sqlalchemy as sa
+
+    class FakeQuery:
+        def __init__(self, data):
+            self.data = list(data)
+
+        def filter(self, *conditions):
+            for cond in conditions:
+                left_key = getattr(getattr(cond, "left", None), "key", None)
+                if not left_key:
+                    continue
+                right = getattr(cond, "right", None)
+                right_val = getattr(right, "value", right)
+                if isinstance(right_val, sa.sql.elements.ClauseElement):
+                    continue
+                self.data = [row for row in self.data if getattr(row, left_key, None) == right_val]
+            return self
+
+        def all(self):
+            return list(self.data)
+
+    def fake_query(*args, **kwargs):
+        return FakeQuery([tenant_flow, global_flow])
+
+    class FakeDB:
+        def query(self, *args, **kwargs):
+            return fake_query()
+
+    flows, source = subflow_router.list_published_subflows(FakeDB(), tenant_id="tenant-1", base_flow_id="base-1")
     assert source == "TENANT"
     assert flows and flows[0].owner_type == "TENANT"
+
+
+def test_pick_subflow_prefers_tenant_over_global(monkeypatch):
+    tenant_flow = _flow(
+        flow_id="t1",
+        subflow_key="tenant_sf",
+        keywords=["lumbar"],
+        priority=1,
+        owner_type="TENANT",
+        owner_id="tenant-1",
+    )
+    global_flow = _flow(
+        flow_id="g1",
+        subflow_key="global_sf",
+        keywords=["lumbar"],
+        priority=10,
+        owner_type="GLOBAL",
+        owner_id=None,
+    )
+    monkeypatch.setattr(
+        subflow_router,
+        "list_published_subflows",
+        lambda *args, **kwargs: ([tenant_flow], "TENANT"),
+    )
+    res = subflow_router.pick_subflow(
+        db=None,
+        tenant_id="tenant-1",
+        base_flow_id="base-1",
+        user_text="dolor lumbar",
+        active_subflow_id=None,
+    )
+    assert res["picked"] is not None
+    assert res["picked"].id == "t1"
+    assert res["source"] == "TENANT"
