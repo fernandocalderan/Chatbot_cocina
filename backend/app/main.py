@@ -5,6 +5,7 @@ from app.api.appointments import router as appointments_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.admin import router as admin_router
+from app.api.admin_flows import router as admin_flows_router
 from app.api.routes.health import router as health_router
 from app.api.files import router as files_router
 from app.api.flows import router as flows_router
@@ -153,6 +154,7 @@ def get_application() -> FastAPI:
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
     app.include_router(admin_router, prefix=API_PREFIX)
+    app.include_router(admin_flows_router, prefix=API_PREFIX)
     app.include_router(flows_router, prefix=API_PREFIX)
     app.include_router(chat_router, prefix=API_PREFIX)
     app.include_router(sessions_router, prefix=API_PREFIX)

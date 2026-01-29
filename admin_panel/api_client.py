@@ -218,7 +218,7 @@ def import_flow_base(
         "file": (file_name, file_bytes, "application/json"),
     }
     resp = requests.post(
-        f"{API_BASE}/v1/flows/import",
+        f"{API_BASE}/v1/admin/flows/import",
         headers=_headers(token, api_key or _admin_api_key()),
         data=data,
         files=files,
@@ -231,7 +231,7 @@ def import_flow_base(
 
 def publish_flow_by_id(token: str | None, flow_id: str, api_key: str | None = None):
     resp = requests.post(
-        f"{API_BASE}/v1/flows/{flow_id}/publish",
+        f"{API_BASE}/v1/admin/flows/{flow_id}/publish",
         headers=_headers(token, api_key or _admin_api_key()),
         timeout=20,
     )

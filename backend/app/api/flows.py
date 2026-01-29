@@ -1,18 +1,15 @@
 from datetime import datetime, timezone
-import json
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import sqlalchemy as sa
 
 from app.api.auth import oauth2_scheme, require_auth
-from app.middleware.authz import require_any_role, require_role
+from app.middleware.authz import require_any_role
 from app.api.deps import get_db, get_tenant_id
 from app.models.configs import Config
 from app.models.flow import Scoring
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
-from app.models.users import UserRole
 from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
 from app.api.deps import DummySession
 
@@ -30,30 +27,6 @@ def _primary_scope(tenant: Tenant | None) -> str | None:
         return str(scopes[0])
     return None
 
-
-def _next_version_for_group(
-    db: Session,
-    *,
-    owner_type: str,
-    owner_id: str | None,
-    vertical_key: str | None,
-    scope_key: str | None,
-    flow_kind: str,
-) -> int:
-    q = db.query(sa.func.max(FlowVersioned.version)).filter(
-        FlowVersioned.owner_type == owner_type,
-        FlowVersioned.flow_kind == flow_kind,
-    )
-    if owner_id:
-        q = q.filter(FlowVersioned.owner_id == owner_id)
-    else:
-        q = q.filter(FlowVersioned.owner_id.is_(None))
-    if vertical_key:
-        q = q.filter(FlowVersioned.vertical_key == vertical_key)
-    if scope_key:
-        q = q.filter(FlowVersioned.scope_key == scope_key)
-    current = q.scalar() or 0
-    return int(current) + 1
 
 def _load_latest_published_flow(db: Session, tenant_id: str) -> dict | None:
     try:
@@ -196,113 +169,14 @@ def update_flow(
     }
 
 
-@router.post("/import", dependencies=[Depends(require_role(UserRole.SUPER_ADMIN.value))])
-def import_flow_base(
-    file: UploadFile = File(...),
-    vertical_key: str = Form(...),
-    scope_key: str = Form(...),
-    flow_kind: str = Form("base"),
-    owner_type: str = Form("TENANT"),
-    owner_id: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    try:
-        raw = file.file.read()
-        content = raw.decode("utf-8")
-        data = json.loads(content)
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid_json")
+@router.post("/import")
+def import_flow_base_stub():
+    raise HTTPException(status_code=410, detail="moved_to_admin: /v1/admin/flows/import")
 
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="invalid_flow_schema")
-    if not isinstance(data.get("blocks"), dict) or not data.get("blocks"):
-        raise HTTPException(status_code=400, detail="missing_blocks")
-    if not data.get("start_block"):
-        raise HTTPException(status_code=400, detail="missing_start_block")
 
-    owner_type_norm = str(owner_type or "TENANT").upper()
-    if owner_type_norm not in {"TENANT", "GLOBAL"}:
-        raise HTTPException(status_code=400, detail="invalid_owner_type")
-
-    tenant_id = None
-    if owner_type_norm == "TENANT":
-        if not owner_id:
-            raise HTTPException(status_code=400, detail="missing_owner_id")
-        tenant_id = owner_id
-    else:
-        tenant_id = None
-
-    next_version = _next_version_for_group(
-        db,
-        owner_type=owner_type_norm,
-        owner_id=owner_id if owner_type_norm == "TENANT" else None,
-        vertical_key=vertical_key,
-        scope_key=scope_key,
-        flow_kind=flow_kind,
+@router.post("/{flow_id}/publish")
+def publish_flow_stub(flow_id: str):
+    raise HTTPException(
+        status_code=410,
+        detail=f"moved_to_admin: /v1/admin/flows/{flow_id}/publish",
     )
-
-    new_flow = FlowVersioned(
-        tenant_id=tenant_id,
-        vertical_key=str(vertical_key),
-        scope_key=str(scope_key),
-        version=next_version,
-        schema_json=data,
-        estado="draft",
-        published_at=None,
-        owner_type=owner_type_norm,
-        owner_id=owner_id if owner_type_norm == "TENANT" else None,
-        flow_kind=str(flow_kind or "base"),
-    )
-    db.add(new_flow)
-    db.commit()
-    db.refresh(new_flow)
-    return {
-        "flow_id": str(new_flow.id),
-        "version": new_flow.version,
-        "estado": new_flow.estado,
-        "owner_type": new_flow.owner_type,
-        "owner_id": str(new_flow.owner_id) if new_flow.owner_id else None,
-        "vertical_key": new_flow.vertical_key,
-        "scope_key": new_flow.scope_key,
-        "flow_kind": new_flow.flow_kind,
-    }
-
-
-@router.post("/{flow_id}/publish", dependencies=[Depends(require_role(UserRole.SUPER_ADMIN.value))])
-def publish_flow_by_id(flow_id: str, db: Session = Depends(get_db)):
-    flow = db.query(FlowVersioned).filter(FlowVersioned.id == flow_id).first()
-    if not flow:
-        raise HTTPException(status_code=404, detail="flow_not_found")
-
-    owner_type = str(getattr(flow, "owner_type", "") or "TENANT").upper()
-    owner_id = getattr(flow, "owner_id", None)
-    vertical_key = getattr(flow, "vertical_key", None)
-    scope_key = getattr(flow, "scope_key", None)
-    flow_kind = str(getattr(flow, "flow_kind", "") or "base")
-
-    # Unpublish previous published flows for same group
-    q = db.query(FlowVersioned).filter(
-        FlowVersioned.owner_type == owner_type,
-        FlowVersioned.flow_kind == flow_kind,
-    )
-    if owner_id:
-        q = q.filter(FlowVersioned.owner_id == owner_id)
-    else:
-        q = q.filter(FlowVersioned.owner_id.is_(None))
-    if vertical_key:
-        q = q.filter(FlowVersioned.vertical_key == vertical_key)
-    if scope_key:
-        q = q.filter(FlowVersioned.scope_key == scope_key)
-    q.update({"estado": "draft", "published_at": None})
-
-    flow.estado = "published"
-    flow.published_at = datetime.now(timezone.utc)
-    db.add(flow)
-    db.commit()
-    db.refresh(flow)
-    return {
-        "flow_id": str(flow.id),
-        "version": flow.version,
-        "estado": flow.estado,
-        "published_at": flow.published_at.isoformat() if flow.published_at else None,
-    }
