@@ -34,7 +34,7 @@ from app.services.plan_limits import require_active_subscription
 from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
 from app.services.flow_templates import apply_materials
-from app.services.flow_resolver import resolve_runtime_flow
+from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
 from app.services.verticals import (
     resolve_flow_id,
     get_vertical_config,
@@ -607,9 +607,24 @@ def send_message(
     flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
     flow_id_override = resolve_flow_id(flow_id_override, tenant_vertical_key)
 
+    try:
+        flow_row = resolve_active_flow(db, str(tenant.id))
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+    if not isinstance(getattr(flow_row, "schema_json", None), dict):
+        raise HTTPException(status_code=409, detail="invalid_published_flow")
+    logger.info(
+        f"Resolved active flow → tenant={tenant_id} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}"
+    )
+
     # Si hay un subflow activo (definido por el motor), cargarlo en lugar del router/base.
     active_flow = state.get("_active_flow") if isinstance(state.get("_active_flow"), dict) else None
     active_file = active_flow.get("file") if isinstance(active_flow, dict) else None
+    prev_version = state.get("_flow_version")
+    if prev_version and str(prev_version) != str(flow_row.version):
+        state = {}
+        session_mgr.save(session_id, state)
+
     if tenant_vertical_key and isinstance(active_file, str) and active_file.strip():
         loaded = vertical_read_asset_json(str(tenant_vertical_key), active_file.strip())
         if isinstance(loaded, dict) and isinstance(loaded.get("blocks"), dict) and loaded.get("blocks"):
@@ -623,19 +638,9 @@ def send_message(
             # Si el subflow no está disponible, limpiar override y continuar con base.
             state.pop("_active_flow", None)
             session_mgr.save(session_id, state)
-            flow_data = resolve_runtime_flow(
-                db=db,
-                tenant=tenant,
-                flow_id_override=flow_id_override,
-                plan_value=str(plan_value or "base").lower(),
-            )
+            flow_data = flow_row.schema_json
     else:
-        flow_data = resolve_runtime_flow(
-            db=db,
-            tenant=tenant,
-            flow_id_override=flow_id_override,
-            plan_value=str(plan_value or "base").lower(),
-        )
+        flow_data = flow_row.schema_json
     flow_system = str((getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1").strip().lower()
     if flow_system != "v2":
         flow_data = apply_materials(flow_data, materials)
@@ -760,6 +765,9 @@ def send_message(
         state.setdefault("vars", {}).setdefault("tenant_address_number", address.get("number") if isinstance(address, dict) else None)
         state.setdefault("vars", {}).setdefault("tenant_address_postal_code", address.get("postal_code") if isinstance(address, dict) else None)
         state.setdefault("vars", {}).setdefault("tenant_address_city", address.get("city") if isinstance(address, dict) else None)
+
+    # Guardar la versión publicada actual para invalidar sesiones antiguas sin usar flow_id
+    state["_flow_version"] = str(getattr(flow_row, "version", "") or "")
 
     now_ts = time.time()
     ci_state = state.get("_ci") if isinstance(state.get("_ci"), dict) else {}

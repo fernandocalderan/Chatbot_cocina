@@ -44,8 +44,8 @@ from app.services.verticals import (
 )
 from app.services.audit_service import AuditService
 from app.services.email_service import send_magic_link
-from app.services.flow_resolver import resolve_runtime_flow
-from app.services.flow_templates import apply_materials, load_flow_template
+from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
+from app.services.flow_templates import load_flow_template
 from app.core.logger import LOG_DIR
 from app.services.vertical_admin import create_vertical as admin_create_vertical
 from app.services.vertical_admin import delete_vertical_file as admin_delete_vertical_file
@@ -954,48 +954,21 @@ def get_tenant_flow(tenant_id: str, db=Depends(get_db)):
     else:
         base_flow = load_flow_template(flow_id_override, plan_value=str(plan_value or "base").lower()) or {}
 
-    flow_data = resolve_runtime_flow(
-        db=db,
-        tenant=tenant,
-        flow_id_override=flow_id_override,
-        plan_value=str(plan_value or "base").lower(),
-    )
-    if flow_system != "v2":
-        flow_data = apply_materials(flow_data, materials)
-
-    custom_flow: dict = {}
-    published = None
     try:
-        active_id = getattr(tenant, "active_flow_id", None)
-        row = None
-        if active_id:
-            row = (
-                db.query(FlowVersioned)
-                .filter(
-                    FlowVersioned.id == active_id,
-                    FlowVersioned.tenant_id == tenant.id,
-                    FlowVersioned.estado == "published",
-                )
-                .first()
-            )
-        if not row:
-            row = (
-                db.query(FlowVersioned)
-                .filter(FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published")
-                .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-                .first()
-            )
-        if row:
-            if isinstance(row.schema_json, dict):
-                custom_flow = row.schema_json
-            published = {
-                "flow_id": str(row.id),
-                "version": row.version,
-                "published_at": row.published_at.isoformat() if row.published_at else None,
-                "vertical_key": getattr(row, "vertical_key", None),
-            }
-    except Exception:
-        published = None
+        flow_row = resolve_active_flow(db, str(tenant.id))
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+    if not isinstance(getattr(flow_row, "schema_json", None), dict):
+        raise HTTPException(status_code=409, detail="invalid_published_flow")
+    flow_data = flow_row.schema_json
+
+    published = {
+        "flow_id": str(flow_row.id),
+        "version": flow_row.version,
+        "published_at": flow_row.published_at.isoformat() if flow_row.published_at else None,
+        "vertical_key": getattr(flow_row, "vertical_key", None),
+    }
+    custom_flow: dict = flow_data if isinstance(flow_data, dict) else {}
 
     return {
         "tenant_id": str(tenant.id),
@@ -1061,6 +1034,10 @@ def publish_tenant_flow(tenant_id: str, payload: dict, request: Request, db=Depe
     )
     next_version = (latest.version + 1) if latest else 1
     now = datetime.datetime.now(datetime.timezone.utc)
+    # Unpublish previous published flows for this tenant
+    db.query(FlowVersioned).filter(
+        FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published"
+    ).update({"estado": "draft", "published_at": None})
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
@@ -1125,6 +1102,10 @@ def reset_tenant_flow_to_vertical_base(tenant_id: str, request: Request, db=Depe
     )
     next_version = (latest.version + 1) if latest else 1
     now = datetime.datetime.now(datetime.timezone.utc)
+    # Unpublish previous published flows for this tenant
+    db.query(FlowVersioned).filter(
+        FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published"
+    ).update({"estado": "draft", "published_at": None})
     new_flow = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,

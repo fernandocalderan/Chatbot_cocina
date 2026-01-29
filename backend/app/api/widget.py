@@ -17,7 +17,7 @@ from app.models.tenants import Tenant
 from app.services.agenda_service import AgendaService
 from app.services.plan_limits import require_active_subscription
 from app.services.flow_templates import apply_materials
-from app.services.flow_resolver import resolve_runtime_flow
+from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
 from app.services.verticals import resolve_flow_id, scope_defaults, tenant_vertical_scopes
 from app.models.configs import Config
 
@@ -167,12 +167,13 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
-    flow_data = resolve_runtime_flow(
-        db=db,
-        tenant=tenant,
-        flow_id_override=flow_id,
-        plan_value=str(plan_value or "base").lower(),
-    )
+    try:
+        flow_row = resolve_active_flow(db, str(tenant.id))
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+    if not isinstance(getattr(flow_row, "schema_json", None), dict):
+        raise HTTPException(status_code=409, detail="invalid_published_flow")
+    flow_data = flow_row.schema_json
     if flow_system != "v2":
         flow_data = apply_materials(flow_data, materials)
 
@@ -202,7 +203,7 @@ def _get_widget_runtime(db: Session, tenant: Tenant) -> dict:
         "tokens": tokens,
         "messages": messages,
         "automation": automation or {"ai_level": "low", "saving_mode": False, "human_fallback": True},
-        "flow_id": flow_id or flow_data.get("version") or "default",
+        "flow_id": str(getattr(flow_row, "id", "") or ""),
         "tenant": visual_payload.get("tenant"),
     }
     return runtime

@@ -12,7 +12,7 @@ from app.api.deps import get_db, get_tenant_id
 from app.middleware.authz import require_any_role
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
-from app.services.flow_resolver import resolve_runtime_flow
+from app.services.flow_resolver import resolve_runtime_flow, resolve_active_flow, FlowResolutionError
 from app.services.verticals import (
     build_vertical_subflow_filename,
     parse_vertical_router_routes_filename,
@@ -118,7 +118,10 @@ def _flow_router_and_routes_for_tenant(db: Session, tenant: Tenant) -> tuple[dic
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
-    flow = resolve_runtime_flow(db=db, tenant=tenant, flow_id_override=None, plan_value=str(plan_value or "base").lower())
+    try:
+        flow = resolve_runtime_flow(db=db, tenant=tenant, flow_id_override=None, plan_value=str(plan_value or "base").lower())
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
     if not isinstance(flow, dict) or not flow:
         return None, None, {}
     vertical_key = getattr(tenant, "vertical_key", None)
@@ -452,20 +455,19 @@ def get_published_flow(
     if not tenant:
         raise HTTPException(status_code=404, detail="tenant_not_found")
 
-    row = _active_or_latest_published_flow(db, tenant)
+    try:
+        row = resolve_active_flow(db, str(tenant.id))
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
     return {
         "tenant_id": str(tenant.id),
         "flow_system": (getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1",
-        "published": (
-            {
-                "flow_id": str(row.id),
-                "version": row.version,
-                "published_at": row.published_at.isoformat() if row.published_at else None,
-            }
-            if row
-            else None
-        ),
-        "flow": row.schema_json if (row and isinstance(row.schema_json, dict)) else {},
+        "published": {
+            "flow_id": str(row.id),
+            "version": row.version,
+            "published_at": row.published_at.isoformat() if row.published_at else None,
+        },
+        "flow": row.schema_json if isinstance(row.schema_json, dict) else {},
     }
 
 
@@ -515,12 +517,15 @@ def reset_draft_from_current_runtime(
         plan_value = getattr(tenant, "plan", "base")
         if hasattr(plan_value, "value"):
             plan_value = plan_value.value
-        flow_data = resolve_runtime_flow(
-            db=db,
-            tenant=tenant,
-            flow_id_override=flow_id_override,
-            plan_value=str(plan_value or "base").lower(),
-        )
+        try:
+            flow_data = resolve_runtime_flow(
+                db=db,
+                tenant=tenant,
+                flow_id_override=flow_id_override,
+                plan_value=str(plan_value or "base").lower(),
+            )
+        except FlowResolutionError as exc:
+            raise HTTPException(status_code=409, detail=exc.code)
         if not isinstance(flow_data, dict) or not flow_data:
             raise HTTPException(status_code=400, detail="missing_flow_base_for_scope")
         base = flow_data
@@ -749,6 +754,10 @@ def publish_draft(
         raise HTTPException(status_code=404, detail="draft_not_found")
 
     now = datetime.now(timezone.utc)
+    # Unpublish previous published flows for this tenant
+    db.query(FlowVersioned).filter(
+        FlowVersioned.tenant_id == tenant.id, FlowVersioned.estado == "published"
+    ).update({"estado": "draft", "published_at": None})
     published = FlowVersioned(
         tenant_id=tenant.id,
         vertical_key=str(getattr(tenant, "vertical_key", "") or "") or None,
@@ -1044,12 +1053,15 @@ def preview_subflows(
     plan_value = getattr(tenant, "plan", "base")
     if hasattr(plan_value, "value"):
         plan_value = plan_value.value
-    flow = resolve_runtime_flow(
-        db=db,
-        tenant=tenant,
-        flow_id_override=None,
-        plan_value=str(plan_value or "base").lower(),
-    )
+    try:
+        flow = resolve_runtime_flow(
+            db=db,
+            tenant=tenant,
+            flow_id_override=None,
+            plan_value=str(plan_value or "base").lower(),
+        )
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
     overrides_payload = load_subflow_overrides_payload(db, str(tenant.id))
     composition_mode = get_composition_mode(overrides_payload)
     vertical_key = getattr(tenant, "vertical_key", None)

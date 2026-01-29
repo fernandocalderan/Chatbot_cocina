@@ -10,9 +10,7 @@ from app.models.configs import Config
 from app.models.flow import Scoring
 from app.models.flows import Flow as FlowVersioned
 from app.models.tenants import Tenant
-from app.services.flow_resolver import resolve_runtime_flow
-from app.services.flow_templates import apply_materials, load_flow_template
-from app.services.verticals import provision_vertical_assets, resolve_flow_id, tenant_custom_flow_enabled
+from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
 from app.api.deps import DummySession
 
 router = APIRouter(prefix="/flows", tags=["flows"])
@@ -63,77 +61,25 @@ def get_current_flow(
     db: Session = Depends(get_db), token: str = Depends(oauth2_scheme), current_tenant: str = Depends(get_tenant_id)
 ):
     if isinstance(db, DummySession):
-        data = load_flow_template(None, plan_value="base")
-        return {
-            "tenant_id": current_tenant,
-            "flow_id": None,
-            "version": data.get("version") if isinstance(data, dict) else None,
-            "estado": "fallback",
-            "published_at": None,
-            "flow": data if isinstance(data, dict) else {},
-        }
+        raise HTTPException(status_code=409, detail="no_published_flow")
 
     tenant = db.query(Tenant).filter(Tenant.id == current_tenant).first()
     if not tenant:
-        latest = _load_latest_published_flow(db, current_tenant)
-        if latest:
-            return latest
-        data = load_flow_template(None, plan_value="base")
-        return {
-            "tenant_id": current_tenant,
-            "flow_id": None,
-            "version": data.get("version") if isinstance(data, dict) else None,
-            "estado": "fallback",
-            "published_at": None,
-            "flow": data if isinstance(data, dict) else {},
-        }
+        raise HTTPException(status_code=404, detail="tenant_not_found")
 
-    # 1) Preferir flow publicado SOLO si el custom flow está habilitado
-    # (cuando está deshabilitado, el runtime usa el flujo base de vertical+scopes).
-    custom_enabled = True
-    if getattr(tenant, "vertical_key", None):
-        branding = getattr(tenant, "branding", {}) or {}
-        flow_system = str(branding.get("flow_system") or "v1").strip().lower()
-        custom_enabled = True if flow_system == "v2" else tenant_custom_flow_enabled(tenant)
-
-    if custom_enabled:
-        latest = _load_latest_published_flow(db, current_tenant)
-        if latest:
-            return latest
-
-    # 2) Si hay vertical y no existe flow, intentar provisionar (idempotente)
-    if getattr(tenant, "vertical_key", None) and custom_enabled:
-        try:
-            provision_vertical_assets(db, tenant)
-        except Exception:
-            pass
-        latest = _load_latest_published_flow(db, current_tenant)
-        if latest:
-            return latest
-
-    # 3) Fallback: resolver runtime desde verticals + aplicar materiales publicados.
-    materials = _load_published_materials(db, current_tenant)
-    flow_id_override = materials.get("flow_id") if isinstance(materials, dict) else None
-    flow_id_override = resolve_flow_id(flow_id_override, getattr(tenant, "vertical_key", None))
-    plan_value = getattr(tenant, "plan", "base")
-    if hasattr(plan_value, "value"):
-        plan_value = plan_value.value
-    flow_data = resolve_runtime_flow(
-        db=db,
-        tenant=tenant,
-        flow_id_override=flow_id_override,
-        plan_value=str(plan_value or "base").lower(),
-    )
-    flow_system = str((getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1").strip().lower()
-    if flow_system != "v2":
-        flow_data = apply_materials(flow_data, materials)
+    try:
+        row = resolve_active_flow(db, str(tenant.id))
+    except FlowResolutionError as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
+    if not isinstance(getattr(row, "schema_json", None), dict):
+        raise HTTPException(status_code=409, detail="invalid_published_flow")
     return {
         "tenant_id": current_tenant,
-        "flow_id": None,
-        "version": None,
-        "estado": "fallback",
-        "published_at": None,
-        "flow": flow_data if isinstance(flow_data, dict) else {},
+        "flow_id": str(row.id),
+        "version": row.version,
+        "estado": row.estado,
+        "published_at": row.published_at.isoformat() if row.published_at else None,
+        "flow": row.schema_json,
     }
 
 
@@ -171,6 +117,11 @@ def update_flow(
         .first()
     )
     next_version = (latest_flow.version + 1) if latest_flow else 1
+
+    # Unpublish any previous published flow for this tenant
+    db.query(FlowVersioned).filter(
+        FlowVersioned.tenant_id == current_tenant, FlowVersioned.estado == "published"
+    ).update({"estado": "draft", "published_at": None})
 
     new_flow = FlowVersioned(
         tenant_id=current_tenant,
