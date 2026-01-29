@@ -70,3 +70,11 @@ Checklist UI:
 - Scopes: muestra `NO_FLOW_YET` → luego `DRAFT_ONLY` → `PUBLISHED_OK`.
 - Flows: aparece el flow publicado.
 - Tenants: el scope refleja el estado correcto.
+
+## Wizard 60s (UI)
+1) Abrir **Wizard (60s)** en el panel (solo SUPER_ADMIN).
+2) Vertical existente: `clinics_private`.
+3) Crear scope: `wizard_demo_<HHMM>`.
+4) Subir flow base JSON simple y **Importar como borrador**.
+5) **Publicar ahora** (checkbox + escribir PUBLICAR).
+6) Confirmar en **Scopes** que el estado es `PUBLISHED_OK`.
