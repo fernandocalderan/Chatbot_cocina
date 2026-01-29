@@ -120,3 +120,11 @@ docker logs --tail 120 $(docker ps --format "{{.Names}}" | rg "api" | head -n 1)
 - `publish` deja override publicado (`published:true`).
 - `catalog` por tenant muestra flow publicado con `owner_type=TENANT`.
 - logs incluyen `Resolved active flow` con `source=TENANT_OVERRIDE`.
+
+## Wizard completo + routing
+Checklist:
+- Crear/usar scope existente.
+- Importar flow base y publicar.
+- Crear 2 subflows (rapido) con keywords y publicar.
+- Simulate routing con texto \"dolor lumbar\" -> subflow correcto.
+- Probar en /v1/chat/send: mensaje \"tengo lumbalgia\" -> logs muestran \"Subflow routed\".

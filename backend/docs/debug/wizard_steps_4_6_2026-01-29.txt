@@ -1,0 +1,18 @@
+Wizard textual snapshot (steps 4-6) — 2026-01-29
+Vertical: clinics_private
+Scope: osteopatia
+Base flow: 632792d9-fabb-4e61-a216-a1f842d81286 (GLOBAL, published)
+
+Step 4 — Subflows list:
+- dolor_lumbar | flow_id=7b954012-259a-429c-a42b-5278120dbdf2 | status=PUBLISHED | priority=8 | threshold=1
+- mareo_vertigo | flow_id=d7b37d64-6629-483b-baac-e08d9dd99d6f | status=PUBLISHED | priority=7 | threshold=1
+
+Step 5 — Routing config (editable):
+- dolor_lumbar | keywords=lumbar, lumbalgia, hernia | priority=8 | threshold=1
+- mareo_vertigo | keywords=mareo, vertigo | priority=7 | threshold=1
+Simulate example: text="dolor lumbar" -> picked dolor_lumbar
+
+Step 6 — Publish batch:
+- Base flow already published
+- Subflows selected: dolor_lumbar, mareo_vertigo
+Result: Published OK
