@@ -1366,16 +1366,21 @@ def render_vertical_detail(detail: dict[str, Any]):
                 # Subflow actions
                 if st.session_state.get("sf_edit_file") and st.session_state.get("verticals_show_advanced"):
                     sf_file = st.session_state.get("sf_edit_file")
-                    sf_read = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
-                    sf_flow = sf_read.get("content") if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict) else {}
-                    _json_editor(
-                        vertical_key=selected_key,
-                        title=f"subflow {sf_file}",
-                        filename=str(sf_file),
-                        value=sf_flow,
-                        template=None,
-                        instance_key=f"{selected_key}__{sf_file}",
-                    )
+                    if sf_file in scope_sf.values():
+                        sf_read = read_vertical_file_admin(ctx.token, selected_key, sf_file, api_key=ctx.api_key)
+                        sf_flow = (
+                            sf_read.get("content")
+                            if isinstance(sf_read, dict) and isinstance(sf_read.get("content"), dict)
+                            else {}
+                        )
+                        _json_editor(
+                            vertical_key=selected_key,
+                            title=f"subflow {sf_file}",
+                            filename=str(sf_file),
+                            value=sf_flow,
+                            template=None,
+                            instance_key=f"{selected_key}__{sf_file}",
+                        )
 
                 sf_del = st.session_state.get("sf_delete_file")
                 if sf_del:
