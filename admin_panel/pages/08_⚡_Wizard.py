@@ -26,15 +26,49 @@ from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context,
 
 SLUG_RE = re.compile(r"^[a-z0-9_\-]{2,}$")
 
+_WIZ_LEGACY_KEYS = {
+    "wiz_step": "wizard_step",
+    "wiz_vertical_key": "wizard_vertical_key",
+    "wiz_scope_key": "wizard_scope_key",
+    "wiz_base_flow_id": "wizard_base_flow_id",
+}
+
+
+def _wiz_get(key: str, default: Any | None = None) -> Any | None:
+    if key in st.session_state:
+        return st.session_state.get(key, default)
+    legacy = _WIZ_LEGACY_KEYS.get(key)
+    if legacy:
+        return st.session_state.get(legacy, default)
+    return default
+
+
+def _wiz_set(key: str, value: Any) -> None:
+    st.session_state[key] = value
+    legacy = _WIZ_LEGACY_KEYS.get(key)
+    if legacy:
+        st.session_state[legacy] = value
+
 
 def _init_state() -> None:
-    st.session_state.setdefault("wizard_step", 1)
-    st.session_state.setdefault("wizard_vertical_key", "")
+    for key, default in (
+        ("wiz_step", 1),
+        ("wiz_vertical_key", ""),
+        ("wiz_scope_key", ""),
+        ("wiz_base_flow_id", None),
+    ):
+        if key not in st.session_state:
+            legacy = _WIZ_LEGACY_KEYS.get(key)
+            if legacy in st.session_state and st.session_state.get(legacy) not in (None, ""):
+                st.session_state[key] = st.session_state.get(legacy)
+            else:
+                st.session_state[key] = default
+        legacy = _WIZ_LEGACY_KEYS.get(key)
+        if legacy and legacy not in st.session_state:
+            st.session_state[legacy] = st.session_state.get(key)
     st.session_state.setdefault("wizard_scope_mode", "existing")
-    st.session_state.setdefault("wizard_scope_key", "")
     st.session_state.setdefault("wizard_scope_display", "")
     st.session_state.setdefault("wizard_scope_desc", "")
-    st.session_state.setdefault("wizard_base_flow_id", None)
     st.session_state.setdefault("wizard_base_flow_version", None)
     st.session_state.setdefault("wizard_base_action", "existing")
     st.session_state.setdefault("wizard_sim_text", "")
@@ -44,7 +78,7 @@ def _init_state() -> None:
 
 def _reset_state() -> None:
     for key in list(st.session_state.keys()):
-        if key.startswith("wizard_"):
+        if key.startswith("wizard_") or key.startswith("wiz_"):
             st.session_state.pop(key, None)
     _init_state()
 
@@ -90,6 +124,57 @@ def _flow_entries(
     return out
 
 
+def _catalog_verticals(catalog: dict) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(catalog, dict):
+        return out
+    for item in catalog.get("verticals") or []:
+        if not isinstance(item, dict):
+            continue
+        vkey = item.get("vertical_key") or item.get("key")
+        if not vkey:
+            continue
+        out.append(
+            {
+                "vertical_key": str(vkey),
+                "label": item.get("name") or item.get("label") or str(vkey),
+                "raw": item,
+            }
+        )
+    return out
+
+
+def _catalog_scopes(catalog: dict) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(catalog, dict):
+        return out
+    for item in catalog.get("scopes") or []:
+        if not isinstance(item, dict):
+            continue
+        vkey = item.get("vertical_key")
+        skey = item.get("scope_key")
+        if vkey and skey:
+            out.append(item)
+    for v in catalog.get("verticals") or []:
+        if not isinstance(v, dict):
+            continue
+        vkey = v.get("vertical_key")
+        for s in v.get("scopes") or []:
+            if not isinstance(s, dict):
+                continue
+            skey = s.get("scope_key")
+            if not vkey or not skey:
+                continue
+            entry = dict(s)
+            entry.setdefault("vertical_key", vkey)
+            out.append(entry)
+    unique: dict[tuple[str, str], dict[str, Any]] = {}
+    for scope in out:
+        key = (str(scope.get("vertical_key")), str(scope.get("scope_key")))
+        unique[key] = scope
+    return list(unique.values())
+
+
 init_page(title="Wizard completo", icon="⚡")
 ctx = require_admin_context()
 render_sidebar_nav()
@@ -100,7 +185,7 @@ if not ctx.is_super_admin:
 
 _init_state()
 
-step = int(st.session_state.get("wizard_step") or 1)
+step = int(_wiz_get("wiz_step") or 1)
 step = min(max(step, 1), 7)
 
 st.title("⚡ Wizard completo")
@@ -117,21 +202,48 @@ catalog = get_catalog(
     include_templates=True,
     api_key=ctx.api_key,
 )
-verticals = []
-if isinstance(catalog, dict) and catalog.get("verticals"):
-    verticals = [v.get("vertical_key") for v in catalog.get("verticals") if v.get("vertical_key")]
-verticals = sorted({v for v in verticals if v})
+vertical_options = _catalog_verticals(catalog if isinstance(catalog, dict) else {})
+vertical_options = sorted(vertical_options, key=lambda v: str(v.get("label") or ""))
+scopes_all = _catalog_scopes(catalog if isinstance(catalog, dict) else {})
+scopes_for_vertical = [
+    s for s in scopes_all if str(s.get("vertical_key") or "") == str(_wiz_get("wiz_vertical_key") or "")
+]
+
+if st.session_state.get("debug"):
+    st.write("DEBUG wiz_step:", _wiz_get("wiz_step"))
+    st.write("DEBUG wiz_vertical_key:", repr(_wiz_get("wiz_vertical_key")))
+    st.write("DEBUG catalog verticals count:", len(vertical_options))
+    st.write("DEBUG scopes found:", len(scopes_for_vertical))
 
 if step == 1:
     st.subheader("1) Elegir vertical")
-    if verticals:
-        vkey = st.selectbox("Vertical", options=verticals, key="wizard_vertical_key")
+    selected_vertical: dict[str, Any] | None = None
+    if vertical_options:
+        current_vkey = str(_wiz_get("wiz_vertical_key") or "")
+        index = 0
+        if current_vkey:
+            for i, opt in enumerate(vertical_options):
+                if str(opt.get("vertical_key")) == current_vkey:
+                    index = i
+                    break
+        selected_vertical = st.selectbox(
+            "Vertical",
+            options=vertical_options,
+            index=index,
+            format_func=lambda o: o.get("label") or o.get("vertical_key") or "",
+            key="wiz_vertical_select",
+        )
+        if selected_vertical and selected_vertical.get("vertical_key"):
+            if str(selected_vertical.get("vertical_key")) != current_vkey:
+                _wiz_set("wiz_vertical_key", str(selected_vertical.get("vertical_key")))
     else:
         st.info("No hay verticales en catálogo. Crea un scope desde Scopes o configura verticals.")
     c1, c2 = st.columns([0.7, 0.3])
     with c1:
-        if st.button("Continuar", use_container_width=True, disabled=not bool(st.session_state.get("wizard_vertical_key"))):
-            st.session_state["wizard_step"] = 2
+        can_continue = bool(selected_vertical and selected_vertical.get("vertical_key"))
+        if st.button("Continuar", use_container_width=True, disabled=not can_continue):
+            _wiz_set("wiz_vertical_key", str(selected_vertical.get("vertical_key")))
+            _wiz_set("wiz_step", 2)
             st.rerun()
     with c2:
         if st.button("Cancelar", use_container_width=True):
@@ -140,7 +252,11 @@ if step == 1:
 
 elif step == 2:
     st.subheader("2) Scope")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    if not vkey:
+        st.warning("Selecciona un vertical primero.")
+        _wiz_set("wiz_step", 1)
+        st.rerun()
     st.caption(f"Vertical: `{vkey}`")
 
     mode = st.radio(
@@ -153,29 +269,59 @@ elif step == 2:
     )
 
     scope_key = ""
+    selected_scope: dict[str, Any] | None = None
     if mode == "existing":
-        scopes = []
-        for v in catalog.get("verticals") or []:
-            if v.get("vertical_key") == vkey:
-                scopes = [s.get("scope_key") for s in v.get("scopes") or [] if s.get("scope_key")]
-                break
-        scopes = sorted({s for s in scopes if s})
-        if scopes:
-            scope_key = st.selectbox("Scope", options=scopes, key="wizard_scope_key")
+        scopes_for_vertical = [
+            s for s in scopes_all if str(s.get("vertical_key") or "") == vkey
+        ]
+        scopes_for_vertical = sorted(scopes_for_vertical, key=lambda s: str(s.get("scope_key") or ""))
+        if scopes_for_vertical:
+            scope_options = [
+                {
+                    "scope_key": s.get("scope_key"),
+                    "label": s.get("display_name") or s.get("name") or s.get("scope_key"),
+                }
+                for s in scopes_for_vertical
+                if s.get("scope_key")
+            ]
+            current_scope = str(_wiz_get("wiz_scope_key") or "")
+            index = 0
+            if current_scope:
+                for i, opt in enumerate(scope_options):
+                    if str(opt.get("scope_key")) == current_scope:
+                        index = i
+                        break
+            selected_scope = st.selectbox(
+                "Scope",
+                options=scope_options,
+                index=index,
+                format_func=lambda o: o.get("label") or o.get("scope_key") or "",
+                key="wiz_scope_select",
+            )
+            if selected_scope and selected_scope.get("scope_key"):
+                if str(selected_scope.get("scope_key")) != current_scope:
+                    _wiz_set("wiz_scope_key", str(selected_scope.get("scope_key")))
+            scope_key = str(selected_scope.get("scope_key") or "") if selected_scope else ""
         else:
-            st.info("No hay scopes en catálogo para este vertical.")
+            st.info("No hay scopes para este vertical. Puedes crear uno nuevo.")
     else:
-        st.text_input("Scope key (slug)", key="wizard_scope_key")
+        scope_key_input = st.text_input("Scope key (slug)", key="wiz_scope_key_input")
         st.text_input("Nombre visible", key="wizard_scope_display")
         st.text_area("Descripción (opcional)", key="wizard_scope_desc", height=80)
-        scope_key = st.session_state.get("wizard_scope_key") or ""
+        scope_key = scope_key_input or ""
+        if scope_key != str(_wiz_get("wiz_scope_key") or ""):
+            _wiz_set("wiz_scope_key", scope_key)
 
-    can_continue = bool(scope_key)
+    can_continue = bool(scope_key) and bool(vkey)
     if mode == "new":
         display = st.session_state.get("wizard_scope_display") or ""
         if scope_key and not _slug_ok(scope_key):
             st.warning("Scope key inválido. Usa solo [a-z0-9_-], mínimo 2 caracteres.")
         can_continue = _slug_ok(scope_key) and bool(display)
+        if scope_key and _slug_ok(scope_key) and not display:
+            st.warning("Completa el nombre visible para continuar.")
+    elif not scope_key:
+        st.warning("Selecciona un scope existente o cambia a “Crear nuevo”.")
 
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
@@ -192,12 +338,12 @@ elif step == 2:
                 if isinstance(res, dict) and res.get("error"):
                     st.error(res)
                     st.stop()
-            st.session_state["wizard_scope_key"] = scope_key
-            st.session_state["wizard_step"] = 3
+            _wiz_set("wiz_scope_key", scope_key)
+            _wiz_set("wiz_step", 3)
             st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
-            st.session_state["wizard_step"] = 1
+            _wiz_set("wiz_step", 1)
             st.rerun()
     with c3:
         if st.button("Cancelar", use_container_width=True):
@@ -206,8 +352,8 @@ elif step == 2:
 
 elif step == 3:
     st.subheader("3) Flow base")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
-    skey = st.session_state.get("wizard_scope_key") or ""
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    skey = str(_wiz_get("wiz_scope_key") or "")
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}`")
 
     flows = _flows_for_scope(catalog, vkey, skey)
@@ -250,7 +396,7 @@ elif step == 3:
             can_continue = upload is not None and parsed is not None
         if st.button("Continuar", use_container_width=True, disabled=not can_continue):
             if action == "existing" and selected_base is not None:
-                st.session_state["wizard_base_flow_id"] = selected_base.get("flow_id")
+                _wiz_set("wiz_base_flow_id", selected_base.get("flow_id"))
                 st.session_state["wizard_base_flow_version"] = selected_base.get("version")
             else:
                 res = import_flow_base(
@@ -266,13 +412,13 @@ elif step == 3:
                 if isinstance(res, dict) and res.get("error"):
                     st.error(res)
                     st.stop()
-                st.session_state["wizard_base_flow_id"] = res.get("flow_id")
+                _wiz_set("wiz_base_flow_id", res.get("flow_id"))
                 st.session_state["wizard_base_flow_version"] = res.get("version")
-            st.session_state["wizard_step"] = 4
+            _wiz_set("wiz_step", 4)
             st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
-            st.session_state["wizard_step"] = 2
+            _wiz_set("wiz_step", 2)
             st.rerun()
     with c3:
         if st.button("Cancelar", use_container_width=True):
@@ -281,9 +427,9 @@ elif step == 3:
 
 elif step == 4:
     st.subheader("4) Subflows")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
-    skey = st.session_state.get("wizard_scope_key") or ""
-    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    skey = str(_wiz_get("wiz_scope_key") or "")
+    base_flow_id = _wiz_get("wiz_base_flow_id")
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
     flows = _flows_for_scope(catalog, vkey, skey)
@@ -388,11 +534,11 @@ elif step == 4:
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
         if st.button("Continuar", use_container_width=True, disabled=not bool(base_flow_id)):
-            st.session_state["wizard_step"] = 5
+            _wiz_set("wiz_step", 5)
             st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
-            st.session_state["wizard_step"] = 3
+            _wiz_set("wiz_step", 3)
             st.rerun()
     with c3:
         if st.button("Cancelar", use_container_width=True):
@@ -401,9 +547,9 @@ elif step == 4:
 
 elif step == 5:
     st.subheader("5) Routing")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
-    skey = st.session_state.get("wizard_scope_key") or ""
-    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    skey = str(_wiz_get("wiz_scope_key") or "")
+    base_flow_id = _wiz_get("wiz_base_flow_id")
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
     flows = _flows_for_scope(catalog, vkey, skey)
@@ -470,11 +616,11 @@ elif step == 5:
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
         if st.button("Continuar", use_container_width=True):
-            st.session_state["wizard_step"] = 6
+            _wiz_set("wiz_step", 6)
             st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
-            st.session_state["wizard_step"] = 4
+            _wiz_set("wiz_step", 4)
             st.rerun()
     with c3:
         if st.button("Cancelar", use_container_width=True):
@@ -483,9 +629,9 @@ elif step == 5:
 
 elif step == 6:
     st.subheader("6) Publicar en lote")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
-    skey = st.session_state.get("wizard_scope_key") or ""
-    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    skey = str(_wiz_get("wiz_scope_key") or "")
+    base_flow_id = _wiz_get("wiz_base_flow_id")
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
     flows = _flows_for_scope(catalog, vkey, skey)
@@ -515,17 +661,17 @@ elif step == 6:
                 st.error(res)
                 st.stop()
         st.success("Publicacion completada.")
-        st.session_state["wizard_step"] = 7
+        _wiz_set("wiz_step", 7)
         st.rerun()
 
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
         if st.button("Continuar", use_container_width=True):
-            st.session_state["wizard_step"] = 7
+            _wiz_set("wiz_step", 7)
             st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
-            st.session_state["wizard_step"] = 5
+            _wiz_set("wiz_step", 5)
             st.rerun()
     with c3:
         if st.button("Cancelar", use_container_width=True):
@@ -534,9 +680,9 @@ elif step == 6:
 
 else:
     st.subheader("7) Asignar a tenants")
-    vkey = st.session_state.get("wizard_vertical_key") or ""
-    skey = st.session_state.get("wizard_scope_key") or ""
-    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    vkey = str(_wiz_get("wiz_vertical_key") or "")
+    skey = str(_wiz_get("wiz_scope_key") or "")
+    base_flow_id = _wiz_get("wiz_base_flow_id")
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
     tenants_payload = list_tenants(ctx.token, api_key=ctx.api_key) or []
