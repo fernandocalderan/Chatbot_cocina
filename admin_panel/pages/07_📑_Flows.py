@@ -9,6 +9,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from admin_panel.api_client import get_catalog, flatten_catalog_flows, publish_flow_by_id
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
+from admin_panel.panel_utils import open_wizard
 
 init_page(title="SuperAdmin — Flows", icon="📑")
 
@@ -75,41 +76,25 @@ else:
         cc4.write(str(row.get("version") or "—"))
         cc5.write(str(row.get("published_at") or "—"))
         cc6.write(str(row.get("owner_type") or "—"))
-        action_label = "Ver"
-        if not published and str(row.get("owner_type") or "").upper() == "TENANT":
-            action_label = "Publicar"
+        action_label = "Gestionar en Wizard"
         action_key = f"flow-action-{row.get('flow_id')}"
-        clicked = cc7.button(
+        if cc7.button(
             action_label,
             key=action_key,
-            disabled=not (debug_mode and str(row.get("owner_type") or "").upper() == "TENANT"),
             use_container_width=True,
-        )
-        if clicked:
-            st.session_state[action_key] = True
-        if debug_mode and st.session_state.get(action_key) and action_label == "Publicar":
-            with st.expander(f"Publicar flow {row.get('flow_id')}", expanded=True):
-                confirm = st.checkbox(
-                    "Confirmo que quiero publicar este flow.",
-                    value=False,
-                    key=f"flow-confirm-{row.get('flow_id')}",
-                )
-                text = st.text_input(
-                    "Escribe PUBLICAR para habilitar",
-                    value="",
-                    key=f"flow-confirm-text-{row.get('flow_id')}",
-                )
-                if st.button(
-                    "Publicar ahora",
-                    key=f"flow-do-publish-{row.get('flow_id')}",
-                    disabled=not (confirm and text.strip().lower() == "publicar"),
-                ):
-                    res = publish_flow_by_id(ctx.token, str(row.get("flow_id")), api_key=ctx.api_key)
-                    if isinstance(res, dict) and res.get("error"):
-                        st.error(res)
-                    else:
-                        st.success("Flow publicado.")
-                        st.rerun()
+        ):
+            open_wizard(vertical_key=row.get("vertical_key"), scope_key=row.get("scope_key"), step=3)
+        if debug_mode and not published and str(row.get("owner_type") or "").upper() == "TENANT":
+            if st.button(
+                "Publicar (Debug)",
+                key=f"flow-pub-{row.get('flow_id')}",
+            ):
+                res = publish_flow_by_id(ctx.token, str(row.get("flow_id")), api_key=ctx.api_key)
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                else:
+                    st.success("Flow publicado.")
+                    st.rerun()
         if debug_mode:
             cc1.caption(f"id: {row.get('flow_id')}")
             cc6.caption(f"owner_id: {row.get('owner_id')}")

@@ -9,6 +9,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from admin_panel.api_client import create_scope, get_catalog, flatten_catalog_scopes
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
+from admin_panel.panel_utils import open_wizard
 
 init_page(title="SuperAdmin — Scopes", icon="🧭")
 
@@ -110,12 +111,11 @@ else:
             action_label = "Subir flow base"
         elif status == "DRAFT_ONLY":
             action_label = "Publicar"
-        cc6.button(
-            action_label,
+        if cc6.button(
+            "Abrir en Wizard",
             key=f"scope-action-{row.get('vertical_key')}-{row.get('scope_key')}",
-            disabled=True,
-            help="Acción disponible en Fase 2.",
             use_container_width=True,
-        )
+        ):
+            open_wizard(vertical_key=row.get("vertical_key"), scope_key=row.get("scope_key"), step=3)
         if debug_mode and not row.get("has_fs_def"):
             cc2.caption("warning: sin definición FS")

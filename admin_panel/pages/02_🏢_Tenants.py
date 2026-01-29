@@ -34,6 +34,7 @@ from admin_panel.ui import (
     render_sidebar_nav,
     require_admin_context,
 )
+from admin_panel.panel_utils import open_wizard
 
 init_page(title="SuperAdmin — Tenants", icon="🏢")
 
@@ -340,6 +341,14 @@ for t in tenants:
                 st.caption(f"Tenant activo: `{tenant_id}`")
             else:
                 st.caption("Acciones de flows fuera del Wizard solo en Debug.")
+            if st.button(
+                "Configurar subflows (Wizard)",
+                key=f"wizard-{tenant_id}",
+                use_container_width=True,
+                disabled=not v_current,
+            ):
+                primary_scope = scopes_current[0] if scopes_current else None
+                open_wizard(vertical_key=v_current, scope_key=primary_scope, step=3)
             if not v_current:
                 st.warning("Tenant sin vertical_key: no se puede resolver catálogo de scopes.")
             catalog_payload = get_catalog(
