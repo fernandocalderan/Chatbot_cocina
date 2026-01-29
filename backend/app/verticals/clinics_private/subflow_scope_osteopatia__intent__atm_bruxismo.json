@@ -1,0 +1,85 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "ATM/Bruxismo: vamos al grano.",
+      "next": "principal"
+    },
+    "principal": {
+      "type": "buttons",
+      "text": "¿Qué notas principalmente?",
+      "options": [
+        {
+          "label": "Dolor mandíbula",
+          "value": "dolor"
+        },
+        {
+          "label": "Chasquidos",
+          "value": "chasquidos"
+        },
+        {
+          "label": "Bloqueo",
+          "value": "bloqueo"
+        },
+        {
+          "label": "Cefalea/sienes",
+          "value": "cefalea"
+        }
+      ],
+      "save_to": "ost_atm_principal",
+      "next": "ferula"
+    },
+    "ferula": {
+      "type": "buttons",
+      "text": "¿Usas férula de descarga?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "La tengo pero no la uso",
+          "value": "tengo_no_uso"
+        }
+      ],
+      "save_to": "ost_atm_ferula",
+      "next": "impacto"
+    },
+    "impacto": {
+      "type": "buttons",
+      "text": "¿Te afecta al comer o al dormir?",
+      "options": [
+        {
+          "label": "Mucho",
+          "value": "mucho"
+        },
+        {
+          "label": "Algo",
+          "value": "algo"
+        },
+        {
+          "label": "Poco",
+          "value": "poco"
+        }
+      ],
+      "save_to": "ost_atm_impacto",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En ATM trabajamos tensión muscular, movilidad mandibular y cadena cervical, además de hábitos (estrés/apretamiento). Sin humo: buscamos función y alivio real.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

@@ -1,0 +1,81 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Vamos con cefalea/tensión. Te hago 3 preguntas rápidas.",
+      "next": "frecuencia"
+    },
+    "frecuencia": {
+      "type": "buttons",
+      "text": "¿Con qué frecuencia te pasa?",
+      "options": [
+        {
+          "label": "Ocasional",
+          "value": "ocasional"
+        },
+        {
+          "label": "Semanal",
+          "value": "semanal"
+        },
+        {
+          "label": "Casi diaria",
+          "value": "diaria"
+        }
+      ],
+      "save_to": "ost_cefalea_freq",
+      "next": "cuello"
+    },
+    "cuello": {
+      "type": "buttons",
+      "text": "¿Suele ir acompañada de tensión en cuello/mandíbula?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "A veces",
+          "value": "a_veces"
+        }
+      ],
+      "save_to": "ost_cefalea_cuello",
+      "next": "pantalla_estres"
+    },
+    "pantalla_estres": {
+      "type": "buttons",
+      "text": "¿Notas relación con estrés o muchas horas de pantalla?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "No lo tengo claro",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "ost_cefalea_estres",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En cefalea tensional trabajamos cuello, ATM si aplica, respiración y carga postural. Objetivo: bajar tensión y darte pautas sostenibles.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

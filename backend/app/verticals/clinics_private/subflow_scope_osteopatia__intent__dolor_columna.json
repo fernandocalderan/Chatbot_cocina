@@ -1,0 +1,69 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Entiendo. Vamos a ubicar el dolor de columna en 30 segundos.",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Dónde lo notas más?",
+      "options": [
+        {
+          "label": "Cervical (cuello)",
+          "value": "cervical"
+        },
+        {
+          "label": "Dorsal (parte media)",
+          "value": "dorsal"
+        },
+        {
+          "label": "Lumbar (parte baja)",
+          "value": "lumbar"
+        },
+        {
+          "label": "No estoy seguro/a",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "ost_columna_zona",
+      "next": "patron"
+    },
+    "patron": {
+      "type": "buttons",
+      "text": "¿Cómo se comporta?",
+      "options": [
+        {
+          "label": "Rigidez al despertar",
+          "value": "rigidez_manana"
+        },
+        {
+          "label": "Empeora al estar sentado/a",
+          "value": "sedestacion"
+        },
+        {
+          "label": "Empeora al moverte/esfuerzo",
+          "value": "movimiento"
+        },
+        {
+          "label": "Va y viene",
+          "value": "intermitente"
+        }
+      ],
+      "save_to": "ost_columna_patron",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En osteopatía abordamos columna trabajando movilidad, carga y tejido (sin prometer milagros): buscamos aliviar, normalizar y darte pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

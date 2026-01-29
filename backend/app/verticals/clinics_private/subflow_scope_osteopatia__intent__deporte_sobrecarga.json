@@ -1,0 +1,68 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Sobrecarga por deporte: vamos a perfilarlo rápido.",
+      "next": "deporte"
+    },
+    "deporte": {
+      "type": "input",
+      "input_type": "text",
+      "text": "¿Qué deporte practicas y cuántos días/semana?",
+      "save_to": "ost_deporte",
+      "next": "inicio"
+    },
+    "inicio": {
+      "type": "buttons",
+      "text": "¿Cuándo apareció?",
+      "options": [
+        {
+          "label": "Tras un aumento de carga",
+          "value": "carga"
+        },
+        {
+          "label": "Tras un gesto concreto",
+          "value": "gesto"
+        },
+        {
+          "label": "Progresivo",
+          "value": "progresivo"
+        }
+      ],
+      "save_to": "ost_deporte_inicio",
+      "next": "objetivo"
+    },
+    "objetivo": {
+      "type": "buttons",
+      "text": "¿Cuál es tu objetivo principal?",
+      "options": [
+        {
+          "label": "Volver a entrenar sin dolor",
+          "value": "volver"
+        },
+        {
+          "label": "Preparar competición",
+          "value": "competicion"
+        },
+        {
+          "label": "Prevenir recaídas",
+          "value": "prevenir"
+        }
+      ],
+      "save_to": "ost_deporte_objetivo",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. Aquí el plan ganador es simple: bajar irritación, mejorar movilidad y ajustar carga. Tratamiento manual + pautas.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

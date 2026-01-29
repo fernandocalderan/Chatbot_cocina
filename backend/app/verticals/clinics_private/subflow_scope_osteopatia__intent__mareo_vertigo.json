@@ -1,0 +1,84 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Mareo/vértigo: aquí primero seguridad.",
+      "next": "alarma"
+    },
+    "alarma": {
+      "type": "buttons",
+      "text": "¿Tienes alguno de estos signos de alarma: dolor de pecho, dificultad respiratoria fuerte, desmayo, visión doble, debilidad de un lado o fiebre alta?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si",
+          "next": "derivar"
+        },
+        {
+          "label": "No",
+          "value": "no",
+          "next": "tipo"
+        }
+      ],
+      "save_to": "ost_mareo_redflags"
+    },
+    "derivar": {
+      "type": "message",
+      "text": "Gracias. Con signos de alarma, por seguridad, primero valoración médica/urgencias.\n\nSi quieres, te ayudamos a contactar con la clínica.",
+      "end": true,
+      "next": "end"
+    },
+    "tipo": {
+      "type": "buttons",
+      "text": "¿Cómo lo describirías?",
+      "options": [
+        {
+          "label": "Giro del entorno (vértigo)",
+          "value": "vertigo"
+        },
+        {
+          "label": "Inestabilidad/borrachera",
+          "value": "inestabilidad"
+        },
+        {
+          "label": "Mareo leve",
+          "value": "leve"
+        }
+      ],
+      "save_to": "ost_mareo_tipo",
+      "next": "trigger"
+    },
+    "trigger": {
+      "type": "buttons",
+      "text": "¿Se dispara al girar la cabeza o al incorporarte?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "A veces",
+          "value": "a_veces"
+        }
+      ],
+      "save_to": "ost_mareo_trigger",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. Con mareo sin alarmas, se valora el origen (cervical/vestibular) y se decide el abordaje adecuado.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

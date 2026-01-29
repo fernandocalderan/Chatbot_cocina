@@ -1,0 +1,85 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Hombro/brazo. Te hago 3 preguntas rápidas.",
+      "next": "lado"
+    },
+    "lado": {
+      "type": "buttons",
+      "text": "¿Qué lado?",
+      "options": [
+        {
+          "label": "Derecho",
+          "value": "derecho"
+        },
+        {
+          "label": "Izquierdo",
+          "value": "izquierdo"
+        },
+        {
+          "label": "Ambos",
+          "value": "ambos"
+        }
+      ],
+      "save_to": "ost_hombro_lado",
+      "next": "mov"
+    },
+    "mov": {
+      "type": "buttons",
+      "text": "¿Cuándo duele más?",
+      "options": [
+        {
+          "label": "Al levantar el brazo",
+          "value": "elevar"
+        },
+        {
+          "label": "Al rotar (mano atrás)",
+          "value": "rotar"
+        },
+        {
+          "label": "Al empujar/hacer fuerza",
+          "value": "fuerza"
+        },
+        {
+          "label": "En reposo",
+          "value": "reposo"
+        }
+      ],
+      "save_to": "ost_hombro_trigger",
+      "next": "noche"
+    },
+    "noche": {
+      "type": "buttons",
+      "text": "¿Molesta al dormir de lado sobre ese hombro?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "si"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "A veces",
+          "value": "a_veces"
+        }
+      ],
+      "save_to": "ost_hombro_noche",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En osteopatía abordamos hombro considerando movilidad escapular, cuello/dorsal y tejidos. Objetivo: bajar dolor y mejorar función.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

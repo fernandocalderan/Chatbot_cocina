@@ -1,0 +1,92 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Ok. Vamos a afinar lo de la irradiación (ciática).",
+      "next": "lado"
+    },
+    "lado": {
+      "type": "buttons",
+      "text": "¿En qué lado baja?",
+      "options": [
+        {
+          "label": "Derecho",
+          "value": "derecho"
+        },
+        {
+          "label": "Izquierdo",
+          "value": "izquierdo"
+        },
+        {
+          "label": "Ambos",
+          "value": "ambos"
+        }
+      ],
+      "save_to": "ost_ciatica_lado",
+      "next": "baja_hasta"
+    },
+    "baja_hasta": {
+      "type": "buttons",
+      "text": "¿Hasta dónde llega?",
+      "options": [
+        {
+          "label": "Glúteo",
+          "value": "gluteo"
+        },
+        {
+          "label": "Muslo",
+          "value": "muslo"
+        },
+        {
+          "label": "Pantorrilla/pie",
+          "value": "pie"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_seguro"
+        }
+      ],
+      "save_to": "ost_ciatica_rango",
+      "next": "hormigueo"
+    },
+    "hormigueo": {
+      "type": "buttons",
+      "text": "¿Hay hormigueo, adormecimiento o pérdida de fuerza?",
+      "options": [
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "Hormigueo/adormecimiento",
+          "value": "hormigueo"
+        },
+        {
+          "label": "Pérdida de fuerza",
+          "value": "fuerza",
+          "next": "alerta"
+        }
+      ],
+      "save_to": "ost_ciatica_neuro",
+      "next": "cierre_subflow"
+    },
+    "alerta": {
+      "type": "message",
+      "text": "Gracias. Si hay pérdida de fuerza, por seguridad conviene valoración médica previa antes de manipulación.\n\nSi quieres, te ayudamos a contactar con la clínica.",
+      "end": true,
+      "next": "end"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En irradiación trabajamos columna/pelvis y tejidos para reducir irritación y mejorar movilidad, con pautas claras.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

@@ -4,7 +4,7 @@
     "router": {
       "save_to": "intent",
       "scope": "osteopatia",
-      "fallback_key": "dolor_espalda_cervical",
+      "fallback_key": "dolor_columna",
       "return_to": "fallback_triage"
     }
   },
@@ -40,40 +40,36 @@
       "text": "¿Qué te gustaría tratar hoy?",
       "options": [
         {
-          "label": "Espalda o cervical",
-          "value": "dolor_espalda_cervical"
+          "label": "Dolor de columna",
+          "value": "dolor_columna"
         },
         {
-          "label": "Lumbar o ciática",
-          "value": "dolor_lumbar_ciatico"
+          "label": "Ciática / irradiación",
+          "value": "ciatica_irradiacion"
         },
         {
-          "label": "Cabeza / mandíbula",
-          "value": "dolor_cabeza_mandibula"
+          "label": "Cefalea tensional",
+          "value": "cefalea_tensional"
         },
         {
-          "label": "Digestivo / visceral",
-          "value": "digestivo_visceral"
+          "label": "Cadera / pelvis",
+          "value": "cadera_pelvis"
         },
         {
-          "label": "Embarazo / postparto",
-          "value": "embarazo_postparto"
+          "label": "Hombro / brazo",
+          "value": "hombro_brazo"
         },
         {
-          "label": "Estrés / somático",
-          "value": "estres_ansiedad_somatico"
+          "label": "Deporte / sobrecarga",
+          "value": "deporte_sobrecarga"
         },
         {
-          "label": "Mareos / vértigos",
-          "value": "mareos_vertigos"
+          "label": "Mareo / vértigo",
+          "value": "mareo_vertigo"
         },
         {
-          "label": "Bebés / pediátrico",
-          "value": "bebes_pediatrico"
-        },
-        {
-          "label": "Revisión preventiva",
-          "value": "revision_global_preventiva"
+          "label": "ATM / bruxismo",
+          "value": "atm_bruxismo"
         }
       ],
       "save_to": "intent",

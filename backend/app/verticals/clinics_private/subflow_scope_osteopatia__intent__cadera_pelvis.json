@@ -1,0 +1,69 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Cadera/pelvis/glúteo. Vamos a ubicarlo.",
+      "next": "zona"
+    },
+    "zona": {
+      "type": "buttons",
+      "text": "¿Dónde lo notas principalmente?",
+      "options": [
+        {
+          "label": "Ingle (delante)",
+          "value": "ingle"
+        },
+        {
+          "label": "Lateral cadera",
+          "value": "lateral"
+        },
+        {
+          "label": "Glúteo",
+          "value": "gluteo"
+        },
+        {
+          "label": "Baja hacia la pierna",
+          "value": "baja_pierna"
+        }
+      ],
+      "save_to": "ost_cadera_zona",
+      "next": "cuando"
+    },
+    "cuando": {
+      "type": "buttons",
+      "text": "¿Cuándo molesta más?",
+      "options": [
+        {
+          "label": "Al caminar",
+          "value": "caminar"
+        },
+        {
+          "label": "Al estar sentado/a",
+          "value": "sentado"
+        },
+        {
+          "label": "Escaleras",
+          "value": "escaleras"
+        },
+        {
+          "label": "Al dormir de lado",
+          "value": "dormir_lado"
+        }
+      ],
+      "save_to": "ost_cadera_trigger",
+      "next": "cierre_subflow"
+    },
+    "cierre_subflow": {
+      "type": "message",
+      "text": "Gracias. En cadera/pelvis valoramos carga, movilidad y relación con lumbar. El objetivo es recuperar movimiento y reducir tensión.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}
