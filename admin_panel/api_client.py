@@ -317,8 +317,8 @@ def archive_subflow(token: str | None, flow_id: str, api_key: str | None = None)
 
 
 def update_subflow(token: str | None, flow_id: str, payload: dict, api_key: str | None = None):
-    resp = requests.post(
-        f"{API_BASE}/v1/admin/subflows/{flow_id}/update",
+    resp = requests.patch(
+        f"{API_BASE}/v1/admin/subflows/{flow_id}",
         headers=_headers(token, api_key or _admin_api_key()),
         json=payload,
         timeout=20,
@@ -341,6 +341,18 @@ def simulate_subflow(
         f"{API_BASE}/v1/admin/subflows/simulate",
         headers=_headers(token, api_key or _admin_api_key()),
         params=params,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def clone_subflows_to_tenant(token: str | None, payload: dict, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/clone-to-tenant",
+        headers=_headers(token, api_key or _admin_api_key()),
+        json=payload,
         timeout=20,
     )
     if resp.ok:
@@ -463,6 +475,7 @@ def flatten_catalog_flows(catalog_json: dict) -> list[dict]:
                         "trigger_priority": f.get("trigger_priority"),
                         "trigger_threshold": f.get("trigger_threshold"),
                         "archived": f.get("archived"),
+                        "enabled": f.get("enabled"),
                     }
                 )
     return rows

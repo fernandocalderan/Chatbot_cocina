@@ -18,6 +18,7 @@ class CatalogFlow(BaseModel):
     trigger_priority: int | None = None
     trigger_threshold: int | None = None
     archived: bool | None = None
+    enabled: bool | None = None
 
 
 class CatalogScope(BaseModel):

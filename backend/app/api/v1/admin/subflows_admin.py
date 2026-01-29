@@ -44,6 +44,12 @@ class SubflowUpdatePayload(BaseModel):
     trigger_keywords: list[str] | None = None
     trigger_priority: int | None = None
     trigger_threshold: int | None = None
+    enabled: bool | None = None
+
+
+class SubflowClonePayload(BaseModel):
+    tenant_id: str = Field(..., min_length=1)
+    base_flow_id: str = Field(..., min_length=1)
 
 
 def _slugify(value: str) -> str:
@@ -200,6 +206,7 @@ def create_subflow(payload: SubflowCreatePayload, db: Session = Depends(get_db))
         trigger_priority=int(payload.trigger_priority or 5),
         trigger_threshold=int(payload.trigger_threshold or 1),
         archived=False,
+        enabled=True,
     )
     db.add(new_flow)
     db.commit()
@@ -283,6 +290,7 @@ def import_subflow(
         trigger_priority=int(trigger_priority or 5),
         trigger_threshold=int(trigger_threshold or 1),
         archived=False,
+        enabled=True,
     )
     db.add(new_flow)
     db.commit()
@@ -345,7 +353,7 @@ def archive_subflow(flow_id: str, db: Session = Depends(get_db)):
     return {"flow_id": str(flow.id), "archived": True}
 
 
-@router.post("/{flow_id}/update")
+@router.patch("/{flow_id}")
 def update_subflow(flow_id: str, payload: SubflowUpdatePayload, db: Session = Depends(get_db)):
     flow = db.query(FlowVersioned).filter(FlowVersioned.id == flow_id).first()
     if not flow:
@@ -373,6 +381,8 @@ def update_subflow(flow_id: str, payload: SubflowUpdatePayload, db: Session = De
         flow.trigger_priority = int(payload.trigger_priority)
     if payload.trigger_threshold is not None:
         flow.trigger_threshold = int(payload.trigger_threshold)
+    if payload.enabled is not None:
+        flow.enabled = bool(payload.enabled)
 
     db.add(flow)
     db.commit()
@@ -383,7 +393,13 @@ def update_subflow(flow_id: str, payload: SubflowUpdatePayload, db: Session = De
         "trigger_keywords": flow.trigger_keywords,
         "trigger_priority": flow.trigger_priority,
         "trigger_threshold": flow.trigger_threshold,
+        "enabled": bool(getattr(flow, "enabled", True)),
     }
+
+
+@router.post("/{flow_id}/update")
+def update_subflow_legacy(flow_id: str, payload: SubflowUpdatePayload, db: Session = Depends(get_db)):
+    return update_subflow(flow_id=flow_id, payload=payload, db=db)
 
 
 @router.get("/simulate")
@@ -400,3 +416,72 @@ def simulate_subflows(
         user_text=str(text or ""),
     )
     return result
+
+
+@router.post("/clone-to-tenant")
+def clone_subflows_to_tenant(payload: SubflowClonePayload, db: Session = Depends(get_db)):
+    tenant_id = str(payload.tenant_id)
+    base_flow_id = str(payload.base_flow_id)
+    global_flows = (
+        db.query(FlowVersioned)
+        .filter(
+            FlowVersioned.flow_kind == "subflow",
+            FlowVersioned.parent_flow_id == base_flow_id,
+            FlowVersioned.owner_type == "GLOBAL",
+            FlowVersioned.owner_id.is_(None),
+            FlowVersioned.archived.is_(False),
+        )
+        .all()
+    )
+    created = []
+    skipped = []
+    for flow in global_flows:
+        exists = (
+            db.query(FlowVersioned)
+            .filter(
+                FlowVersioned.flow_kind == "subflow",
+                FlowVersioned.parent_flow_id == base_flow_id,
+                FlowVersioned.owner_type == "TENANT",
+                FlowVersioned.owner_id == tenant_id,
+                FlowVersioned.subflow_key == flow.subflow_key,
+                FlowVersioned.archived.is_(False),
+            )
+            .first()
+        )
+        if exists:
+            skipped.append(str(flow.subflow_key))
+            continue
+        version = _next_version_for_subflow(
+            db,
+            owner_type="TENANT",
+            owner_id=tenant_id,
+            vertical_key=str(flow.vertical_key or ""),
+            scope_key=str(flow.scope_key or ""),
+            parent_flow_id=base_flow_id,
+            subflow_key=str(flow.subflow_key or ""),
+        )
+        clone = FlowVersioned(
+            tenant_id=tenant_id,
+            vertical_key=flow.vertical_key,
+            scope_key=flow.scope_key,
+            version=version,
+            schema_json=flow.schema_json,
+            estado="draft",
+            published_at=None,
+            owner_type="TENANT",
+            owner_id=tenant_id,
+            flow_kind="subflow",
+            parent_flow_id=base_flow_id,
+            subflow_key=flow.subflow_key,
+            trigger_keywords=flow.trigger_keywords,
+            trigger_priority=flow.trigger_priority,
+            trigger_threshold=flow.trigger_threshold,
+            archived=False,
+            enabled=bool(getattr(flow, "enabled", True)),
+        )
+        db.add(clone)
+        db.commit()
+        db.refresh(clone)
+        created.append(str(clone.id))
+
+    return {"created": created, "skipped": skipped}

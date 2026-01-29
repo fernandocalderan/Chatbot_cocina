@@ -23,6 +23,7 @@ class Flow(Base):
     trigger_priority = sa.Column(sa.Integer, nullable=False, server_default="5")
     trigger_threshold = sa.Column(sa.Integer, nullable=False, server_default="1")
     archived = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
+    enabled = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("true"))
     version = sa.Column(sa.Integer, nullable=False)
     schema_json = sa.Column(pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     estado = sa.Column(sa.String(30), nullable=False, server_default="draft")

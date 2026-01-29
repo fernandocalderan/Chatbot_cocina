@@ -142,6 +142,7 @@ def list_catalog(
                         trigger_priority=None,
                         trigger_threshold=None,
                         archived=None,
+                        enabled=None,
                     )
                 )
             scopes_by_vertical[vkey][scope_key] = CatalogScope(
@@ -226,6 +227,7 @@ def list_catalog(
             trigger_priority=int(getattr(flow, "trigger_priority", 0) or 0) if getattr(flow, "trigger_priority", None) is not None else None,
             trigger_threshold=int(getattr(flow, "trigger_threshold", 0) or 0) if getattr(flow, "trigger_threshold", None) is not None else None,
             archived=bool(getattr(flow, "archived", False)) if getattr(flow, "archived", None) is not None else None,
+            enabled=bool(getattr(flow, "enabled", True)) if getattr(flow, "enabled", None) is not None else None,
         )
         flows_by_scope[(t_vertical, scope_key)].append(entry)
         if t_vertical not in scopes_by_vertical or scope_key not in scopes_by_vertical.get(t_vertical, {}):

@@ -84,6 +84,7 @@ def _subflow_flow(flow_id: str, published: bool = False):
         estado="published" if published else "draft",
         published_at=datetime.now(timezone.utc) if published else None,
         archived=False,
+        enabled=True,
         schema_json={"start_block": "welcome", "blocks": {"welcome": {"type": "message"}}},
         vertical_key="clinics_private",
         scope_key="osteopatia",
@@ -169,3 +170,11 @@ def test_unique_subflow_key_enforced():
     with pytest.raises(HTTPException) as exc:
         subflows_admin.create_subflow(payload, db=db)
     assert exc.value.status_code == 409
+
+
+def test_update_subflow_toggle_enabled():
+    flow = _subflow_flow("flow-1", published=False)
+    db = _FakeSession([flow])
+    payload = subflows_admin.SubflowUpdatePayload(enabled=False)
+    res = subflows_admin.update_subflow("flow-1", payload, db=db)
+    assert res["enabled"] is False

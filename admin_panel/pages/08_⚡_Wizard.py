@@ -19,6 +19,7 @@ from admin_panel.api_client import (
     list_tenants,
     tenant_flow_sync,
     tenant_flow_publish_override,
+    clone_subflows_to_tenant,
 )
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
 
@@ -296,10 +297,30 @@ elif step == 4:
                     "subflow_key": f.get("subflow_key"),
                     "flow_id": f.get("flow_id"),
                     "status": status,
+                    "owner_type": f.get("owner_type"),
+                    "enabled": f.get("enabled", True),
                     "priority": f.get("trigger_priority"),
                     "threshold": f.get("trigger_threshold"),
                 }
             )
+            enabled_key = f"enabled-{f.get('flow_id')}"
+            enabled_value = st.toggle(
+                "Activo",
+                value=bool(f.get("enabled", True)),
+                key=enabled_key,
+            )
+            if enabled_value != bool(f.get("enabled", True)):
+                res = update_subflow(
+                    ctx.token,
+                    str(f.get("flow_id")),
+                    {"enabled": bool(enabled_value)},
+                    api_key=ctx.api_key,
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                else:
+                    st.success("Estado actualizado.")
+                    st.rerun()
     else:
         st.info("No hay subflows aún para este base.")
 
@@ -392,16 +413,25 @@ elif step == 5:
     else:
         st.markdown("**Configurar routing**")
         for sf in subflows:
-            with st.expander(f"{sf.get('subflow_key')} ({'PUBLISHED' if sf.get('published') else 'DRAFT'})", expanded=False):
+            with st.expander(
+                f"{sf.get('subflow_key')} ({'PUBLISHED' if sf.get('published') else 'DRAFT'}) · {sf.get('owner_type')}",
+                expanded=False,
+            ):
                 kw_default = ", ".join(sf.get("trigger_keywords") or []) if isinstance(sf.get("trigger_keywords"), list) else ""
                 kw = st.text_input("Keywords", value=kw_default, key=f"kw-{sf.get('flow_id')}")
                 pr = st.slider("Prioridad", 1, 10, int(sf.get("trigger_priority") or 5), key=f"pr-{sf.get('flow_id')}")
                 th = st.slider("Umbral", 1, 5, int(sf.get("trigger_threshold") or 1), key=f"th-{sf.get('flow_id')}")
+                enabled_state = st.checkbox(
+                    "Activo",
+                    value=bool(sf.get("enabled", True)),
+                    key=f"en-{sf.get('flow_id')}",
+                )
                 if st.button("Guardar", key=f"save-{sf.get('flow_id')}"):
                     payload = {
                         "trigger_keywords": [k.strip() for k in kw.split(",") if k.strip()],
                         "trigger_priority": pr,
                         "trigger_threshold": th,
+                        "enabled": bool(enabled_state),
                     }
                     res = update_subflow(ctx.token, str(sf.get("flow_id")), payload, api_key=ctx.api_key)
                     if isinstance(res, dict) and res.get("error"):
@@ -543,6 +573,18 @@ else:
                 scope_key=skey,
                 flow_kind="base",
                 published=True,
+                api_key=ctx.api_key,
+            )
+            results.append({"tenant": name, "result": res})
+        st.json(results)
+
+    if st.button("Crear override de subflows", use_container_width=True, disabled=not selected_names):
+        results = []
+        for name in selected_names:
+            t = tenant_map.get(name) or {}
+            res = clone_subflows_to_tenant(
+                ctx.token,
+                {"tenant_id": t.get("id"), "base_flow_id": str(base_flow_id)},
                 api_key=ctx.api_key,
             )
             results.append({"tenant": name, "result": res})
