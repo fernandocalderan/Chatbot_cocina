@@ -1,0 +1,71 @@
+{
+  "version": "flow_clinicas_privadas__osteopatia__intent__bruxismo_atm__v1",
+  "router_save_to": "intent",
+  "label": "Bruxismo o ATM",
+  "symptoms": [
+    "dolor mandibular",
+    "chasquidos en ATM",
+    "bruxismo nocturno"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "¿Dónde notas el dolor o la molestia? (zona exacta)"
+    },
+    {
+      "id": "q2",
+      "text": "¿Desde cuándo empezó?"
+    },
+    {
+      "id": "q3",
+      "text": "En una escala 0–10, ¿qué intensidad tiene ahora?"
+    },
+    {
+      "id": "q4",
+      "text": "¿Sientes chasquidos o bloqueo al abrir la boca?"
+    }
+  ],
+  "capture": [
+    {
+      "key": "zona",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "antiguedad",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "intensidad",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "urgencia",
+      "type": "enum",
+      "values": [
+        "hoy",
+        "48h",
+        "esta_semana",
+        "sin_prisa"
+      ],
+      "required": false
+    }
+  ],
+  "response": {
+    "type": "text",
+    "text": "Perfecto. Con esta información podemos valorar el caso. ¿Quieres que te proponga horarios?"
+  },
+  "config": {
+    "subflow": {
+      "scope": "osteopatia"
+    },
+    "problem": {
+      "group": "intent",
+      "key": "bruxismo_atm",
+      "scope": "osteopatia",
+      "layout": "v2"
+    }
+  }
+}

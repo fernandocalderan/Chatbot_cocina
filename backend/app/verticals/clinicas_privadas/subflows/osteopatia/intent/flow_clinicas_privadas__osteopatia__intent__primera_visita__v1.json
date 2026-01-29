@@ -1,0 +1,70 @@
+{
+  "version": "flow_clinicas_privadas__osteopatia__intent__primera_visita__v1",
+  "router_save_to": "intent",
+  "label": "Primera visita",
+  "symptoms": [
+    "primera vez en osteopatía",
+    "dudas sobre el tratamiento"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "¿Dónde notas el dolor o la molestia? (zona exacta)"
+    },
+    {
+      "id": "q2",
+      "text": "¿Desde cuándo empezó?"
+    },
+    {
+      "id": "q3",
+      "text": "En una escala 0–10, ¿qué intensidad tiene ahora?"
+    },
+    {
+      "id": "q4",
+      "text": "¿Qué te gustaría conseguir con la primera visita?"
+    }
+  ],
+  "capture": [
+    {
+      "key": "zona",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "antiguedad",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "intensidad",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "urgencia",
+      "type": "enum",
+      "values": [
+        "hoy",
+        "48h",
+        "esta_semana",
+        "sin_prisa"
+      ],
+      "required": false
+    }
+  ],
+  "response": {
+    "type": "text",
+    "text": "Gracias. Te explico el proceso y vemos el mejor enfoque. ¿Quieres que te proponga 2–3 huecos?"
+  },
+  "config": {
+    "subflow": {
+      "scope": "osteopatia"
+    },
+    "problem": {
+      "group": "intent",
+      "key": "primera_visita",
+      "scope": "osteopatia",
+      "layout": "v2"
+    }
+  }
+}

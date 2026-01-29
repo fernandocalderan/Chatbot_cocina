@@ -1,0 +1,71 @@
+{
+  "version": "flow_clinicas_privadas__osteopatia__intent__contraindicaciones__v1",
+  "router_save_to": "intent",
+  "label": "Contraindicaciones o seguridad",
+  "symptoms": [
+    "dudas de seguridad",
+    "patología previa",
+    "contraindicaciones"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "¿Dónde notas el dolor o la molestia? (zona exacta)"
+    },
+    {
+      "id": "q2",
+      "text": "¿Desde cuándo empezó?"
+    },
+    {
+      "id": "q3",
+      "text": "En una escala 0–10, ¿qué intensidad tiene ahora?"
+    },
+    {
+      "id": "q4",
+      "text": "¿Tienes algún diagnóstico o condición médica relevante?"
+    }
+  ],
+  "capture": [
+    {
+      "key": "zona",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "antiguedad",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "intensidad",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "urgencia",
+      "type": "enum",
+      "values": [
+        "hoy",
+        "48h",
+        "esta_semana",
+        "sin_prisa"
+      ],
+      "required": false
+    }
+  ],
+  "response": {
+    "type": "text",
+    "text": "Gracias. Revisaremos tu caso con cuidado. ¿Quieres una primera valoración?"
+  },
+  "config": {
+    "subflow": {
+      "scope": "osteopatia"
+    },
+    "problem": {
+      "group": "intent",
+      "key": "contraindicaciones",
+      "scope": "osteopatia",
+      "layout": "v2"
+    }
+  }
+}

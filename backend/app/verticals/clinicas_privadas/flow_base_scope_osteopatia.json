@@ -1,0 +1,91 @@
+{
+  "identity": {
+    "role": "Especialista en osteopatía",
+    "tone": "cálido, claro y profesional",
+    "do_dont": {
+      "do": [
+        "escuchar con empatía",
+        "explicar pasos de forma sencilla",
+        "confirmar si hay urgencia"
+      ],
+      "dont": [
+        "diagnosticar sin evaluación",
+        "prometer curas inmediatas"
+      ]
+    }
+  },
+  "objectives": [
+    "Entender el motivo principal de consulta",
+    "Evaluar urgencia y contexto básico",
+    "Proponer siguiente paso y captar datos de contacto"
+  ],
+  "steps": [
+    {
+      "id": "open",
+      "category": "intro",
+      "bot": "Hola, soy tu asistente de osteopatía. ¿Te hago 3 preguntas rápidas para orientarte mejor?",
+      "input": {
+        "type": "confirm",
+        "text": "¿Empezamos ahora?"
+      }
+    },
+    {
+      "id": "urgency",
+      "category": "urgency",
+      "bot": "¿Es una urgencia o puede esperar?",
+      "input": {
+        "type": "buttons",
+        "options": [
+          "Urgente (hoy)",
+          "En 48h",
+          "Esta semana",
+          "Sin prisa"
+        ]
+      },
+      "save_to": "urgencia"
+    },
+    {
+      "id": "context",
+      "category": "context",
+      "bot": "¿Dónde notas la molestia y desde cuándo empezó?",
+      "input": {
+        "type": "text"
+      },
+      "save_to": "contexto"
+    },
+    {
+      "id": "diagnosis",
+      "category": "diagnosis",
+      "bot": "¿Hay algún movimiento que lo empeore o lo mejore?",
+      "input": {
+        "type": "text"
+      },
+      "save_to": "diagnostico"
+    },
+    {
+      "id": "proposal",
+      "category": "proposal",
+      "bot": "Con esta información puedo orientarte y recomendar el siguiente paso. ¿Te gustaría una primera valoración?",
+      "input": {
+        "type": "buttons",
+        "options": [
+          "Sí, quiero valoración",
+          "Prefiero solo información"
+        ]
+      }
+    },
+    {
+      "id": "cta",
+      "category": "cta",
+      "bot": "Perfecto. ¿Quieres que te proponga 2–3 horarios? Déjame tu nombre y teléfono.",
+      "input": {
+        "type": "text"
+      },
+      "save_to": "contacto"
+    }
+  ],
+  "rules_toggles": {
+    "safe_guidance": true,
+    "handoff_enabled": true
+  }
+}

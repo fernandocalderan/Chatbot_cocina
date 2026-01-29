@@ -1,0 +1,71 @@
+{
+  "version": "flow_clinicas_privadas__osteopatia__intent__lesion_deportiva__v1",
+  "router_save_to": "intent",
+  "label": "Lesión deportiva o sobrecarga",
+  "symptoms": [
+    "lesión deportiva",
+    "sobrecarga muscular",
+    "dolor tras entrenamiento"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "¿Dónde notas el dolor o la molestia? (zona exacta)"
+    },
+    {
+      "id": "q2",
+      "text": "¿Desde cuándo empezó?"
+    },
+    {
+      "id": "q3",
+      "text": "En una escala 0–10, ¿qué intensidad tiene ahora?"
+    },
+    {
+      "id": "q4",
+      "text": "¿Qué actividad o deporte estabas realizando?"
+    }
+  ],
+  "capture": [
+    {
+      "key": "zona",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "antiguedad",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "intensidad",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "urgencia",
+      "type": "enum",
+      "values": [
+        "hoy",
+        "48h",
+        "esta_semana",
+        "sin_prisa"
+      ],
+      "required": false
+    }
+  ],
+  "response": {
+    "type": "text",
+    "text": "Gracias. Puedo ayudarte a valorar la lesión y proponer el siguiente paso. ¿Te propongo 2–3 horarios?"
+  },
+  "config": {
+    "subflow": {
+      "scope": "osteopatia"
+    },
+    "problem": {
+      "group": "intent",
+      "key": "lesion_deportiva",
+      "scope": "osteopatia",
+      "layout": "v2"
+    }
+  }
+}
