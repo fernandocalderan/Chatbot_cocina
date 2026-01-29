@@ -35,6 +35,7 @@ from app.services.pricing import get_plan_limits
 from app.services.quota_service import QuotaService
 from app.services.flow_templates import apply_materials
 from app.services.flow_resolver import resolve_active_flow, FlowResolutionError
+from app.services.subflow_router import pick_subflow
 from app.services.verticals import (
     resolve_flow_id,
     get_vertical_config,
@@ -618,6 +619,33 @@ def send_message(
         f"Resolved active flow → tenant={tenant_id} source={source} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}"
     )
 
+    raw_user_text = payload.message
+    flow_data = flow_row.schema_json
+    base_flow_id = getattr(flow_row, "base_flow_id", None) or str(flow_row.id)
+    route_result = pick_subflow(
+        db=db,
+        tenant_id=str(tenant.id),
+        base_flow_id=str(base_flow_id),
+        user_text=raw_user_text,
+        active_subflow_id=state.get("_active_subflow_id"),
+    )
+    subflow_picked = False
+    if route_result.get("action") == "exit":
+        state.pop("_active_subflow_id", None)
+        state.pop("_active_subflow_key", None)
+        session_mgr.save(session_id, state)
+    elif route_result.get("picked") is not None:
+        picked_flow = route_result["picked"]
+        if isinstance(getattr(picked_flow, "schema_json", None), dict):
+            flow_data = picked_flow.schema_json
+            state["_active_subflow_id"] = str(getattr(picked_flow, "id"))
+            state["_active_subflow_key"] = getattr(picked_flow, "subflow_key", None)
+            session_mgr.save(session_id, state)
+            subflow_picked = True
+            logger.info(
+                f"Subflow routed -> tenant={tenant_id} base_flow={base_flow_id} subflow={picked_flow.id} subflow_key={getattr(picked_flow,'subflow_key',None)} matched={route_result.get('matched') or []} source={route_result.get('source')}"
+            )
+
     # Si hay un subflow activo (definido por el motor), cargarlo en lugar del router/base.
     active_flow = state.get("_active_flow") if isinstance(state.get("_active_flow"), dict) else None
     active_file = active_flow.get("file") if isinstance(active_flow, dict) else None
@@ -626,7 +654,7 @@ def send_message(
         state = {}
         session_mgr.save(session_id, state)
 
-    if tenant_vertical_key and isinstance(active_file, str) and active_file.strip():
+    if not subflow_picked and tenant_vertical_key and isinstance(active_file, str) and active_file.strip():
         loaded = vertical_read_asset_json(str(tenant_vertical_key), active_file.strip())
         if isinstance(loaded, dict) and isinstance(loaded.get("blocks"), dict) and loaded.get("blocks"):
             try:
@@ -640,7 +668,7 @@ def send_message(
             state.pop("_active_flow", None)
             session_mgr.save(session_id, state)
             flow_data = flow_row.schema_json
-    else:
+    elif not subflow_picked:
         flow_data = flow_row.schema_json
     flow_system = str((getattr(tenant, "branding", {}) or {}).get("flow_system") or "v1").strip().lower()
     if flow_system != "v2":
@@ -679,7 +707,6 @@ def send_message(
     executor = ActionExecutor(settings)
     ai_extract_meta = None
     ai_reply_text = None
-    raw_user_text = payload.message
     if not state:
         # Intentar cargar desde DB si existe
         db_state = (
