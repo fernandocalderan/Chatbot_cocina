@@ -11,6 +11,13 @@ class CatalogFlow(BaseModel):
     published_at: str | None = None
     owner_type: str = Field(default="TENANT")
     owner_id: str | None = None
+    flow_kind: str | None = None
+    parent_flow_id: str | None = None
+    subflow_key: str | None = None
+    trigger_keywords: list[str] | None = None
+    trigger_priority: int | None = None
+    trigger_threshold: int | None = None
+    archived: bool | None = None
 
 
 class CatalogScope(BaseModel):

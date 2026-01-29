@@ -135,6 +135,13 @@ def list_catalog(
                         published_at=None,
                         owner_type="GLOBAL",
                         owner_id=None,
+                        flow_kind="base",
+                        parent_flow_id=None,
+                        subflow_key=None,
+                        trigger_keywords=None,
+                        trigger_priority=None,
+                        trigger_threshold=None,
+                        archived=None,
                     )
                 )
             scopes_by_vertical[vkey][scope_key] = CatalogScope(
@@ -212,6 +219,13 @@ def list_catalog(
             published_at=flow.published_at.isoformat() if flow.published_at else None,
             owner_type=owner_type,
             owner_id=owner_id or (str(flow.tenant_id) if flow.tenant_id else None),
+            flow_kind=str(getattr(flow, "flow_kind", None) or None),
+            parent_flow_id=str(getattr(flow, "parent_flow_id", None)) if getattr(flow, "parent_flow_id", None) else None,
+            subflow_key=getattr(flow, "subflow_key", None),
+            trigger_keywords=getattr(flow, "trigger_keywords", None) if isinstance(getattr(flow, "trigger_keywords", None), list) else None,
+            trigger_priority=int(getattr(flow, "trigger_priority", 0) or 0) if getattr(flow, "trigger_priority", None) is not None else None,
+            trigger_threshold=int(getattr(flow, "trigger_threshold", 0) or 0) if getattr(flow, "trigger_threshold", None) is not None else None,
+            archived=bool(getattr(flow, "archived", False)) if getattr(flow, "archived", None) is not None else None,
         )
         flows_by_scope[(t_vertical, scope_key)].append(entry)
         if t_vertical not in scopes_by_vertical or scope_key not in scopes_by_vertical.get(t_vertical, {}):
