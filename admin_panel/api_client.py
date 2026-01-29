@@ -240,6 +240,114 @@ def publish_flow_by_id(token: str | None, flow_id: str, api_key: str | None = No
     return {"error": resp.text, "status_code": resp.status_code}
 
 
+def create_subflow(token: str | None, payload: dict, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/create",
+        headers=_headers(token, api_key or _admin_api_key()),
+        json=payload,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def import_subflow(
+    token: str | None,
+    *,
+    file_name: str,
+    file_bytes: bytes,
+    vertical_key: str,
+    scope_key: str,
+    parent_flow_id: str,
+    subflow_key: str,
+    trigger_keywords: str | None = None,
+    trigger_priority: int = 5,
+    trigger_threshold: int = 1,
+    owner_type: str = "GLOBAL",
+    owner_id: str | None = None,
+    api_key: str | None = None,
+):
+    files = {"file": (file_name, file_bytes, "application/json")}
+    data = {
+        "vertical_key": vertical_key,
+        "scope_key": scope_key,
+        "parent_flow_id": parent_flow_id,
+        "subflow_key": subflow_key,
+        "trigger_priority": str(trigger_priority),
+        "trigger_threshold": str(trigger_threshold),
+        "owner_type": owner_type,
+    }
+    if trigger_keywords:
+        data["trigger_keywords"] = trigger_keywords
+    if owner_id:
+        data["owner_id"] = owner_id
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/import",
+        headers=_headers(token, api_key or _admin_api_key()),
+        data=data,
+        files=files,
+        timeout=30,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def publish_subflow(token: str | None, flow_id: str, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/{flow_id}/publish",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def archive_subflow(token: str | None, flow_id: str, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/{flow_id}/archive",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def update_subflow(token: str | None, flow_id: str, payload: dict, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/subflows/{flow_id}/update",
+        headers=_headers(token, api_key or _admin_api_key()),
+        json=payload,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def simulate_subflow(
+    token: str | None,
+    *,
+    tenant_id: str,
+    base_flow_id: str,
+    text: str,
+    api_key: str | None = None,
+):
+    params = {"tenant_id": tenant_id, "base_flow_id": base_flow_id, "text": text}
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/subflows/simulate",
+        headers=_headers(token, api_key or _admin_api_key()),
+        params=params,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
 def tenant_flow_diff(
     token: str | None,
     tenant_id: str,
@@ -348,6 +456,13 @@ def flatten_catalog_flows(catalog_json: dict) -> list[dict]:
                         "published_at": f.get("published_at"),
                         "owner_type": f.get("owner_type"),
                         "owner_id": f.get("owner_id"),
+                        "flow_kind": f.get("flow_kind"),
+                        "parent_flow_id": f.get("parent_flow_id"),
+                        "subflow_key": f.get("subflow_key"),
+                        "trigger_keywords": f.get("trigger_keywords"),
+                        "trigger_priority": f.get("trigger_priority"),
+                        "trigger_threshold": f.get("trigger_threshold"),
+                        "archived": f.get("archived"),
                     }
                 )
     return rows

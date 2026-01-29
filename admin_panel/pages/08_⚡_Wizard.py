@@ -6,43 +6,45 @@ from typing import Any
 
 import streamlit as st
 
-from admin_panel.api_client import create_scope, get_catalog, import_flow_base, publish_flow_by_id
+from admin_panel.api_client import (
+    create_scope,
+    get_catalog,
+    import_flow_base,
+    publish_flow_by_id,
+    create_subflow,
+    import_subflow,
+    publish_subflow,
+    update_subflow,
+    simulate_subflow,
+    list_tenants,
+    tenant_flow_sync,
+    tenant_flow_publish_override,
+)
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
 
 
-SLUG_RE = re.compile(r"^[a-z0-9_]{3,}$")
+SLUG_RE = re.compile(r"^[a-z0-9_\-]{2,}$")
 
 
 def _init_state() -> None:
     st.session_state.setdefault("wizard_step", 1)
-    st.session_state.setdefault("wizard_vertical_mode", "existing")
     st.session_state.setdefault("wizard_vertical_key", "")
-    st.session_state.setdefault("wizard_new_vertical_key", "")
+    st.session_state.setdefault("wizard_scope_mode", "existing")
     st.session_state.setdefault("wizard_scope_key", "")
     st.session_state.setdefault("wizard_scope_display", "")
     st.session_state.setdefault("wizard_scope_desc", "")
-    st.session_state.setdefault("wizard_flow_file", None)
-    st.session_state.setdefault("wizard_flow_info", {})
-    st.session_state.setdefault("wizard_flow_id", None)
-    st.session_state.setdefault("wizard_flow_version", None)
+    st.session_state.setdefault("wizard_base_flow_id", None)
+    st.session_state.setdefault("wizard_base_flow_version", None)
+    st.session_state.setdefault("wizard_base_action", "existing")
+    st.session_state.setdefault("wizard_sim_text", "")
+    st.session_state.setdefault("wizard_sim_tenant", "")
+    st.session_state.setdefault("wizard_tenant_selection", [])
 
 
 def _reset_state() -> None:
-    keys = [
-        "wizard_step",
-        "wizard_vertical_mode",
-        "wizard_vertical_key",
-        "wizard_new_vertical_key",
-        "wizard_scope_key",
-        "wizard_scope_display",
-        "wizard_scope_desc",
-        "wizard_flow_file",
-        "wizard_flow_info",
-        "wizard_flow_id",
-        "wizard_flow_version",
-    ]
-    for k in keys:
-        st.session_state.pop(k, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith("wizard_"):
+            st.session_state.pop(key, None)
     _init_state()
 
 
@@ -64,7 +66,30 @@ def _parse_flow_file(file_bytes: bytes) -> dict[str, Any] | None:
     return data
 
 
-init_page(title="Wizard 60s", icon="⚡")
+def _flows_for_scope(catalog: dict, vertical_key: str, scope_key: str) -> list[dict]:
+    for v in catalog.get("verticals") or []:
+        if v.get("vertical_key") != vertical_key:
+            continue
+        for s in v.get("scopes") or []:
+            if s.get("scope_key") == scope_key:
+                return s.get("flows") or []
+    return []
+
+
+def _flow_entries(
+    flows: list[dict], *, flow_kind: str, parent_flow_id: str | None = None
+) -> list[dict]:
+    out = []
+    for f in flows:
+        if str(f.get("flow_kind") or "").lower() != flow_kind:
+            continue
+        if parent_flow_id and str(f.get("parent_flow_id") or "") != str(parent_flow_id):
+            continue
+        out.append(f)
+    return out
+
+
+init_page(title="Wizard completo", icon="⚡")
 ctx = require_admin_context()
 render_sidebar_nav()
 
@@ -75,14 +100,14 @@ if not ctx.is_super_admin:
 _init_state()
 
 step = int(st.session_state.get("wizard_step") or 1)
-step = min(max(step, 1), 5)
+step = min(max(step, 1), 7)
 
-st.title("⚡ Wizard (60 segundos)")
-st.caption("Crea una plantilla base en minutos: Vertical → Área (Scope) → Flow base → Publicar.")
+st.title("⚡ Wizard completo")
+st.caption("Crear flow base + subflows + routing + publicar + asignar tenants.")
 
-progress = (step - 1) / 4
+progress = (step - 1) / 6
 st.progress(progress)
-st.markdown(f"**Paso {step}/5**")
+st.markdown(f"**Paso {step}/7**")
 
 catalog = get_catalog(
     ctx.token,
@@ -97,92 +122,78 @@ if isinstance(catalog, dict) and catalog.get("verticals"):
 verticals = sorted({v for v in verticals if v})
 
 if step == 1:
-    st.subheader("1) Elige Vertical")
-    mode = st.radio(
-        "",
-        options=["existing", "new"],
-        format_func=lambda v: "Usar vertical existente" if v == "existing" else "Crear nueva vertical",
-        index=0 if st.session_state.get("wizard_vertical_mode") != "new" else 1,
-        horizontal=True,
-        key="wizard_vertical_mode",
-    )
-    if mode == "existing":
-        if verticals:
-            selected = st.selectbox("Vertical", options=verticals, key="wizard_vertical_key")
-        else:
-            st.info("No hay verticales en catálogo. Crea una nueva vertical.")
-            st.session_state["wizard_vertical_mode"] = "new"
-    if st.session_state.get("wizard_vertical_mode") == "new":
-        st.text_input(
-            "Nueva vertical_key (slug)",
-            value=st.session_state.get("wizard_new_vertical_key") or "",
-            key="wizard_new_vertical_key",
-            help="Solo minúsculas, números y guion bajo. Ej: clinics_private",
-        )
-
-    ready = False
-    if st.session_state.get("wizard_vertical_mode") == "existing":
-        ready = bool(st.session_state.get("wizard_vertical_key"))
+    st.subheader("1) Elegir vertical")
+    if verticals:
+        vkey = st.selectbox("Vertical", options=verticals, key="wizard_vertical_key")
     else:
-        new_key = st.session_state.get("wizard_new_vertical_key") or ""
-        ready = _slug_ok(new_key)
-        if new_key and not _slug_ok(new_key):
-            st.warning("Formato inválido. Usa solo [a-z0-9_], mínimo 3 caracteres.")
-
-    col1, col2 = st.columns([0.7, 0.3])
-    with col1:
-        if st.button("Continuar", use_container_width=True, disabled=not ready):
-            if st.session_state.get("wizard_vertical_mode") == "new":
-                st.session_state["wizard_vertical_key"] = st.session_state.get("wizard_new_vertical_key", "")
+        st.info("No hay verticales en catálogo. Crea un scope desde Scopes o configura verticals.")
+    c1, c2 = st.columns([0.7, 0.3])
+    with c1:
+        if st.button("Continuar", use_container_width=True, disabled=not bool(st.session_state.get("wizard_vertical_key"))):
             st.session_state["wizard_step"] = 2
             st.rerun()
-    with col2:
+    with c2:
         if st.button("Cancelar", use_container_width=True):
             _reset_state()
             st.rerun()
 
 elif step == 2:
-    st.subheader("2) Crear área (Scope)")
+    st.subheader("2) Scope")
     vkey = st.session_state.get("wizard_vertical_key") or ""
     st.caption(f"Vertical: `{vkey}`")
 
-    st.text_input("Scope key (slug)", key="wizard_scope_key")
-    st.text_input("Nombre visible", key="wizard_scope_display")
-    st.text_area("Descripción (opcional)", key="wizard_scope_desc", height=80)
+    mode = st.radio(
+        "",
+        options=["existing", "new"],
+        format_func=lambda v: "Usar existente" if v == "existing" else "Crear nuevo",
+        index=0 if st.session_state.get("wizard_scope_mode") != "new" else 1,
+        key="wizard_scope_mode",
+        horizontal=True,
+    )
 
-    scope_key = st.session_state.get("wizard_scope_key") or ""
-    display = st.session_state.get("wizard_scope_display") or ""
+    scope_key = ""
+    if mode == "existing":
+        scopes = []
+        for v in catalog.get("verticals") or []:
+            if v.get("vertical_key") == vkey:
+                scopes = [s.get("scope_key") for s in v.get("scopes") or [] if s.get("scope_key")]
+                break
+        scopes = sorted({s for s in scopes if s})
+        if scopes:
+            scope_key = st.selectbox("Scope", options=scopes, key="wizard_scope_key")
+        else:
+            st.info("No hay scopes en catálogo para este vertical.")
+    else:
+        st.text_input("Scope key (slug)", key="wizard_scope_key")
+        st.text_input("Nombre visible", key="wizard_scope_display")
+        st.text_area("Descripción (opcional)", key="wizard_scope_desc", height=80)
+        scope_key = st.session_state.get("wizard_scope_key") or ""
 
-    exists = False
-    for v in catalog.get("verticals") or []:
-        if v.get("vertical_key") == vkey:
-            exists = any(s.get("scope_key") == scope_key for s in (v.get("scopes") or []))
-            break
-
-    if scope_key and not _slug_ok(scope_key):
-        st.warning("Scope key inválido. Usa solo [a-z0-9_], mínimo 3 caracteres.")
-    if exists:
-        st.error("Ese scope ya existe. Elige otro key.")
-
-    can_create = _slug_ok(scope_key) and bool(display) and not exists
+    can_continue = bool(scope_key)
+    if mode == "new":
+        display = st.session_state.get("wizard_scope_display") or ""
+        if scope_key and not _slug_ok(scope_key):
+            st.warning("Scope key inválido. Usa solo [a-z0-9_-], mínimo 2 caracteres.")
+        can_continue = _slug_ok(scope_key) and bool(display)
 
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
-        if st.button("Crear área (Scope)", use_container_width=True, disabled=not can_create):
-            res = create_scope(
-                ctx.token,
-                vertical_key=vkey,
-                scope_key=scope_key,
-                display_name=display,
-                description=st.session_state.get("wizard_scope_desc") or None,
-                api_key=ctx.api_key,
-            )
-            if isinstance(res, dict) and res.get("error"):
-                st.error(res)
-            else:
-                st.success("Scope creado.")
-                st.session_state["wizard_step"] = 3
-                st.rerun()
+        if st.button("Continuar", use_container_width=True, disabled=not can_continue):
+            if mode == "new":
+                res = create_scope(
+                    ctx.token,
+                    vertical_key=vkey,
+                    scope_key=scope_key.strip(),
+                    display_name=st.session_state.get("wizard_scope_display") or "",
+                    description=st.session_state.get("wizard_scope_desc") or None,
+                    api_key=ctx.api_key,
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                    st.stop()
+            st.session_state["wizard_scope_key"] = scope_key
+            st.session_state["wizard_step"] = 3
+            st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
             st.session_state["wizard_step"] = 1
@@ -193,49 +204,71 @@ elif step == 2:
             st.rerun()
 
 elif step == 3:
-    st.subheader("3) Subir Flow Base")
+    st.subheader("3) Flow base")
     vkey = st.session_state.get("wizard_vertical_key") or ""
     skey = st.session_state.get("wizard_scope_key") or ""
     st.caption(f"Vertical: `{vkey}` · Scope: `{skey}`")
 
-    upload = st.file_uploader("Archivo JSON del flow base", type=["json"], key="wizard_flow_file")
-    parsed = None
-    if upload:
-        parsed = _parse_flow_file(upload.getvalue())
-        if not parsed:
-            st.error("JSON inválido o faltan campos (start_block/blocks).")
-        else:
-            st.success("JSON válido.")
-            st.write(
-                {
-                    "start_block": parsed.get("start_block"),
-                    "blocks": len(parsed.get("blocks") or {}),
-                }
-            )
+    flows = _flows_for_scope(catalog, vkey, skey)
+    base_flows = _flow_entries(flows, flow_kind="base")
+    published_base = [f for f in base_flows if f.get("published")]
+    action = st.radio(
+        "",
+        options=["existing", "import"],
+        format_func=lambda v: "Usar base publicado" if v == "existing" else "Importar JSON como nueva version",
+        index=0 if st.session_state.get("wizard_base_action") == "existing" else 1,
+        key="wizard_base_action",
+        horizontal=True,
+    )
 
-    can_import = bool(upload) and parsed is not None
+    selected_base = None
+    if action == "existing":
+        if not published_base:
+            st.warning("No hay base publicado. Importa un JSON.")
+        else:
+            options = [f"{f.get('name')} · {f.get('flow_id')}" for f in published_base]
+            idx = st.selectbox("Base publicado", options=options)
+            selected_base = published_base[options.index(idx)]
+    else:
+        upload = st.file_uploader("Archivo JSON del flow base", type=["json"], key="wizard_flow_file")
+        parsed = None
+        if upload:
+            parsed = _parse_flow_file(upload.getvalue())
+            if not parsed:
+                st.error("JSON inválido o faltan campos (start_block/blocks).")
+            else:
+                st.success("JSON válido.")
+                st.write({"start_block": parsed.get("start_block"), "blocks": len(parsed.get("blocks") or {})})
 
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
-        if st.button("Importar como borrador", use_container_width=True, disabled=not can_import):
-            res = import_flow_base(
-                ctx.token,
-                file_name=upload.name,
-                file_bytes=upload.getvalue(),
-                vertical_key=vkey,
-                scope_key=skey,
-                owner_type="GLOBAL",
-                owner_id=None,
-                api_key=ctx.api_key,
-            )
-            if isinstance(res, dict) and res.get("error"):
-                st.error(res)
+        can_continue = False
+        if action == "existing":
+            can_continue = selected_base is not None
+        else:
+            can_continue = upload is not None and parsed is not None
+        if st.button("Continuar", use_container_width=True, disabled=not can_continue):
+            if action == "existing" and selected_base is not None:
+                st.session_state["wizard_base_flow_id"] = selected_base.get("flow_id")
+                st.session_state["wizard_base_flow_version"] = selected_base.get("version")
             else:
-                st.session_state["wizard_flow_id"] = res.get("flow_id")
-                st.session_state["wizard_flow_version"] = res.get("version")
-                st.success("Flow importado como borrador.")
-                st.session_state["wizard_step"] = 4
-                st.rerun()
+                res = import_flow_base(
+                    ctx.token,
+                    file_name=upload.name,
+                    file_bytes=upload.getvalue(),
+                    vertical_key=vkey,
+                    scope_key=skey,
+                    owner_type="GLOBAL",
+                    owner_id=None,
+                    api_key=ctx.api_key,
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                    st.stop()
+                st.session_state["wizard_base_flow_id"] = res.get("flow_id")
+                st.session_state["wizard_base_flow_version"] = res.get("version")
+            st.session_state["wizard_step"] = 4
+            st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
             st.session_state["wizard_step"] = 2
@@ -246,31 +279,96 @@ elif step == 3:
             st.rerun()
 
 elif step == 4:
-    st.subheader("4) Publicar")
+    st.subheader("4) Subflows")
     vkey = st.session_state.get("wizard_vertical_key") or ""
     skey = st.session_state.get("wizard_scope_key") or ""
-    flow_id = st.session_state.get("wizard_flow_id")
-    version = st.session_state.get("wizard_flow_version")
+    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
-    st.caption(f"Vertical: `{vkey}` · Scope: `{skey}`")
-    st.info("Estás a punto de publicar este flow base. Esto lo deja operativo.")
-    if st.session_state.get("debug"):
-        st.caption(f"flow_id: `{flow_id}` · version: {version}")
+    flows = _flows_for_scope(catalog, vkey, skey)
+    subflows = _flow_entries(flows, flow_kind="subflow", parent_flow_id=str(base_flow_id))
+    if subflows:
+        st.markdown("**Subflows existentes**")
+        for f in subflows:
+            status = "PUBLISHED" if f.get("published") else "DRAFT"
+            st.write(
+                {
+                    "subflow_key": f.get("subflow_key"),
+                    "flow_id": f.get("flow_id"),
+                    "status": status,
+                    "priority": f.get("trigger_priority"),
+                    "threshold": f.get("trigger_threshold"),
+                }
+            )
+    else:
+        st.info("No hay subflows aún para este base.")
 
-    confirm = st.checkbox("Entiendo que esto lo pone en producción", value=False)
-    confirm_text = st.text_input("Escribe PUBLICAR para habilitar", value="")
-    can_publish = bool(flow_id) and confirm and confirm_text.strip().lower() == "publicar"
+    with st.expander("Añadir subflow", expanded=False):
+        tab_quick, tab_import = st.tabs(["Rapido", "Importar JSON"])
+        with tab_quick:
+            display_name = st.text_input("Nombre", value="")
+            subflow_key = st.text_input("subflow_key (slug)", value="")
+            content_text = st.text_area("Texto base", value="", height=120)
+            keywords = st.text_input("Keywords (coma)", value="")
+            priority = st.slider("Prioridad", 1, 10, 5)
+            threshold = st.slider("Umbral", 1, 5, 1)
+            if st.button("Crear subflow", use_container_width=True):
+                payload = {
+                    "vertical_key": vkey,
+                    "scope_key": skey,
+                    "parent_flow_id": base_flow_id,
+                    "subflow_key": subflow_key.strip() or None,
+                    "display_name": display_name.strip() or subflow_key.strip() or "Subflow",
+                    "content_text": content_text.strip() or "",
+                    "trigger_keywords": [k.strip() for k in keywords.split(",") if k.strip()],
+                    "trigger_priority": priority,
+                    "trigger_threshold": threshold,
+                    "owner_type": "GLOBAL",
+                    "owner_id": None,
+                }
+                res = create_subflow(ctx.token, payload, api_key=ctx.api_key)
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                else:
+                    st.success("Subflow creado.")
+                    st.rerun()
+        with tab_import:
+            subflow_file = st.file_uploader("Archivo JSON subflow", type=["json"], key="wizard_subflow_file")
+            subflow_key_file = st.text_input("subflow_key", value="")
+            keywords_file = st.text_input("Keywords (coma)", value="")
+            priority_file = st.slider("Prioridad", 1, 10, 5, key="sf-prio")
+            threshold_file = st.slider("Umbral", 1, 5, 1, key="sf-thresh")
+            if st.button("Importar subflow", use_container_width=True, disabled=subflow_file is None):
+                parsed = _parse_flow_file(subflow_file.getvalue()) if subflow_file else None
+                if not parsed:
+                    st.error("JSON inválido o faltan campos (start_block/blocks).")
+                else:
+                    res = import_subflow(
+                        ctx.token,
+                        file_name=subflow_file.name,
+                        file_bytes=subflow_file.getvalue(),
+                        vertical_key=vkey,
+                        scope_key=skey,
+                        parent_flow_id=str(base_flow_id),
+                        subflow_key=subflow_key_file.strip(),
+                        trigger_keywords=keywords_file.strip() or None,
+                        trigger_priority=priority_file,
+                        trigger_threshold=threshold_file,
+                        owner_type="GLOBAL",
+                        owner_id=None,
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        st.error(res)
+                    else:
+                        st.success("Subflow importado.")
+                        st.rerun()
 
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
-        if st.button("Publicar ahora", use_container_width=True, disabled=not can_publish):
-            res = publish_flow_by_id(ctx.token, str(flow_id), api_key=ctx.api_key)
-            if isinstance(res, dict) and res.get("error"):
-                st.error(res)
-            else:
-                st.success("Flow publicado.")
-                st.session_state["wizard_step"] = 5
-                st.rerun()
+        if st.button("Continuar", use_container_width=True, disabled=not bool(base_flow_id)):
+            st.session_state["wizard_step"] = 5
+            st.rerun()
     with c2:
         if st.button("Volver", use_container_width=True):
             st.session_state["wizard_step"] = 3
@@ -280,39 +378,180 @@ elif step == 4:
             _reset_state()
             st.rerun()
 
-else:
-    st.subheader("5) Listo")
+elif step == 5:
+    st.subheader("5) Routing")
     vkey = st.session_state.get("wizard_vertical_key") or ""
     skey = st.session_state.get("wizard_scope_key") or ""
+    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
 
-    refreshed = get_catalog(
-        ctx.token,
-        include_empty_scopes=True,
-        include_drafts=True,
-        include_templates=True,
-        api_key=ctx.api_key,
-    )
-    status = "—"
-    for v in refreshed.get("verticals") or []:
-        if v.get("vertical_key") != vkey:
-            continue
-        for s in v.get("scopes") or []:
-            if s.get("scope_key") == skey:
-                status = s.get("status") or "—"
-                break
+    flows = _flows_for_scope(catalog, vkey, skey)
+    subflows = _flow_entries(flows, flow_kind="subflow", parent_flow_id=str(base_flow_id))
+    if not subflows:
+        st.info("No hay subflows para configurar.")
+    else:
+        st.markdown("**Configurar routing**")
+        for sf in subflows:
+            with st.expander(f"{sf.get('subflow_key')} ({'PUBLISHED' if sf.get('published') else 'DRAFT'})", expanded=False):
+                kw_default = ", ".join(sf.get("trigger_keywords") or []) if isinstance(sf.get("trigger_keywords"), list) else ""
+                kw = st.text_input("Keywords", value=kw_default, key=f"kw-{sf.get('flow_id')}")
+                pr = st.slider("Prioridad", 1, 10, int(sf.get("trigger_priority") or 5), key=f"pr-{sf.get('flow_id')}")
+                th = st.slider("Umbral", 1, 5, int(sf.get("trigger_threshold") or 1), key=f"th-{sf.get('flow_id')}")
+                if st.button("Guardar", key=f"save-{sf.get('flow_id')}"):
+                    payload = {
+                        "trigger_keywords": [k.strip() for k in kw.split(",") if k.strip()],
+                        "trigger_priority": pr,
+                        "trigger_threshold": th,
+                    }
+                    res = update_subflow(ctx.token, str(sf.get("flow_id")), payload, api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        st.error(res)
+                    else:
+                        st.success("Routing actualizado.")
+                        st.rerun()
 
-    tone = "success" if status == "PUBLISHED_OK" else "warning"
-    badge = pill(status, tone)
-    st.markdown(f"Estado final: {badge}", unsafe_allow_html=True)
+    st.markdown("**Probar routing**")
+    tenants_payload = list_tenants(ctx.token, api_key=ctx.api_key) or []
+    tenants = tenants_payload if isinstance(tenants_payload, list) else tenants_payload.get("items") or []
+    tenant_options = [t for t in tenants if t.get("vertical_key") == vkey]
+    tenant_map = {t.get("name") or t.get("id"): t for t in tenant_options if t.get("id")}
+    names = list(tenant_map.keys())
+    tenant_choice = None
+    if not names:
+        st.info("No hay tenants para este vertical.")
+    else:
+        tenant_choice = st.selectbox("Tenant", options=names, index=0)
+    text = st.text_input("Texto de usuario", value=st.session_state.get("wizard_sim_text") or "")
+    if st.button("Simular routing", use_container_width=True, disabled=not (tenant_choice and text)):
+        tenant_id = tenant_map.get(tenant_choice, {}).get("id") if tenant_choice else ""
+        res = simulate_subflow(
+            ctx.token,
+            tenant_id=str(tenant_id),
+            base_flow_id=str(base_flow_id),
+            text=text,
+            api_key=ctx.api_key,
+        )
+        if isinstance(res, dict) and res.get("error"):
+            st.error(res)
+        else:
+            st.success("Simulacion OK")
+            st.json(res)
 
-    st.success("Listo. Tu scope ya está operativo con flow publicado.")
-
-    c1, c2, c3 = st.columns([0.34, 0.33, 0.33])
+    c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
-        st.page_link("pages/06_🧭_Scopes.py", label="Abrir Scopes", icon="🧭")
+        if st.button("Continuar", use_container_width=True):
+            st.session_state["wizard_step"] = 6
+            st.rerun()
     with c2:
-        st.page_link("pages/02_🏢_Tenants.py", label="Abrir Tenants", icon="🏢")
+        if st.button("Volver", use_container_width=True):
+            st.session_state["wizard_step"] = 4
+            st.rerun()
     with c3:
+        if st.button("Cancelar", use_container_width=True):
+            _reset_state()
+            st.rerun()
+
+elif step == 6:
+    st.subheader("6) Publicar en lote")
+    vkey = st.session_state.get("wizard_vertical_key") or ""
+    skey = st.session_state.get("wizard_scope_key") or ""
+    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
+
+    flows = _flows_for_scope(catalog, vkey, skey)
+    base_entries = [f for f in _flow_entries(flows, flow_kind="base") if str(f.get("flow_id")) == str(base_flow_id)]
+    base_published = bool(base_entries and base_entries[0].get("published"))
+
+    subflows = _flow_entries(flows, flow_kind="subflow", parent_flow_id=str(base_flow_id))
+    publish_subflow_ids = []
+    for sf in subflows:
+        label = f"{sf.get('subflow_key')} ({'PUBLISHED' if sf.get('published') else 'DRAFT'})"
+        if st.checkbox(label, value=bool(sf.get("published")), key=f"pub-sf-{sf.get('flow_id')}"):
+            publish_subflow_ids.append(sf.get("flow_id"))
+
+    confirm = st.checkbox("Confirmo publicacion masiva", value=False)
+    confirm_text = st.text_input("Escribe PUBLICAR para habilitar", value="")
+    can_publish = confirm and confirm_text.strip().lower() == "publicar"
+
+    if st.button("Publicar ahora", use_container_width=True, disabled=not can_publish):
+        if not base_published and base_flow_id:
+            res = publish_flow_by_id(ctx.token, str(base_flow_id), api_key=ctx.api_key)
+            if isinstance(res, dict) and res.get("error"):
+                st.error(res)
+                st.stop()
+        for flow_id in publish_subflow_ids:
+            res = publish_subflow(ctx.token, str(flow_id), api_key=ctx.api_key)
+            if isinstance(res, dict) and res.get("error"):
+                st.error(res)
+                st.stop()
+        st.success("Publicacion completada.")
+        st.session_state["wizard_step"] = 7
+        st.rerun()
+
+    c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
+    with c1:
+        if st.button("Continuar", use_container_width=True):
+            st.session_state["wizard_step"] = 7
+            st.rerun()
+    with c2:
+        if st.button("Volver", use_container_width=True):
+            st.session_state["wizard_step"] = 5
+            st.rerun()
+    with c3:
+        if st.button("Cancelar", use_container_width=True):
+            _reset_state()
+            st.rerun()
+
+else:
+    st.subheader("7) Asignar a tenants")
+    vkey = st.session_state.get("wizard_vertical_key") or ""
+    skey = st.session_state.get("wizard_scope_key") or ""
+    base_flow_id = st.session_state.get("wizard_base_flow_id")
+    st.caption(f"Vertical: `{vkey}` · Scope: `{skey}` · Base: `{base_flow_id}`")
+
+    tenants_payload = list_tenants(ctx.token, api_key=ctx.api_key) or []
+    tenants = tenants_payload if isinstance(tenants_payload, list) else tenants_payload.get("items") or []
+    tenant_options = [t for t in tenants if t.get("vertical_key") == vkey]
+    tenant_map = {t.get("name") or t.get("id"): t for t in tenant_options if t.get("id")}
+    names = list(tenant_map.keys())
+    selected_names = st.multiselect("Tenants", options=names, default=st.session_state.get("wizard_tenant_selection") or [])
+    st.session_state["wizard_tenant_selection"] = selected_names
+
+    if st.button("Sync now", use_container_width=True, disabled=not selected_names):
+        results = []
+        for name in selected_names:
+            t = tenant_map.get(name) or {}
+            res = tenant_flow_sync(
+                ctx.token,
+                t.get("id"),
+                vertical_key=vkey,
+                scope_key=skey,
+                flow_kind="base",
+                api_key=ctx.api_key,
+            )
+            results.append({"tenant": name, "result": res})
+        st.json(results)
+
+    if st.button("Publish override", use_container_width=True, disabled=not selected_names):
+        results = []
+        for name in selected_names:
+            t = tenant_map.get(name) or {}
+            res = tenant_flow_publish_override(
+                ctx.token,
+                t.get("id"),
+                vertical_key=vkey,
+                scope_key=skey,
+                flow_kind="base",
+                published=True,
+                api_key=ctx.api_key,
+            )
+            results.append({"tenant": name, "result": res})
+        st.json(results)
+
+    c1, c2 = st.columns([0.6, 0.4])
+    with c1:
         if st.button("Crear otro", use_container_width=True):
             _reset_state()
             st.rerun()
+    with c2:
+        st.page_link("pages/02_🏢_Tenants.py", label="Abrir Tenants", icon="🏢")
