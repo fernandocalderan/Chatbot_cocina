@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from app.models.flows import Flow as FlowVersioned
 
-EXIT_KEYWORDS = {"volver", "inicio", "menu", "salir"}
+EXIT_KEYWORDS = {"volver", "inicio", "menu", "salir", "atras"}
 WORD_RE = re.compile(r"[a-zA-Z0-9_\-]+")
 
 
@@ -91,6 +91,7 @@ def _query_published_subflows(db: Session, *, base_flow_id: str) -> sa.orm.Query
         FlowVersioned.parent_flow_id == base_flow_id,
         FlowVersioned.estado == "published",
         FlowVersioned.archived.is_(False),
+        FlowVersioned.enabled.is_(True),
     )
 
 
@@ -126,6 +127,7 @@ def pick_subflow(
         "action": "none",
         "matched": [],
         "source": None,
+        "reason": None,
     }
     text = str(user_text or "").strip()
     if not text:
@@ -133,6 +135,7 @@ def pick_subflow(
 
     if _exit_requested(text):
         result["action"] = "exit"
+        result["reason"] = "exit_word"
         return result
 
     if active_subflow_id:
@@ -146,7 +149,7 @@ def pick_subflow(
             )
             .first()
         )
-        if active and isinstance(active.schema_json, dict):
+        if active and isinstance(active.schema_json, dict) and bool(getattr(active, "enabled", True)) and not bool(getattr(active, "archived", False)):
             result["picked"] = active
             result["action"] = "keep_active"
             result["source"] = str(getattr(active, "owner_type", "")) or None

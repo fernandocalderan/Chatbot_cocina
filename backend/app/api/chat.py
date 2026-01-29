@@ -633,18 +633,28 @@ def send_message(
     if route_result.get("action") == "exit":
         state.pop("_active_subflow_id", None)
         state.pop("_active_subflow_key", None)
+        state.pop("_active_subflow_source", None)
         session_mgr.save(session_id, state)
+        logger.info(
+            f"Subflow exit -> tenant={tenant_id} base_flow={base_flow_id} reason={route_result.get('reason')}"
+        )
     elif route_result.get("picked") is not None:
         picked_flow = route_result["picked"]
         if isinstance(getattr(picked_flow, "schema_json", None), dict):
             flow_data = picked_flow.schema_json
             state["_active_subflow_id"] = str(getattr(picked_flow, "id"))
             state["_active_subflow_key"] = getattr(picked_flow, "subflow_key", None)
+            state["_active_subflow_source"] = route_result.get("source")
             session_mgr.save(session_id, state)
             subflow_picked = True
-            logger.info(
-                f"Subflow routed -> tenant={tenant_id} base_flow={base_flow_id} subflow={picked_flow.id} subflow_key={getattr(picked_flow,'subflow_key',None)} matched={route_result.get('matched') or []} source={route_result.get('source')}"
-            )
+            if route_result.get("action") == "keep_active":
+                logger.info(
+                    f"Subflow continue -> tenant={tenant_id} base_flow={base_flow_id} subflow={picked_flow.id} subflow_key={getattr(picked_flow,'subflow_key',None)} source={route_result.get('source')}"
+                )
+            else:
+                logger.info(
+                    f"Subflow route -> tenant={tenant_id} base_flow={base_flow_id} subflow={picked_flow.id} subflow_key={getattr(picked_flow,'subflow_key',None)} matched={route_result.get('matched') or []} source={route_result.get('source')}"
+                )
 
     # Si hay un subflow activo (definido por el motor), cargarlo en lugar del router/base.
     active_flow = state.get("_active_flow") if isinstance(state.get("_active_flow"), dict) else None
