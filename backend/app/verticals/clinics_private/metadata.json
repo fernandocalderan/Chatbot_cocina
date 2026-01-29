@@ -146,8 +146,10 @@
     },
     "osteopatia": {
       "label": "Osteopatía",
-      "flow_id": "flow_base.json",
-      "problem_groups": [],
+      "flow_id": "flow_base_scope_osteopatia.json",
+      "problem_groups": [
+        "intent"
+      ],
       "archived": false
     },
     "psicologia_privada": {

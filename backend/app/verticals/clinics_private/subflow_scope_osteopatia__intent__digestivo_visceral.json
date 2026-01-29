@@ -1,0 +1,65 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "La osteopatía visceral aborda la movilidad de órganos y su relación con el sistema músculo-esquelético.\n\nTe haré 2–3 preguntas rápidas.",
+      "next": "q1"
+    },
+    "q1": {
+      "type": "buttons",
+      "text": "¿Qué molestia digestiva predomina?",
+      "options": [
+        {
+          "label": "Hinchazón",
+          "value": "hinchazón"
+        },
+        {
+          "label": "Dolor",
+          "value": "dolor"
+        },
+        {
+          "label": "Reflujo",
+          "value": "reflujo"
+        },
+        {
+          "label": "Otro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "osteopatia_molestia",
+      "next": "q2"
+    },
+    "q2": {
+      "type": "buttons",
+      "text": "¿Cada cuánto aparece?",
+      "options": [
+        {
+          "label": "Esporádico",
+          "value": "esporádico"
+        },
+        {
+          "label": "Semanal",
+          "value": "semanal"
+        },
+        {
+          "label": "Diario",
+          "value": "diario"
+        }
+      ],
+      "save_to": "osteopatia_frecuencia",
+      "next": "cta"
+    },
+    "cta": {
+      "type": "message",
+      "text": "Gracias. Desde un enfoque osteopático valoramos el cuerpo de forma global para ajustar el tratamiento.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

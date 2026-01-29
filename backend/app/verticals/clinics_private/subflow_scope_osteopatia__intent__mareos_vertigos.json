@@ -1,0 +1,61 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "Evaluamos cervicales, oído interno y sistema propioceptivo para identificar el origen funcional.\n\nTe haré 2–3 preguntas rápidas.",
+      "next": "q1"
+    },
+    "q1": {
+      "type": "buttons",
+      "text": "¿Con qué frecuencia ocurre?",
+      "options": [
+        {
+          "label": "Ocasional",
+          "value": "ocasional"
+        },
+        {
+          "label": "Semanal",
+          "value": "semanal"
+        },
+        {
+          "label": "Diario",
+          "value": "diario"
+        }
+      ],
+      "save_to": "osteopatia_frecuencia",
+      "next": "q2"
+    },
+    "q2": {
+      "type": "buttons",
+      "text": "¿Qué lo desencadena?",
+      "options": [
+        {
+          "label": "Movimientos",
+          "value": "movimientos"
+        },
+        {
+          "label": "Estrés",
+          "value": "estrés"
+        },
+        {
+          "label": "No lo sé",
+          "value": "no_lo_sé"
+        }
+      ],
+      "save_to": "osteopatia_desencadena",
+      "next": "cta"
+    },
+    "cta": {
+      "type": "message",
+      "text": "Gracias. Desde un enfoque osteopático valoramos el cuerpo de forma global para ajustar el tratamiento.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

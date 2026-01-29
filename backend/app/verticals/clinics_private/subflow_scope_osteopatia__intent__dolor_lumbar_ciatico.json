@@ -1,0 +1,61 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "En osteopatía revisamos movilidad lumbar, pelvis y cadenas musculares para reducir la irritación nerviosa.\n\nTe haré 2–3 preguntas rápidas.",
+      "next": "q1"
+    },
+    "q1": {
+      "type": "buttons",
+      "text": "¿El dolor baja por la pierna?",
+      "options": [
+        {
+          "label": "Sí",
+          "value": "sí"
+        },
+        {
+          "label": "No",
+          "value": "no"
+        },
+        {
+          "label": "No sé",
+          "value": "no_sé"
+        }
+      ],
+      "save_to": "osteopatia_irradiacion",
+      "next": "q2"
+    },
+    "q2": {
+      "type": "buttons",
+      "text": "¿Cuándo empezó?",
+      "options": [
+        {
+          "label": "Reciente",
+          "value": "reciente"
+        },
+        {
+          "label": "Semanas",
+          "value": "semanas"
+        },
+        {
+          "label": "Meses",
+          "value": "meses"
+        }
+      ],
+      "save_to": "osteopatia_inicio",
+      "next": "cta"
+    },
+    "cta": {
+      "type": "message",
+      "text": "Gracias. Desde un enfoque osteopático valoramos el cuerpo de forma global para ajustar el tratamiento.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

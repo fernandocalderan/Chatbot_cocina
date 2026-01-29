@@ -1,0 +1,69 @@
+{
+  "start_block": "intro",
+  "blocks": {
+    "intro": {
+      "type": "message",
+      "text": "La osteopatía pediátrica es suave y busca mejorar funciones como sueño, digestión y movilidad.\n\nTe haré 2–3 preguntas rápidas.",
+      "next": "q1"
+    },
+    "q1": {
+      "type": "buttons",
+      "text": "¿Qué edad tiene el bebé/niño?",
+      "options": [
+        {
+          "label": "0–6 meses",
+          "value": "0–6_meses"
+        },
+        {
+          "label": "6–12 meses",
+          "value": "6–12_meses"
+        },
+        {
+          "label": "1–3 años",
+          "value": "1–3_años"
+        },
+        {
+          "label": "Más de 3 años",
+          "value": "más_de_3_años"
+        }
+      ],
+      "save_to": "osteopatia_edad",
+      "next": "q2"
+    },
+    "q2": {
+      "type": "buttons",
+      "text": "¿Cuál es el motivo principal?",
+      "options": [
+        {
+          "label": "Cólicos",
+          "value": "cólicos"
+        },
+        {
+          "label": "Sueño",
+          "value": "sueño"
+        },
+        {
+          "label": "Tortícolis",
+          "value": "tortícolis"
+        },
+        {
+          "label": "Otro",
+          "value": "otro"
+        }
+      ],
+      "save_to": "osteopatia_motivo",
+      "next": "cta"
+    },
+    "cta": {
+      "type": "message",
+      "text": "Gracias. Desde un enfoque osteopático valoramos el cuerpo de forma global para ajustar el tratamiento.\n\nAhora seguimos para ayudarte con la cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}

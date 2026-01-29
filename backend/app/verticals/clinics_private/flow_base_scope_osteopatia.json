@@ -1,0 +1,102 @@
+{
+  "start_block": "welcome",
+  "config": {
+    "router": {
+      "save_to": "intent",
+      "scope": "osteopatia",
+      "fallback_key": "dolor_espalda_cervical",
+      "return_to": "fallback_triage"
+    }
+  },
+  "blocks": {
+    "welcome": {
+      "type": "message",
+      "text": "Hola 👋 Soy el asistente de osteopatía. Mi enfoque es global y funcional: busco el origen del problema para ayudarte mejor.\n\n¿Te parece si te hago unas preguntas rápidas?",
+      "next": "consent"
+    },
+    "consent": {
+      "type": "buttons",
+      "text": "¿Cómo prefieres continuar?",
+      "options": [
+        {
+          "label": "Sí, adelante",
+          "value": "yes",
+          "next": "intent_selector"
+        },
+        {
+          "label": "Prefiero llamar",
+          "value": "call",
+          "next": "end_thanks"
+        }
+      ],
+      "next_map": {
+        "yes": "intent_selector",
+        "call": "end_thanks"
+      },
+      "save_to": "consent"
+    },
+    "intent_selector": {
+      "type": "buttons",
+      "text": "¿Qué te gustaría tratar hoy?",
+      "options": [
+        {
+          "label": "Espalda o cervical",
+          "value": "dolor_espalda_cervical"
+        },
+        {
+          "label": "Lumbar o ciática",
+          "value": "dolor_lumbar_ciatico"
+        },
+        {
+          "label": "Cabeza / mandíbula",
+          "value": "dolor_cabeza_mandibula"
+        },
+        {
+          "label": "Digestivo / visceral",
+          "value": "digestivo_visceral"
+        },
+        {
+          "label": "Embarazo / postparto",
+          "value": "embarazo_postparto"
+        },
+        {
+          "label": "Estrés / somático",
+          "value": "estres_ansiedad_somatico"
+        },
+        {
+          "label": "Mareos / vértigos",
+          "value": "mareos_vertigos"
+        },
+        {
+          "label": "Bebés / pediátrico",
+          "value": "bebes_pediatrico"
+        },
+        {
+          "label": "Revisión preventiva",
+          "value": "revision_global_preventiva"
+        }
+      ],
+      "save_to": "intent",
+      "next": "route_intent"
+    },
+    "route_intent": {
+      "type": "end"
+    },
+    "fallback_triage": {
+      "type": "message",
+      "text": "Gracias. Para continuar con la cita, puedo orientarte con los próximos pasos y disponibilidad.",
+      "next": "end_thanks"
+    },
+    "end_thanks": {
+      "type": "message",
+      "text": "Perfecto. Si deseas, escríbenos por aquí con tu teléfono y horarios preferidos y coordinamos tu cita.",
+      "end": true,
+      "next": "end"
+    },
+    "end": {
+      "id": "end",
+      "type": "end"
+    }
+  },
+  "end_block": "end"
+}
