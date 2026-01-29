@@ -13,10 +13,11 @@ from admin_panel.api_client import (
     get_published_flow,
     get_tenant_flow,
     include_tenant,
+    import_flow_base,
     issue_widget_token,
-    list_flows,
     list_tenants,
     publish_flow,
+    publish_flow_by_id,
     reset_sessions,
     toggle_maintenance,
     update_tenant,
@@ -370,18 +371,96 @@ for t in tenants:
                     cc2.markdown(badge, unsafe_allow_html=True)
                     cc3.write(str(row.get("flows_count") or 0))
                     cc4.write(str(row.get("published_count") or 0))
-                    action_label = "Ver / Editar"
+                    action_label = "Ver"
                     if status == "NO_FLOW_YET":
                         action_label = "Subir flow base"
                     elif status == "DRAFT_ONLY":
                         action_label = "Publicar"
-                    cc5.button(
+                    action_key = f"scope-action-{tenant_id}-{row.get('scope_key')}"
+                    disabled_action = not write_enabled or not v_current
+                    clicked = cc5.button(
                         action_label,
-                        key=f"scope-action-{tenant_id}-{row.get('scope_key')}",
-                        disabled=True,
-                        help="Acción disponible en Fase 2.",
+                        key=action_key,
+                        disabled=disabled_action,
+                        help=None,
                         use_container_width=True,
                     )
+                    if clicked:
+                        st.session_state[action_key] = True
+                    if st.session_state.get(action_key):
+                        if status == "NO_FLOW_YET":
+                            with st.expander(f"Subir flow base ({row.get('scope_key')})", expanded=True):
+                                up = st.file_uploader(
+                                    "Flow base JSON",
+                                    type=["json"],
+                                    key=f"upload-{tenant_id}-{row.get('scope_key')}",
+                                )
+                                confirm_import = st.checkbox(
+                                    "Importar como draft",
+                                    value=False,
+                                    key=f"confirm-import-{tenant_id}-{row.get('scope_key')}",
+                                )
+                                if st.button(
+                                    "Importar",
+                                    key=f"do-import-{tenant_id}-{row.get('scope_key')}",
+                                    disabled=not (up and confirm_import and v_current),
+                                ):
+                                    res = import_flow_base(
+                                        ctx.token,
+                                        file_name=up.name,
+                                        file_bytes=up.getvalue(),
+                                        vertical_key=v_current or "",
+                                        scope_key=row.get("scope_key") or "",
+                                        owner_type="TENANT",
+                                        owner_id=tenant_id,
+                                        api_key=ctx.api_key,
+                                    )
+                                    if isinstance(res, dict) and res.get("error"):
+                                        st.error(res)
+                                    else:
+                                        st.success("Flow base importado como draft.")
+                                        st.rerun()
+                        elif status == "DRAFT_ONLY":
+                            drafts = [f for f in row.get("flows") or [] if not f.get("published")]
+                            drafts_sorted = sorted(drafts, key=lambda f: int(f.get("version") or 0), reverse=True)
+                            latest = drafts_sorted[0] if drafts_sorted else None
+                            with st.expander(f"Publicar ({row.get('scope_key')})", expanded=True):
+                                if latest:
+                                    st.caption(f"Draft v{latest.get('version')} · {latest.get('flow_id')}")
+                                pub_confirm = st.checkbox(
+                                    "Confirmo que quiero publicar este flow y despublicar versiones anteriores.",
+                                    value=False,
+                                    key=f"confirm-pub-{tenant_id}-{row.get('scope_key')}",
+                                )
+                                pub_text = st.text_input(
+                                    "Escribe PUBLICAR para habilitar",
+                                    value="",
+                                    key=f"confirm-pub-text-{tenant_id}-{row.get('scope_key')}",
+                                )
+                                can_pub = pub_confirm and pub_text.strip().lower() == "publicar"
+                                if st.button(
+                                    "Publicar",
+                                    key=f"do-pub-{tenant_id}-{row.get('scope_key')}",
+                                    disabled=not (latest and can_pub),
+                                ):
+                                    res = publish_flow_by_id(
+                                        ctx.token,
+                                        flow_id=str(latest.get("flow_id")),
+                                        api_key=ctx.api_key,
+                                    )
+                                    if isinstance(res, dict) and res.get("error"):
+                                        st.error(res)
+                                    else:
+                                        st.success("Flow publicado.")
+                                        st.rerun()
+                        else:
+                            with st.expander(f"Ver flow ({row.get('scope_key')})", expanded=False):
+                                published = [f for f in row.get("flows") or [] if f.get("published")]
+                                if published:
+                                    p = sorted(published, key=lambda f: int(f.get("version") or 0), reverse=True)[0]
+                                    st.write(f"Publicado v{p.get('version')} · {p.get('published_at') or '—'}")
+                                    if debug_mode:
+                                        st.caption(f"id: {p.get('flow_id')}")
                     if debug_mode:
                         flow_ids = [f.get("flow_id") for f in row.get("flows") or [] if f.get("flow_id")]
                         if flow_ids:
@@ -435,29 +514,9 @@ for t in tenants:
                     f"Flow publicado actual: `{published.get('flow_id')}` · v{published.get('version')} · {published.get('published_at') or '—'}"
                 )
 
-            st.markdown("**Versiones del flow**")
-            with st.spinner("Cargando versiones…"):
-                versions_payload = list_flows(ctx.token, tenant_id, limit=50, include_schema=False, api_key=ctx.api_key) or {}
-            if isinstance(versions_payload, dict) and versions_payload.get("error"):
-                st.warning(versions_payload)
-                versions = []
-            else:
-                versions = versions_payload.get("items") or []
-            published_versions = [v for v in versions if str(v.get("estado") or "").lower() == "published"]
-            multiple_published = len(published_versions) > 1
+            multiple_published = any(r.get("status") == "MULTIPLE_PUBLISHED" for r in scope_rows)
             if multiple_published:
-                st.error("Hay más de un flow publicado. Bloquea la publicación hasta corregir.")
-            if not versions:
-                st.caption("Sin versiones registradas todavía.")
-            else:
-                for row in versions:
-                    estado = str(row.get("estado") or "draft").lower()
-                    badge = pill("PUBLICADO", "success") if estado == "published" else pill("BORRADOR", "warning")
-                    cver, cid, cpub = st.columns([0.2, 0.5, 0.3])
-                    cver.markdown(badge, unsafe_allow_html=True)
-                    cver.caption(f"v{row.get('version')}")
-                    cid.caption(str(row.get("flow_id") or "—"))
-                    cpub.caption(row.get("published_at") or row.get("created_at") or "—")
+                st.error("Hay más de un flow publicado en algún scope. Corrige antes de operar.")
 
             st.markdown("**Publicar flow**")
             publish_disabled = not write_enabled or multiple_published or not isinstance(effective, dict) or not effective

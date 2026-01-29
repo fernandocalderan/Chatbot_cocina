@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from admin_panel.api_client import get_catalog, flatten_catalog_flows
+from admin_panel.api_client import get_catalog, flatten_catalog_flows, publish_flow_by_id
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
 
 init_page(title="SuperAdmin — Flows", icon="📑")
@@ -74,16 +74,41 @@ else:
         cc4.write(str(row.get("version") or "—"))
         cc5.write(str(row.get("published_at") or "—"))
         cc6.write(str(row.get("owner_type") or "—"))
-        action_label = "Editar"
-        if published and str(row.get("owner_type") or "").upper() == "TENANT":
-            action_label = "Duplicar"
-        cc7.button(
+        action_label = "Ver"
+        if not published and str(row.get("owner_type") or "").upper() == "TENANT":
+            action_label = "Publicar"
+        action_key = f"flow-action-{row.get('flow_id')}"
+        clicked = cc7.button(
             action_label,
-            key=f"flow-action-{row.get('flow_id')}",
-            disabled=True,
-            help="Acción disponible en Fase 2.",
+            key=action_key,
+            disabled=not (str(row.get("owner_type") or "").upper() == "TENANT"),
             use_container_width=True,
         )
+        if clicked:
+            st.session_state[action_key] = True
+        if st.session_state.get(action_key) and action_label == "Publicar":
+            with st.expander(f"Publicar flow {row.get('flow_id')}", expanded=True):
+                confirm = st.checkbox(
+                    "Confirmo que quiero publicar este flow.",
+                    value=False,
+                    key=f"flow-confirm-{row.get('flow_id')}",
+                )
+                text = st.text_input(
+                    "Escribe PUBLICAR para habilitar",
+                    value="",
+                    key=f"flow-confirm-text-{row.get('flow_id')}",
+                )
+                if st.button(
+                    "Publicar ahora",
+                    key=f"flow-do-publish-{row.get('flow_id')}",
+                    disabled=not (confirm and text.strip().lower() == "publicar"),
+                ):
+                    res = publish_flow_by_id(ctx.token, str(row.get("flow_id")), api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        st.error(res)
+                    else:
+                        st.success("Flow publicado.")
+                        st.rerun()
         if debug_mode:
             cc1.caption(f"id: {row.get('flow_id')}")
             cc6.caption(f"owner_id: {row.get('owner_id')}")

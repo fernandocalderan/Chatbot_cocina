@@ -169,6 +169,77 @@ def get_catalog(
     return {"error": resp.text, "status_code": resp.status_code}
 
 
+def create_scope(
+    token: str | None,
+    *,
+    vertical_key: str,
+    scope_key: str,
+    display_name: str,
+    description: str | None = None,
+    api_key: str | None = None,
+):
+    payload = {
+        "vertical_key": vertical_key,
+        "scope_key": scope_key,
+        "display_name": display_name,
+        "description": description,
+    }
+    resp = requests.post(
+        f"{API_BASE}/v1/scopes",
+        json=payload,
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def import_flow_base(
+    token: str | None,
+    *,
+    file_name: str,
+    file_bytes: bytes,
+    vertical_key: str,
+    scope_key: str,
+    owner_type: str = "TENANT",
+    owner_id: str | None = None,
+    api_key: str | None = None,
+):
+    data = {
+        "vertical_key": vertical_key,
+        "scope_key": scope_key,
+        "flow_kind": "base",
+        "owner_type": owner_type,
+    }
+    if owner_id:
+        data["owner_id"] = owner_id
+    files = {
+        "file": (file_name, file_bytes, "application/json"),
+    }
+    resp = requests.post(
+        f"{API_BASE}/v1/flows/import",
+        headers=_headers(token, api_key or _admin_api_key()),
+        data=data,
+        files=files,
+        timeout=30,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def publish_flow_by_id(token: str | None, flow_id: str, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/flows/{flow_id}/publish",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
 def flatten_catalog_scopes(catalog_json: dict) -> list[dict]:
     rows: list[dict] = []
     for v in catalog_json.get("verticals") or []:
