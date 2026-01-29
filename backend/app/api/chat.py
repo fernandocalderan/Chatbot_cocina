@@ -179,6 +179,7 @@ def _router_cfg(flow_data: dict) -> dict | None:
         "fallback_key": str(router.get("fallback_key") or "general").strip() or "general",
         "routes_file": str(router.get("routes_file") or "").strip() or None,
         "scope": scope_key,
+        "return_to": str(router.get("return_to") or "").strip() or None,
     }
 
 
@@ -1381,6 +1382,7 @@ def send_message(
                     "choice": str(choice_val) if choice_val is not None else None,
                     "subflow_start": candidate_id,
                     "mode": "legacy_blocks",
+                    "return_to": router_cfg.get("return_to"),
                 }
                 state.pop("ended", None)
                 state["current_block"] = candidate_id
@@ -1409,6 +1411,7 @@ def send_message(
                     "mode": "subflow_file",
                     "subflow_id": str(subflow_id or sub.get("version") or "") or None,
                     "subflow_file": str(subflow_file),
+                    "return_to": router_cfg.get("return_to"),
                 }
                 state["_active_flow"] = {"type": "vertical_subflow", "file": str(subflow_file), "id": str(subflow_id or sub.get("version") or "") or None}
                 state.pop("ended", None)
@@ -1469,10 +1472,19 @@ def send_message(
 
     # Bloque final explícito (tipo `end`): terminar sesión sin exponer type al widget.
     if bot_block.get("type") == "end":
-        state["ended"] = True
-        # Si terminamos un subflow activo, limpiar override para evitar que futuras llamadas
-        # intenten continuar con un flow inexistente.
-        state.pop("_active_flow", None)
+        return_to = None
+        router_state = state.get("_router") if isinstance(state.get("_router"), dict) else {}
+        if router_state:
+            return_to = router_state.get("return_to") if isinstance(router_state, dict) else None
+        # Si terminamos un subflow activo y hay return_to, retomamos el flow base.
+        if return_to:
+            state.pop("_active_flow", None)
+            state["current_block"] = str(return_to)
+        else:
+            state["ended"] = True
+            # Si terminamos un subflow activo, limpiar override para evitar que futuras llamadas
+            # intenten continuar con un flow inexistente.
+            state.pop("_active_flow", None)
         bot_block["type"] = "message"
     # Si el bloque es appointment/calendar, rellenar slots desde estado o agenda
     if bot_block.get("type") in {"appointment", "calendar"}:

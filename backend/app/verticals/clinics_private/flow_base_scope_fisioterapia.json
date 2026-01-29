@@ -4,7 +4,8 @@
     "router": {
       "save_to": "intent",
       "scope": "fisioterapia",
-      "fallback_key": "espalda_cervical"
+      "fallback_key": "espalda_cervical",
+      "return_to": "triage"
     }
   },
   "blocks": {
