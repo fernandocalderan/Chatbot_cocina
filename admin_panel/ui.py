@@ -122,6 +122,8 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
     with st.sidebar:
         st.markdown("### SuperAdmin")
         st.page_link(_resolve_entrypoint_script(), label="Inicio", icon="🏠")
+        if "SUPER_ADMIN" in (st.session_state.get("admin_roles") or []):
+            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (principal)", icon="⚡")
         st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
         st.page_link("pages/06_🧭_Scopes.py", label="Scopes", icon="🧭")
         st.page_link("pages/07_📑_Flows.py", label="Flows", icon="📑")
@@ -135,8 +137,6 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         debug_allowed = debug_default or ("SUPER_ADMIN" in roles)
         if debug_allowed:
             st.toggle("Debug", key="debug", help="Muestra información extra de diagnóstico.")
-        if "SUPER_ADMIN" in roles:
-            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (60s)", icon="⚡")
         if show_tools:
             st.markdown("---")
             st.page_link("pages/widget_tester.py", label="Widget tester", icon="🧪")

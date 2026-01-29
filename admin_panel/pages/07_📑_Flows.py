@@ -17,6 +17,7 @@ render_sidebar_nav()
 
 st.title("Flows")
 st.caption("Listado global desde /v1/catalog (sin filtros ocultos).")
+st.info("Modo lectura. Usa el Wizard para crear/publicar flows (activar Debug para acciones avanzadas).")
 
 debug_mode = bool(st.session_state.get("debug"))
 
@@ -81,12 +82,12 @@ else:
         clicked = cc7.button(
             action_label,
             key=action_key,
-            disabled=not (str(row.get("owner_type") or "").upper() == "TENANT"),
+            disabled=not (debug_mode and str(row.get("owner_type") or "").upper() == "TENANT"),
             use_container_width=True,
         )
         if clicked:
             st.session_state[action_key] = True
-        if st.session_state.get(action_key) and action_label == "Publicar":
+        if debug_mode and st.session_state.get(action_key) and action_label == "Publicar":
             with st.expander(f"Publicar flow {row.get('flow_id')}", expanded=True):
                 confirm = st.checkbox(
                     "Confirmo que quiero publicar este flow.",

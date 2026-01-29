@@ -338,6 +338,8 @@ for t in tenants:
             debug_mode = bool(st.session_state.get("debug"))
             if debug_mode:
                 st.caption(f"Tenant activo: `{tenant_id}`")
+            else:
+                st.caption("Acciones de flows fuera del Wizard solo en Debug.")
             if not v_current:
                 st.warning("Tenant sin vertical_key: no se puede resolver catálogo de scopes.")
             catalog_payload = get_catalog(
@@ -382,7 +384,7 @@ for t in tenants:
                     elif status == "DRAFT_ONLY":
                         action_label = "Publicar"
                     action_key = f"scope-action-{tenant_id}-{row.get('scope_key')}"
-                    disabled_action = not write_enabled or not v_current
+                    disabled_action = not write_enabled or not v_current or not debug_mode
                     clicked = cc5.button(
                         action_label,
                         key=action_key,
