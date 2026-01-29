@@ -9,6 +9,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from admin_panel.api_client import (
     exclude_tenant,
+    get_catalog,
     get_published_flow,
     get_tenant_flow,
     include_tenant,
@@ -74,6 +75,38 @@ def _scopes_for_vertical(vkey: str | None) -> tuple[list[str], dict[str, str]]:
     }
     keys = list(labels.keys())
     return keys, labels
+
+
+def _tenant_scope_rows(catalog: dict, vertical_key: str | None) -> list[dict]:
+    rows: list[dict] = []
+    for v in catalog.get("verticals") or []:
+        if vertical_key and v.get("vertical_key") != vertical_key:
+            continue
+        for s in v.get("scopes") or []:
+            flows = s.get("flows") or []
+            tenant_flows = [f for f in flows if str(f.get("owner_type") or "").upper() == "TENANT"]
+            published_count = len([f for f in tenant_flows if f.get("published")])
+            if not tenant_flows:
+                status = "NO_FLOW_YET"
+            elif published_count > 1:
+                status = "MULTIPLE_PUBLISHED"
+            elif published_count == 1:
+                status = "PUBLISHED_OK"
+            else:
+                status = "DRAFT_ONLY"
+            rows.append(
+                {
+                    "vertical_key": v.get("vertical_key"),
+                    "scope_key": s.get("scope_key"),
+                    "status": status,
+                    "flows_count": len(tenant_flows),
+                    "published_count": published_count,
+                    "has_fs_def": bool(s.get("has_filesystem_definition")),
+                    "source": s.get("source"),
+                    "flows": tenant_flows,
+                }
+            )
+    return rows
 
 
 for t in tenants:
@@ -299,6 +332,64 @@ for t in tenants:
             debug_mode = bool(st.session_state.get("debug"))
             if debug_mode:
                 st.caption(f"Tenant activo: `{tenant_id}`")
+            if not v_current:
+                st.warning("Tenant sin vertical_key: no se puede resolver catálogo de scopes.")
+            catalog_payload = get_catalog(
+                ctx.token,
+                vertical_key=v_current if v_current else None,
+                tenant_id=tenant_id,
+                include_empty_scopes=True,
+                include_drafts=True,
+                include_templates=True,
+                api_key=ctx.api_key,
+            )
+            if isinstance(catalog_payload, dict) and catalog_payload.get("error"):
+                st.error(catalog_payload)
+                catalog_payload = {}
+            scope_rows = _tenant_scope_rows(catalog_payload or {}, v_current if v_current else None)
+            if scope_rows:
+                st.markdown("**Scopes del tenant**")
+                c1, c2, c3, c4, c5 = st.columns([0.34, 0.16, 0.16, 0.16, 0.18])
+                c1.caption("Scope")
+                c2.caption("Estado")
+                c3.caption("Flows")
+                c4.caption("Publicado")
+                c5.caption("Acción")
+                for row in sorted(scope_rows, key=lambda r: str(r.get("scope_key") or "")):
+                    status = row.get("status") or "NO_FLOW_YET"
+                    tone = "info"
+                    if status == "PUBLISHED_OK":
+                        tone = "success"
+                    elif status == "DRAFT_ONLY":
+                        tone = "warning"
+                    elif status == "MULTIPLE_PUBLISHED":
+                        tone = "danger"
+                    badge = pill(status, tone)
+                    cc1, cc2, cc3, cc4, cc5 = st.columns([0.34, 0.16, 0.16, 0.16, 0.18])
+                    cc1.markdown(f"**{row.get('scope_key')}**")
+                    cc2.markdown(badge, unsafe_allow_html=True)
+                    cc3.write(str(row.get("flows_count") or 0))
+                    cc4.write(str(row.get("published_count") or 0))
+                    action_label = "Ver / Editar"
+                    if status == "NO_FLOW_YET":
+                        action_label = "Subir flow base"
+                    elif status == "DRAFT_ONLY":
+                        action_label = "Publicar"
+                    cc5.button(
+                        action_label,
+                        key=f"scope-action-{tenant_id}-{row.get('scope_key')}",
+                        disabled=True,
+                        help="Acción disponible en Fase 2.",
+                        use_container_width=True,
+                    )
+                    if debug_mode:
+                        flow_ids = [f.get("flow_id") for f in row.get("flows") or [] if f.get("flow_id")]
+                        if flow_ids:
+                            cc1.caption(f"flows: {', '.join(flow_ids)}")
+                        if row.get("source") == "DB_ONLY" or not row.get("has_fs_def"):
+                            cc2.caption("warning: scope sin definición FS")
+            else:
+                st.caption("Sin scopes detectados para este tenant.")
             health_check = get_published_flow(ctx.token, tenant_id, api_key=ctx.api_key)
             health_status = str(health_check.get("status") or "ERROR")
             if health_status == "OK":

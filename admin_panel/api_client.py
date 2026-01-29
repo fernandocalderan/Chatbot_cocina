@@ -137,6 +137,82 @@ def list_verticals(token: str | None, api_key: str | None = None):
     return {"items": [], "error": resp.text, "status_code": resp.status_code}
 
 
+def get_catalog(
+    token: str | None,
+    *,
+    vertical_key: str | None = None,
+    tenant_id: str | None = None,
+    include_empty_scopes: bool = True,
+    include_drafts: bool = True,
+    include_templates: bool = True,
+    only_published: bool = False,
+    api_key: str | None = None,
+):
+    params: dict[str, object] = {
+        "include_empty_scopes": include_empty_scopes,
+        "include_drafts": include_drafts,
+        "include_templates": include_templates,
+        "only_published": only_published,
+    }
+    if vertical_key:
+        params["vertical_key"] = vertical_key
+    if tenant_id:
+        params["tenant_id"] = tenant_id
+    resp = requests.get(
+        f"{API_BASE}/v1/catalog",
+        headers=_headers(token, api_key or _admin_api_key()),
+        params=params,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def flatten_catalog_scopes(catalog_json: dict) -> list[dict]:
+    rows: list[dict] = []
+    for v in catalog_json.get("verticals") or []:
+        vkey = v.get("vertical_key")
+        for s in v.get("scopes") or []:
+            flows = s.get("flows") or []
+            published_count = len([f for f in flows if f.get("published")])
+            rows.append(
+                {
+                    "vertical_key": vkey,
+                    "scope_key": s.get("scope_key"),
+                    "status": s.get("status"),
+                    "flows_count": len(flows),
+                    "published_count": published_count,
+                    "has_fs_def": bool(s.get("has_filesystem_definition")),
+                    "source": s.get("source"),
+                }
+            )
+    return rows
+
+
+def flatten_catalog_flows(catalog_json: dict) -> list[dict]:
+    rows: list[dict] = []
+    for v in catalog_json.get("verticals") or []:
+        vkey = v.get("vertical_key")
+        for s in v.get("scopes") or []:
+            skey = s.get("scope_key")
+            for f in s.get("flows") or []:
+                rows.append(
+                    {
+                        "vertical_key": vkey,
+                        "scope_key": skey,
+                        "flow_id": f.get("flow_id"),
+                        "name": f.get("name"),
+                        "version": f.get("version"),
+                        "published": bool(f.get("published")),
+                        "published_at": f.get("published_at"),
+                        "owner_type": f.get("owner_type"),
+                        "owner_id": f.get("owner_id"),
+                    }
+                )
+    return rows
+
+
 def get_vertical(token: str | None, vertical_key: str, api_key: str | None = None):
     resp = requests.get(
         f"{API_BASE}/v1/admin/verticals/{vertical_key}",

@@ -123,6 +123,8 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         st.markdown("### SuperAdmin")
         st.page_link(_resolve_entrypoint_script(), label="Inicio", icon="🏠")
         st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
+        st.page_link("pages/06_🧭_Scopes.py", label="Scopes", icon="🧭")
+        st.page_link("pages/07_📑_Flows.py", label="Flows", icon="📑")
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
         st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
         st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
