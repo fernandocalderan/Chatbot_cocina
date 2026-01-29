@@ -15,15 +15,6 @@
       "clinics_private_base_v1"
     ]
   },
-  "clinicas_privadas": {
-    "label": "Clínicas Privadas (V2)",
-    "default_flow_id": "clinicas_privadas_base_v1",
-    "flow_ids": [
-      "clinicas_privadas_base_v1"
-    ],
-    "path": "clinicas_privadas",
-    "archived": false
-  },
   "home_services": {
     "label": "Servicios para el Hogar",
     "default_flow_id": "home_services_base_v1",
