@@ -613,8 +613,9 @@ def send_message(
         raise HTTPException(status_code=409, detail=exc.code)
     if not isinstance(getattr(flow_row, "schema_json", None), dict):
         raise HTTPException(status_code=409, detail="invalid_published_flow")
+    source = getattr(flow_row, "source", "unknown")
     logger.info(
-        f"Resolved active flow → tenant={tenant_id} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}"
+        f"Resolved active flow → tenant={tenant_id} source={source} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}"
     )
 
     # Si hay un subflow activo (definido por el motor), cargarlo en lugar del router/base.

@@ -1,6 +1,7 @@
 from app.models.tenants import Tenant
 from app.models.users import User
 from app.models.flows import Flow
+from app.models.tenant_flow_overrides import TenantFlowOverride
 from app.models.scopes import Scope
 from app.models.sessions import Session
 from app.models.leads import Lead
@@ -21,6 +22,7 @@ __all__ = [
     "Tenant",
     "User",
     "Flow",
+    "TenantFlowOverride",
     "Scope",
     "Session",
     "Lead",

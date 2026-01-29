@@ -1,5 +1,6 @@
 import uuid
 from typing import Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -7,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.middleware.authz import require_any_role
+from app.models.flows import Flow as FlowVersioned
+from app.models.tenant_flow_overrides import TenantFlowOverride
 from app.models.tenants import Tenant
+from app.services.flow_diff import diff_json
 from app.services.template_service import TemplateService
 from app.services.verticals import get_vertical_config, provision_vertical_assets
 
@@ -26,6 +30,40 @@ class TenantCreate(BaseModel):
     timezone: Optional[str] = Field("Europe/Madrid", max_length=64)
     idioma_default: Optional[str] = Field("es", max_length=10)
     vertical_key: Optional[str] = Field(None, max_length=64)
+
+
+class TenantFlowSyncPayload(BaseModel):
+    vertical_key: str = Field(..., min_length=1)
+    scope_key: str = Field(..., min_length=1)
+    flow_kind: str = Field("base", min_length=1)
+
+
+class TenantFlowPublishPayload(BaseModel):
+    vertical_key: str = Field(..., min_length=1)
+    scope_key: str = Field(..., min_length=1)
+    flow_kind: str = Field("base", min_length=1)
+    published: bool = True
+
+
+def _latest_published_template(
+    db: Session, *, vertical_key: str, scope_key: str, flow_kind: str
+) -> FlowVersioned | None:
+    try:
+        return (
+            db.query(FlowVersioned)
+            .filter(
+                FlowVersioned.owner_type == "GLOBAL",
+                FlowVersioned.owner_id.is_(None),
+                FlowVersioned.estado == "published",
+                FlowVersioned.vertical_key == vertical_key,
+                FlowVersioned.scope_key == scope_key,
+                FlowVersioned.flow_kind == flow_kind,
+            )
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+    except Exception:
+        return None
 
 
 @router.post(
@@ -99,4 +137,126 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
         "idioma_default": tenant.idioma_default,
         "default_template_id": str(getattr(tenant, "default_template_id")) if getattr(tenant, "default_template_id", None) else None,
         "vertical_key": tenant.vertical_key,
+    }
+
+
+@router.get(
+    "/{tenant_id}/diff",
+    dependencies=[Depends(require_any_role("SUPER_ADMIN"))],
+    summary="Diff entre template publicado y override del tenant",
+)
+def diff_tenant_flow(
+    tenant_id: str,
+    vertical_key: str,
+    scope_key: str,
+    flow_kind: str = "base",
+    db: Session = Depends(get_db),
+):
+    base = _latest_published_template(db, vertical_key=vertical_key, scope_key=scope_key, flow_kind=flow_kind)
+    if not base or not isinstance(base.schema_json, dict):
+        raise HTTPException(status_code=409, detail="template_not_found")
+
+    override = (
+        db.query(TenantFlowOverride)
+        .filter(TenantFlowOverride.tenant_id == tenant_id, TenantFlowOverride.base_flow_id == base.id)
+        .first()
+    )
+    override_json = override.draft_json if override and isinstance(override.draft_json, dict) else {}
+    diff = diff_json(base.schema_json or {}, override_json or {})
+    return {
+        "tenant_id": tenant_id,
+        "base_flow_id": str(base.id),
+        "base_version": base.version,
+        "override_flow_id": str(override.flow_id) if override else None,
+        "override_published": bool(getattr(override, "published", False)),
+        "override_published_at": override.published_at.isoformat() if override and override.published_at else None,
+        "override_updated_at": override.updated_at.isoformat() if override and override.updated_at else None,
+        "diff": diff,
+    }
+
+
+@router.post(
+    "/{tenant_id}/sync",
+    dependencies=[Depends(require_any_role("SUPER_ADMIN"))],
+    summary="Sincronizar tenant con template publicado (crea/actualiza override draft)",
+)
+def sync_tenant_flow(
+    tenant_id: str,
+    payload: TenantFlowSyncPayload,
+    db: Session = Depends(get_db),
+):
+    base = _latest_published_template(
+        db, vertical_key=payload.vertical_key, scope_key=payload.scope_key, flow_kind=payload.flow_kind
+    )
+    if not base or not isinstance(base.schema_json, dict):
+        raise HTTPException(status_code=409, detail="template_not_found")
+
+    override = (
+        db.query(TenantFlowOverride)
+        .filter(TenantFlowOverride.tenant_id == tenant_id, TenantFlowOverride.base_flow_id == base.id)
+        .first()
+    )
+    if not override:
+        override = TenantFlowOverride(
+            tenant_id=tenant_id,
+            base_flow_id=base.id,
+            draft_json=base.schema_json,
+            published=False,
+            published_at=None,
+        )
+        db.add(override)
+    else:
+        override.draft_json = base.schema_json
+        override.published = False
+        override.published_at = None
+        db.add(override)
+    db.commit()
+    db.refresh(override)
+    return {
+        "tenant_id": tenant_id,
+        "base_flow_id": str(base.id),
+        "override_flow_id": str(override.flow_id),
+        "published": bool(override.published),
+        "updated_at": override.updated_at.isoformat() if override.updated_at else None,
+    }
+
+
+@router.post(
+    "/{tenant_id}/publish",
+    dependencies=[Depends(require_any_role("SUPER_ADMIN"))],
+    summary="Publicar/Despublicar override del tenant",
+)
+def publish_tenant_override(
+    tenant_id: str,
+    payload: TenantFlowPublishPayload,
+    db: Session = Depends(get_db),
+):
+    base = _latest_published_template(
+        db, vertical_key=payload.vertical_key, scope_key=payload.scope_key, flow_kind=payload.flow_kind
+    )
+    if not base:
+        raise HTTPException(status_code=409, detail="template_not_found")
+
+    override = (
+        db.query(TenantFlowOverride)
+        .filter(TenantFlowOverride.tenant_id == tenant_id, TenantFlowOverride.base_flow_id == base.id)
+        .first()
+    )
+    if not override:
+        raise HTTPException(status_code=404, detail="override_not_found")
+
+    if payload.published:
+        override.published = True
+        override.published_at = datetime.now(timezone.utc)
+    else:
+        override.published = False
+        override.published_at = None
+    db.add(override)
+    db.commit()
+    db.refresh(override)
+    return {
+        "tenant_id": tenant_id,
+        "override_flow_id": str(override.flow_id),
+        "published": bool(override.published),
+        "published_at": override.published_at.isoformat() if override.published_at else None,
     }

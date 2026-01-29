@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+import logging
 import json
 
 from sqlalchemy.orm import Session
 
 from app.models.flows import Flow as FlowVersioned
+from app.models.tenant_flow_overrides import TenantFlowOverride
 from app.models.tenants import Tenant
 from app.services.subflows_composer import maybe_compose_for_tenant
+from app.services.verticals import tenant_vertical_scopes
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ResolvedFlow:
+    id: str
+    version: int | None
+    estado: str
+    published_at: datetime | None
+    schema_json: dict[str, Any]
+    source: str
+    base_flow_id: str | None = None
 
 
 class FlowResolutionError(RuntimeError):
@@ -42,7 +60,56 @@ def _latest_published_flow(db: Session, tenant_id: str) -> FlowVersioned | None:
         return None
 
 
-def resolve_active_flow(db: Session, tenant_id: str) -> FlowVersioned:
+def _latest_published_template(
+    db: Session, *, vertical_key: str | None, scope_key: str | None, flow_kind: str
+) -> FlowVersioned | None:
+    if not vertical_key or not scope_key:
+        return None
+    try:
+        return (
+            db.query(FlowVersioned)
+            .filter(
+                FlowVersioned.owner_type == "GLOBAL",
+                FlowVersioned.owner_id.is_(None),
+                FlowVersioned.estado == "published",
+                FlowVersioned.vertical_key == vertical_key,
+                FlowVersioned.scope_key == scope_key,
+                FlowVersioned.flow_kind == flow_kind,
+            )
+            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def _published_override(
+    db: Session, *, tenant_id: str, base_flow_id: str
+) -> TenantFlowOverride | None:
+    try:
+        return (
+            db.query(TenantFlowOverride)
+            .filter(
+                TenantFlowOverride.tenant_id == tenant_id,
+                TenantFlowOverride.base_flow_id == base_flow_id,
+                TenantFlowOverride.published.is_(True),
+            )
+            .order_by(TenantFlowOverride.published_at.desc().nullslast(), TenantFlowOverride.updated_at.desc())
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def resolve_active_flow(
+    db: Session,
+    tenant_id: str,
+    *,
+    tenant: Tenant | None = None,
+    vertical_key: str | None = None,
+    scope_key: str | None = None,
+    flow_kind: str = "base",
+) -> ResolvedFlow:
     """
     Resolver único y determinista:
     - Filtra por tenant_id y estado=published
@@ -50,20 +117,49 @@ def resolve_active_flow(db: Session, tenant_id: str) -> FlowVersioned:
     - Si no hay flujo publicado → error explícito
     - Si hay más de uno → error explícito (integridad)
     """
-    try:
-        rows = (
-            db.query(FlowVersioned)
-            .filter(FlowVersioned.tenant_id == tenant_id, FlowVersioned.estado == "published")
-            .order_by(FlowVersioned.published_at.desc().nullslast(), FlowVersioned.version.desc())
-            .all()
+    if not tenant:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    vertical_key = vertical_key or (getattr(tenant, "vertical_key", None) if tenant else None)
+    scope_key = scope_key or (tenant_vertical_scopes(tenant)[0] if tenant and tenant_vertical_scopes(tenant) else None)
+
+    template = _latest_published_template(db, vertical_key=vertical_key, scope_key=scope_key, flow_kind=flow_kind)
+    if template:
+        override = _published_override(db, tenant_id=str(tenant_id), base_flow_id=str(template.id))
+        if override and isinstance(override.draft_json, dict):
+            version = int(override.published_at.timestamp()) if override.published_at else None
+            return ResolvedFlow(
+                id=str(override.flow_id),
+                version=version,
+                estado="published",
+                published_at=override.published_at,
+                schema_json=override.draft_json,
+                source="TENANT_OVERRIDE",
+                base_flow_id=str(template.id),
+            )
+
+    # Legacy tenant published flows (override implicit)
+    tenant_flow = _latest_published_flow(db, tenant_id)
+    if tenant_flow and isinstance(tenant_flow.schema_json, dict):
+        return ResolvedFlow(
+            id=str(tenant_flow.id),
+            version=tenant_flow.version,
+            estado=tenant_flow.estado,
+            published_at=tenant_flow.published_at,
+            schema_json=tenant_flow.schema_json,
+            source="TENANT_FLOW",
         )
-    except Exception:
-        rows = []
-    if not rows:
-        raise FlowResolutionError("no_published_flow", f"tenant={tenant_id} has no published flow")
-    if len(rows) > 1:
-        raise FlowResolutionError("multiple_published_flows", f"tenant={tenant_id} has multiple published flows")
-    return rows[0]
+
+    if template and isinstance(template.schema_json, dict):
+        return ResolvedFlow(
+            id=str(template.id),
+            version=template.version,
+            estado=template.estado,
+            published_at=template.published_at,
+            schema_json=template.schema_json,
+            source="GLOBAL_TEMPLATE",
+        )
+
+    raise FlowResolutionError("no_published_flow", f"tenant={tenant_id} has no published flow")
 
 
 def _active_or_latest_published_flow(db: Session, tenant: Tenant) -> FlowVersioned | None:
@@ -147,7 +243,7 @@ def resolve_runtime_flow(
     vertical_key = getattr(tenant, "vertical_key", None)
     flow_data: dict[str, Any] | None = None
     tenant_id = str(getattr(tenant, "id"))
-    flow_row = resolve_active_flow(db, tenant_id)
+    flow_row = resolve_active_flow(db, tenant_id, tenant=tenant, flow_kind=str(plan_value or "base").lower())
     if not flow_row or not isinstance(flow_row.schema_json, dict):
         raise FlowResolutionError("invalid_published_flow", f"tenant={tenant_id} published flow invalid")
     flow_data = flow_row.schema_json
@@ -155,4 +251,7 @@ def resolve_runtime_flow(
         flow_data = maybe_compose_for_tenant(db=db, tenant=tenant, base_flow=flow_data)
     except Exception:
         pass
+    logger.info(
+        f\"Resolved active flow → tenant={tenant_id} source={getattr(flow_row,'source','unknown')} flow={flow_row.id} version={flow_row.version} published_at={flow_row.published_at}\"
+    )
     return flow_data

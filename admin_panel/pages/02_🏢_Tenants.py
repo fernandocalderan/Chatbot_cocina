@@ -19,6 +19,9 @@ from admin_panel.api_client import (
     publish_flow,
     publish_flow_by_id,
     reset_sessions,
+    tenant_flow_diff,
+    tenant_flow_publish_override,
+    tenant_flow_sync,
     toggle_maintenance,
     update_tenant,
 )
@@ -467,6 +470,111 @@ for t in tenants:
                             cc1.caption(f"flows: {', '.join(flow_ids)}")
                         if row.get("source") == "DB_ONLY" or not row.get("has_fs_def"):
                             cc2.caption("warning: scope sin definición FS")
+                st.divider()
+                st.markdown("**Plantilla y Sync (override)**")
+                for row in sorted(scope_rows, key=lambda r: str(r.get("scope_key") or "")):
+                    skey = row.get("scope_key") or ""
+                    diff_state_key = f"diff-{tenant_id}-{skey}"
+                    with st.expander(f"{skey} · Sync", expanded=False):
+                        col_a, col_b = st.columns([0.5, 0.5])
+                        if col_a.button("Ver diff", key=f"diff-btn-{tenant_id}-{skey}", use_container_width=True):
+                            diff_res = tenant_flow_diff(
+                                ctx.token,
+                                tenant_id,
+                                vertical_key=v_current or "",
+                                scope_key=skey,
+                                flow_kind="base",
+                                api_key=ctx.api_key,
+                            )
+                            st.session_state[diff_state_key] = diff_res
+                        diff_data = st.session_state.get(diff_state_key)
+                        if isinstance(diff_data, dict) and diff_data.get("error"):
+                            st.error(diff_data)
+                        elif isinstance(diff_data, dict) and diff_data:
+                            st.caption(
+                                f"Base v{diff_data.get('base_version')} · base_flow_id={diff_data.get('base_flow_id')}"
+                            )
+                            st.caption(
+                                f"Override: {diff_data.get('override_flow_id') or '—'} · "
+                                f"published={diff_data.get('override_published')} · "
+                                f"updated_at={diff_data.get('override_updated_at') or '—'}"
+                            )
+                            diff_counts = diff_data.get("diff") or {}
+                            st.write(
+                                {
+                                    "changed": len(diff_counts.get("changed") or []),
+                                    "added": len(diff_counts.get("added") or []),
+                                    "removed": len(diff_counts.get("removed") or []),
+                                }
+                            )
+                            if debug_mode:
+                                st.json(diff_counts)
+
+                        with col_b:
+                            sync_confirm = st.checkbox(
+                                "Confirmo sync desde plantilla",
+                                value=False,
+                                key=f"sync-confirm-{tenant_id}-{skey}",
+                            )
+                            sync_text = st.text_input(
+                                "Escribe SYNC para habilitar",
+                                value="",
+                                key=f"sync-text-{tenant_id}-{skey}",
+                            )
+                            can_sync = sync_confirm and sync_text.strip().lower() == "sync"
+                            if st.button(
+                                "Sync now",
+                                key=f"sync-btn-{tenant_id}-{skey}",
+                                disabled=not can_sync,
+                                use_container_width=True,
+                            ):
+                                res = tenant_flow_sync(
+                                    ctx.token,
+                                    tenant_id,
+                                    vertical_key=v_current or "",
+                                    scope_key=skey,
+                                    flow_kind="base",
+                                    api_key=ctx.api_key,
+                                )
+                                if isinstance(res, dict) and res.get("error"):
+                                    st.error(res)
+                                else:
+                                    st.success("Override creado/actualizado como borrador.")
+                                    st.session_state.pop(diff_state_key, None)
+                                    st.rerun()
+
+                        pub_confirm = st.checkbox(
+                            "Confirmo publicación del override",
+                            value=False,
+                            key=f"ov-pub-confirm-{tenant_id}-{skey}",
+                        )
+                        pub_text = st.text_input(
+                            "Escribe PUBLICAR para habilitar",
+                            value="",
+                            key=f"ov-pub-text-{tenant_id}-{skey}",
+                        )
+                        can_pub = pub_confirm and pub_text.strip().lower() == "publicar"
+                        if st.button(
+                            "Publicar override",
+                            key=f"ov-pub-btn-{tenant_id}-{skey}",
+                            disabled=not can_pub,
+                            use_container_width=True,
+                        ):
+                            res = tenant_flow_publish_override(
+                                ctx.token,
+                                tenant_id,
+                                vertical_key=v_current or "",
+                                scope_key=skey,
+                                flow_kind="base",
+                                published=True,
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(res, dict) and res.get("error"):
+                                st.error(res)
+                            else:
+                                st.success("Override publicado.")
+                                st.session_state.pop(diff_state_key, None)
+                                st.rerun()
             else:
                 st.caption("Sin scopes detectados para este tenant.")
             health_check = get_published_flow(ctx.token, tenant_id, api_key=ctx.api_key)

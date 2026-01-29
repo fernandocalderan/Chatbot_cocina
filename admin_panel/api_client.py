@@ -240,6 +240,75 @@ def publish_flow_by_id(token: str | None, flow_id: str, api_key: str | None = No
     return {"error": resp.text, "status_code": resp.status_code}
 
 
+def tenant_flow_diff(
+    token: str | None,
+    tenant_id: str,
+    *,
+    vertical_key: str,
+    scope_key: str,
+    flow_kind: str = "base",
+    api_key: str | None = None,
+):
+    params = {"vertical_key": vertical_key, "scope_key": scope_key, "flow_kind": flow_kind}
+    resp = requests.get(
+        f"{API_BASE}/v1/tenants/{tenant_id}/diff",
+        headers=_headers(token, api_key or _admin_api_key()),
+        params=params,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def tenant_flow_sync(
+    token: str | None,
+    tenant_id: str,
+    *,
+    vertical_key: str,
+    scope_key: str,
+    flow_kind: str = "base",
+    api_key: str | None = None,
+):
+    payload = {"vertical_key": vertical_key, "scope_key": scope_key, "flow_kind": flow_kind}
+    resp = requests.post(
+        f"{API_BASE}/v1/tenants/{tenant_id}/sync",
+        headers=_headers(token, api_key or _admin_api_key()),
+        json=payload,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def tenant_flow_publish_override(
+    token: str | None,
+    tenant_id: str,
+    *,
+    vertical_key: str,
+    scope_key: str,
+    flow_kind: str = "base",
+    published: bool = True,
+    api_key: str | None = None,
+):
+    payload = {
+        "vertical_key": vertical_key,
+        "scope_key": scope_key,
+        "flow_kind": flow_kind,
+        "published": published,
+    }
+    resp = requests.post(
+        f"{API_BASE}/v1/tenants/{tenant_id}/publish",
+        headers=_headers(token, api_key or _admin_api_key()),
+        json=payload,
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
 def flatten_catalog_scopes(catalog_json: dict) -> list[dict]:
     rows: list[dict] = []
     for v in catalog_json.get("verticals") or []:
