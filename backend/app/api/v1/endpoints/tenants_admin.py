@@ -45,6 +45,19 @@ class TenantFlowPublishPayload(BaseModel):
     published: bool = True
 
 
+def _ensure_tenant_vertical_key(db: Session, tenant_id: str) -> None:
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    vertical_key = getattr(tenant, "vertical_key", None) if tenant else None
+    if not vertical_key or not str(vertical_key).strip():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "tenant_missing_vertical_key",
+                "message": "tenant has no vertical_key configured",
+            },
+        )
+
+
 def _latest_published_template(
     db: Session, *, vertical_key: str, scope_key: str, flow_kind: str
 ) -> FlowVersioned | None:
@@ -152,6 +165,7 @@ def diff_tenant_flow(
     flow_kind: str = "base",
     db: Session = Depends(get_db),
 ):
+    _ensure_tenant_vertical_key(db, tenant_id)
     base = _latest_published_template(db, vertical_key=vertical_key, scope_key=scope_key, flow_kind=flow_kind)
     if not base or not isinstance(base.schema_json, dict):
         raise HTTPException(status_code=409, detail="template_not_found")
@@ -185,6 +199,7 @@ def sync_tenant_flow(
     payload: TenantFlowSyncPayload,
     db: Session = Depends(get_db),
 ):
+    _ensure_tenant_vertical_key(db, tenant_id)
     base = _latest_published_template(
         db, vertical_key=payload.vertical_key, scope_key=payload.scope_key, flow_kind=payload.flow_kind
     )
@@ -231,6 +246,7 @@ def publish_tenant_override(
     payload: TenantFlowPublishPayload,
     db: Session = Depends(get_db),
 ):
+    _ensure_tenant_vertical_key(db, tenant_id)
     base = _latest_published_template(
         db, vertical_key=payload.vertical_key, scope_key=payload.scope_key, flow_kind=payload.flow_kind
     )

@@ -122,7 +122,9 @@ for t in tenants:
     code = t.get("customer_code") or "—"
 
     scopes_current = t.get("vertical_scopes") or []
-    v_current = t.get("vertical_key") or (vertical_keys[0] if vertical_keys else None)
+    tenant_vertical = t.get("vertical_key")
+    tenant_vertical_missing = not (tenant_vertical and str(tenant_vertical).strip())
+    v_current = tenant_vertical or (vertical_keys[0] if vertical_keys else None)
     flow_system = str(t.get("flow_system") or "v2").strip().lower()
     if flow_system != "v2":
         flow_system = "v2"
@@ -472,16 +474,26 @@ for t in tenants:
                             cc2.caption("warning: scope sin definición FS")
                 st.divider()
                 st.markdown("**Plantilla y Sync (override)**")
+                if tenant_vertical_missing:
+                    st.warning(
+                        "Este tenant no tiene `vertical_key` configurado. "
+                        "Sync/Publish deshabilitados hasta asignar un vertical."
+                    )
                 for row in sorted(scope_rows, key=lambda r: str(r.get("scope_key") or "")):
                     skey = row.get("scope_key") or ""
                     diff_state_key = f"diff-{tenant_id}-{skey}"
                     with st.expander(f"{skey} · Sync", expanded=False):
                         col_a, col_b = st.columns([0.5, 0.5])
-                        if col_a.button("Ver diff", key=f"diff-btn-{tenant_id}-{skey}", use_container_width=True):
+                        if col_a.button(
+                            "Ver diff",
+                            key=f"diff-btn-{tenant_id}-{skey}",
+                            use_container_width=True,
+                            disabled=tenant_vertical_missing,
+                        ):
                             diff_res = tenant_flow_diff(
                                 ctx.token,
                                 tenant_id,
-                                vertical_key=v_current or "",
+                                vertical_key=tenant_vertical or "",
                                 scope_key=skey,
                                 flow_kind="base",
                                 api_key=ctx.api_key,
@@ -525,13 +537,13 @@ for t in tenants:
                             if st.button(
                                 "Sync now",
                                 key=f"sync-btn-{tenant_id}-{skey}",
-                                disabled=not can_sync,
+                                disabled=not can_sync or tenant_vertical_missing,
                                 use_container_width=True,
                             ):
                                 res = tenant_flow_sync(
                                     ctx.token,
                                     tenant_id,
-                                    vertical_key=v_current or "",
+                                    vertical_key=tenant_vertical or "",
                                     scope_key=skey,
                                     flow_kind="base",
                                     api_key=ctx.api_key,
@@ -557,13 +569,13 @@ for t in tenants:
                         if st.button(
                             "Publicar override",
                             key=f"ov-pub-btn-{tenant_id}-{skey}",
-                            disabled=not can_pub,
+                            disabled=not can_pub or tenant_vertical_missing,
                             use_container_width=True,
                         ):
                             res = tenant_flow_publish_override(
                                 ctx.token,
                                 tenant_id,
-                                vertical_key=v_current or "",
+                                vertical_key=tenant_vertical or "",
                                 scope_key=skey,
                                 flow_kind="base",
                                 published=True,
