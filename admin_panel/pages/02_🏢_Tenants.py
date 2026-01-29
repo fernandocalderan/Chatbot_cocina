@@ -9,10 +9,14 @@ if str(REPO_ROOT) not in sys.path:
 
 from admin_panel.api_client import (
     exclude_tenant,
+    get_published_flow,
     get_tenant_flow,
     include_tenant,
     issue_widget_token,
+    list_flows,
     list_tenants,
+    publish_flow,
+    reset_sessions,
     toggle_maintenance,
     update_tenant,
 )
@@ -20,6 +24,7 @@ from admin_panel.ui import (
     can_write,
     ensure_vertical_catalog,
     init_page,
+    pill,
     render_impersonation_banner,
     render_sidebar_nav,
     require_admin_context,
@@ -291,22 +296,180 @@ for t in tenants:
 
             st.divider()
             st.markdown("**Flow efectivo**")
+            debug_mode = bool(st.session_state.get("debug"))
+            if debug_mode:
+                st.caption(f"Tenant activo: `{tenant_id}`")
+            health_check = get_published_flow(ctx.token, tenant_id, api_key=ctx.api_key)
+            health_status = str(health_check.get("status") or "ERROR")
+            if health_status == "OK":
+                st.success("✅ Backend resolverá este flow publicado.")
+            elif health_status == "NO_PUBLISHED":
+                st.warning("⚠️ Chat responderá 409 hasta publicar.")
+            elif health_status == "MULTIPLE_PUBLISHED":
+                st.error("❌ Inconsistencia: corregir antes de operar.")
+            else:
+                if isinstance(health_check, dict) and health_check.get("error"):
+                    st.warning(f"Health check: {health_check.get('error')}")
             with st.spinner("Cargando flow…"):
                 flow_info = get_tenant_flow(ctx.token, tenant_id, api_key=ctx.api_key) or {}
+            published = None
+            effective: dict = {}
             if isinstance(flow_info, dict) and flow_info.get("error"):
-                st.error(flow_info)
+                status_code = str(flow_info.get("status_code") or "")
+                if status_code == "409":
+                    if health_status not in {"NO_PUBLISHED", "MULTIPLE_PUBLISHED"}:
+                        st.warning("No se pudo resolver el flow publicado.")
+                else:
+                    st.error(flow_info)
             else:
                 published = flow_info.get("published") if isinstance(flow_info.get("published"), dict) else None
                 scopes = flow_info.get("scopes") or []
                 if published and flow_system == "v2":
-                    st.success(f"Usa Published v{published.get('version')} ({published.get('flow_id')})")
+                    badge = pill("PUBLICADO", "success")
+                    st.markdown(
+                        f"{badge} v{published.get('version')} · `{published.get('flow_id')}` · {published.get('published_at') or '—'}",
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.info(f"Fallback a base del scope: {scopes[0] if scopes else '—'}")
                 effective = flow_info.get("effective_flow") if isinstance(flow_info.get("effective_flow"), dict) else {}
-                st.caption(f"start_block: `{effective.get('start_block') or '—'}` · blocks: {len((effective.get('blocks') or {}) if isinstance(effective.get('blocks'), dict) else {})}")
+                st.caption(
+                    f"start_block: `{effective.get('start_block') or '—'}` · blocks: {len((effective.get('blocks') or {}) if isinstance(effective.get('blocks'), dict) else {})}"
+                )
                 show_json = st.checkbox("Ver JSON (solo lectura)", value=False, key=f"show-json-{tenant_id}")
                 if show_json:
                     st.json(effective or {})
+            if debug_mode and isinstance(published, dict):
+                st.caption(
+                    f"Flow publicado actual: `{published.get('flow_id')}` · v{published.get('version')} · {published.get('published_at') or '—'}"
+                )
+
+            st.markdown("**Versiones del flow**")
+            with st.spinner("Cargando versiones…"):
+                versions_payload = list_flows(ctx.token, tenant_id, limit=50, include_schema=False, api_key=ctx.api_key) or {}
+            if isinstance(versions_payload, dict) and versions_payload.get("error"):
+                st.warning(versions_payload)
+                versions = []
+            else:
+                versions = versions_payload.get("items") or []
+            published_versions = [v for v in versions if str(v.get("estado") or "").lower() == "published"]
+            multiple_published = len(published_versions) > 1
+            if multiple_published:
+                st.error("Hay más de un flow publicado. Bloquea la publicación hasta corregir.")
+            if not versions:
+                st.caption("Sin versiones registradas todavía.")
+            else:
+                for row in versions:
+                    estado = str(row.get("estado") or "draft").lower()
+                    badge = pill("PUBLICADO", "success") if estado == "published" else pill("BORRADOR", "warning")
+                    cver, cid, cpub = st.columns([0.2, 0.5, 0.3])
+                    cver.markdown(badge, unsafe_allow_html=True)
+                    cver.caption(f"v{row.get('version')}")
+                    cid.caption(str(row.get("flow_id") or "—"))
+                    cpub.caption(row.get("published_at") or row.get("created_at") or "—")
+
+            st.markdown("**Publicar flow**")
+            publish_disabled = not write_enabled or multiple_published or not isinstance(effective, dict) or not effective
+            publish_confirm = st.checkbox(
+                "Confirmo que quiero publicar este flow y despublicar versiones anteriores.",
+                value=False,
+                key=f"pub-confirm-{tenant_id}",
+                disabled=not write_enabled,
+            )
+            publish_phrase = st.text_input(
+                "Escribe PUBLICAR para habilitar",
+                value="",
+                key=f"pub-text-{tenant_id}",
+                disabled=not publish_confirm or not write_enabled,
+            )
+            can_publish = publish_confirm and publish_phrase.strip().lower() == "publicar"
+            publish_block_reason = None
+            publish_block_level = "info"
+            if multiple_published:
+                publish_block_reason = "Bloqueado: hay múltiples flows publicados (backend devolvería 409)."
+                publish_block_level = "error"
+            elif health_status == "NO_PUBLISHED" and not effective:
+                publish_block_reason = "No hay flow publicado. Publica uno para habilitar el chat."
+                publish_block_level = "warning"
+            elif not can_publish:
+                publish_block_reason = "Completa confirmación: marca checkbox + escribe PUBLICAR."
+                publish_block_level = "info"
+            elif not isinstance(effective, dict) or not effective:
+                publish_block_reason = "Selecciona la versión a publicar."
+                publish_block_level = "info"
+            if publish_disabled and publish_block_reason:
+                if publish_block_level == "error":
+                    st.error(publish_block_reason)
+                elif publish_block_level == "warning":
+                    st.warning(publish_block_reason)
+                else:
+                    st.info(publish_block_reason)
+            if st.button(
+                "Publicar flow efectivo",
+                key=f"publish-flow-{tenant_id}",
+                use_container_width=True,
+                disabled=publish_disabled or not can_publish,
+            ):
+                res = publish_flow(ctx.token, tenant_id, effective, api_key=ctx.api_key)
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(res)
+                else:
+                    st.success("Flow publicado.")
+                    st.rerun()
+
+            st.markdown("**Probar resolución backend**")
+            if st.button(
+                "Probar resolución backend",
+                key=f"resolve-flow-{tenant_id}",
+                use_container_width=True,
+            ):
+                res = get_published_flow(ctx.token, tenant_id, api_key=ctx.api_key)
+                status = str(res.get("status") or "")
+                if status == "OK":
+                    flow = res.get("flow") or {}
+                    msg = (
+                        f"Resolved active flow → tenant={tenant_id} "
+                        f"flow={flow.get('flow_id')} version={flow.get('version')} "
+                        f"published_at={flow.get('published_at')}"
+                    )
+                    st.code(msg, language="text")
+                elif status == "NO_PUBLISHED":
+                    st.warning("No hay flow publicado. El chat devolverá 409.")
+                elif status == "MULTIPLE_PUBLISHED":
+                    st.error("Hay múltiples flows publicados. Corrige antes de operar.")
+                else:
+                    st.warning(res)
+
+            if debug_mode:
+                st.markdown("**Debug**")
+                reset_confirm = st.checkbox(
+                    "Confirmo resetear sesiones activas del tenant.",
+                    value=False,
+                    key=f"reset-confirm-{tenant_id}",
+                    disabled=not write_enabled,
+                )
+                reset_text = st.text_input(
+                    "Escribe RESET para confirmar",
+                    value="",
+                    key=f"reset-text-{tenant_id}",
+                    disabled=not reset_confirm or not write_enabled,
+                )
+                reset_ready = reset_confirm and reset_text.strip().lower() == "reset" and write_enabled
+                if st.button(
+                    "Reset sesiones",
+                    key=f"reset-sessions-{tenant_id}",
+                    use_container_width=True,
+                    disabled=not reset_ready,
+                ):
+                    res = reset_sessions(ctx.token, tenant_id, api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        code = int(res.get("status_code") or 0)
+                        if code in {404, 405}:
+                            st.info("Reset sesiones: no hay endpoint disponible (backend ya invalida por versión).")
+                        else:
+                            st.error(res)
+                    else:
+                        st.success("Sesiones reseteadas.")
 
             st.caption("Tip: abre el Widget tester con este tenant para ver claramente qué flow se prueba.")
             if st.button("Abrir Widget tester (este tenant)", key=f"open-wt-{tenant_id}", use_container_width=True):

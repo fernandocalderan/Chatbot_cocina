@@ -127,6 +127,12 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
         st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
         st.page_link("pages/05_🧾_Auditoría.py", label="Auditoría", icon="🧾")
+        debug_default = str(os.getenv("PANEL_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+        st.session_state.setdefault("debug", debug_default)
+        roles = st.session_state.get("admin_roles") or []
+        debug_allowed = debug_default or ("SUPER_ADMIN" in roles)
+        if debug_allowed:
+            st.toggle("Debug", key="debug", help="Muestra información extra de diagnóstico.")
         if show_tools:
             st.markdown("---")
             st.page_link("pages/widget_tester.py", label="Widget tester", icon="🧪")

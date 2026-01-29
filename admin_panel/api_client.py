@@ -319,6 +319,31 @@ def get_tenant_flow(token: str | None, tenant_id: str, api_key: str | None = Non
     return {"error": resp.text, "status_code": resp.status_code}
 
 
+def get_published_flow(token: str | None, tenant_id: str, api_key: str | None = None):
+    resp = requests.get(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        data = resp.json()
+        published = data.get("published") if isinstance(data, dict) else None
+        return {"status": "OK", "flow": published or {}, "raw": data}
+    if resp.status_code == 409:
+        detail = ""
+        try:
+            detail = str((resp.json() or {}).get("detail") or "")
+        except Exception:
+            detail = resp.text or ""
+        detail_lower = detail.lower()
+        if "multiple" in detail_lower:
+            return {"status": "MULTIPLE_PUBLISHED", "flow": None, "error": detail, "status_code": resp.status_code}
+        if "no_published" in detail_lower or "no published" in detail_lower:
+            return {"status": "NO_PUBLISHED", "flow": None, "error": detail, "status_code": resp.status_code}
+        return {"status": "ERROR", "flow": None, "error": detail, "status_code": resp.status_code}
+    return {"status": "ERROR", "flow": None, "error": resp.text, "status_code": resp.status_code}
+
+
 def publish_tenant_flow(token: str | None, tenant_id: str, flow_payload: dict, api_key: str | None = None):
     resp = requests.post(
         f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow",
@@ -331,9 +356,24 @@ def publish_tenant_flow(token: str | None, tenant_id: str, flow_payload: dict, a
     return {"error": resp.text, "status_code": resp.status_code}
 
 
+def publish_flow(token: str | None, tenant_id: str, flow_payload: dict, api_key: str | None = None):
+    return publish_tenant_flow(token, tenant_id, flow_payload, api_key=api_key)
+
+
 def reset_tenant_flow(token: str | None, tenant_id: str, api_key: str | None = None):
     resp = requests.post(
         f"{API_BASE}/v1/admin/tenants/{tenant_id}/flow/reset",
+        headers=_headers(token, api_key or _admin_api_key()),
+        timeout=20,
+    )
+    if resp.ok:
+        return resp.json()
+    return {"error": resp.text, "status_code": resp.status_code}
+
+
+def reset_sessions(token: str | None, tenant_id: str, api_key: str | None = None):
+    resp = requests.post(
+        f"{API_BASE}/v1/admin/tenants/{tenant_id}/sessions/reset",
         headers=_headers(token, api_key or _admin_api_key()),
         timeout=20,
     )
@@ -359,6 +399,23 @@ def list_tenant_flow_versions(
     if resp.ok:
         return resp.json()
     return {"items": [], "error": resp.text, "status_code": resp.status_code}
+
+
+def list_flows(
+    token: str | None,
+    tenant_id: str,
+    *,
+    limit: int = 20,
+    include_schema: bool = False,
+    api_key: str | None = None,
+):
+    return list_tenant_flow_versions(
+        token,
+        tenant_id,
+        limit=limit,
+        include_schema=include_schema,
+        api_key=api_key,
+    )
 
 
 def admin_audits_recent(
