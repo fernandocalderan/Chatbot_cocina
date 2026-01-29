@@ -78,3 +78,45 @@ Checklist UI:
 4) Subir flow base JSON simple y **Importar como borrador**.
 5) **Publicar ahora** (checkbox + escribir PUBLICAR).
 6) Confirmar en **Scopes** que el estado es `PUBLISHED_OK`.
+
+## Fase 3 sync/diff smoke
+```bash
+export BASE_URL="http://localhost:8100"
+export API_KEY="$ADMIN_API_TOKEN"
+
+# Ejemplo con clinics_private/osteopatia
+export VERTICAL_KEY="clinics_private"
+export SCOPE_KEY="osteopatia"
+export FLOW_KIND="base"
+export TENANT_ID="<TENANT_ID>"
+
+mkdir -p backend/docs/debug
+
+# DIFF
+curl -s -H "x-api-key: $API_KEY" \
+  "$BASE_URL/v1/tenants/$TENANT_ID/diff?vertical_key=$VERTICAL_KEY&scope_key=$SCOPE_KEY&flow_kind=$FLOW_KIND" \
+  | tee backend/docs/debug/tenant_diff_$(date +%F_%H%M).json | jq .
+
+# SYNC
+curl -s -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
+  -d "{\"vertical_key\":\"$VERTICAL_KEY\",\"scope_key\":\"$SCOPE_KEY\",\"flow_kind\":\"$FLOW_KIND\"}" \
+  "$BASE_URL/v1/tenants/$TENANT_ID/sync" \
+  | tee backend/docs/debug/tenant_sync_$(date +%F_%H%M).json | jq .
+
+# PUBLISH override
+curl -s -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
+  -d "{\"vertical_key\":\"$VERTICAL_KEY\",\"scope_key\":\"$SCOPE_KEY\",\"flow_kind\":\"$FLOW_KIND\",\"published\":true}" \
+  "$BASE_URL/v1/tenants/$TENANT_ID/publish" \
+  | tee backend/docs/debug/tenant_publish_override_$(date +%F_%H%M).json | jq .
+
+# Logs resolver
+docker logs --tail 120 $(docker ps --format "{{.Names}}" | rg "api" | head -n 1) | tail -n 120 \
+  | tee backend/docs/debug/resolver_logs_$(date +%F_%H%M).txt
+```
+
+Éxito:
+- `diff` responde 200 (no 409).
+- `sync` crea override draft (`published:false`).
+- `publish` deja override publicado (`published:true`).
+- `catalog` por tenant muestra flow publicado con `owner_type=TENANT`.
+- logs incluyen `Resolved active flow` con `source=TENANT_OVERRIDE`.
