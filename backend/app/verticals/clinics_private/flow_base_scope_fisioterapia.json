@@ -1,5 +1,12 @@
 {
   "start_block": "welcome",
+  "config": {
+    "router": {
+      "save_to": "intent",
+      "scope": "fisioterapia",
+      "fallback_key": "espalda_cervical"
+    }
+  },
   "blocks": {
     "welcome": {
       "type": "message",
@@ -38,19 +45,31 @@
       "options": [
         {
           "label": "Dolor de espalda o cuello",
-          "value": "espalda"
+          "value": "espalda_cervical"
         },
         {
           "label": "Lesión deportiva",
-          "value": "lesion"
+          "value": "lesion_deportiva"
         },
         {
-          "label": "Dolor de hombro, rodilla o cadera",
-          "value": "articulacion"
+          "label": "Dolor de hombro",
+          "value": "hombro"
+        },
+        {
+          "label": "Dolor de rodilla",
+          "value": "rodilla"
+        },
+        {
+          "label": "Dolor de cadera o glúteo",
+          "value": "cadera_gluteo"
         },
         {
           "label": "Rehabilitación post-quirúrgica",
-          "value": "rehab"
+          "value": "rehab_postquirurgica"
+        },
+        {
+          "label": "Fisio respiratoria",
+          "value": "fisio_respiratoria"
         },
         {
           "label": "Suelo pélvico",
@@ -58,21 +77,18 @@
         },
         {
           "label": "ATM / Bruxismo",
-          "value": "atm"
+          "value": "atm_bruxismo"
         },
         {
           "label": "Otro / no lo tengo claro",
           "value": "otro"
         }
       ],
-      "save_to": "intent_primary",
+      "save_to": "intent",
       "next": "route_intent"
     },
     "route_intent": {
-      "type": "router",
-      "router_save_to": "intent",
-      "scope": "fisioterapia",
-      "fallback": "triage"
+      "type": "end"
     },
     "triage": {
       "type": "message",
