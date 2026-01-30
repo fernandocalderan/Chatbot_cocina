@@ -523,6 +523,41 @@ def render_cockpit() -> bool:
 
         with tab_manage:
             st.markdown("<a name='subflows-gestionar'></a>", unsafe_allow_html=True)
+            drafts = [sf for sf in subflows if not sf.get("published")]
+            action_bar = st.columns([0.5, 0.3, 0.2])
+            if action_bar[0].button("+ Crear subflow", use_container_width=True, disabled=not write_enabled):
+                st.session_state["show_create_subflow"] = True
+                st.session_state.pop("subflow_edit_target", None)
+            if action_bar[1].button("Importar subflow", use_container_width=True, disabled=not write_enabled):
+                st.session_state["show_import_subflow"] = True
+            if drafts and action_bar[2].button("Publicar todos", use_container_width=True, disabled=not write_enabled):
+                st.session_state["confirm_publish_all"] = True
+
+            if st.session_state.get("confirm_publish_all"):
+                st.warning(f"Se publicarán {len(drafts)} subflows en borrador. ¿Continuar?")
+                c_yes, c_no = st.columns([0.5, 0.5])
+                if c_yes.button("Sí, publicar", use_container_width=True):
+                    progress = st.progress(0)
+                    total = len(drafts) or 1
+                    for idx, sf in enumerate(drafts, start=1):
+                        res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
+                        if isinstance(res, dict) and res.get("error"):
+                            err_text = str(res.get("error") or "").lower()
+                            if "invalid_subflow_content" in err_text:
+                                st.error("El contenido no es válido para un subflow.")
+                            elif "invalid_scope_key" in err_text:
+                                st.error("El scope debe usar minúsculas, números y guiones.")
+                            else:
+                                st.error("No se pudo publicar. Inténtalo otra vez.")
+                            break
+                        progress.progress(int(idx / total * 100))
+                    else:
+                        st.success("Subflows publicados.")
+                        st.session_state["confirm_publish_all"] = False
+                        st.rerun()
+                if c_no.button("Cancelar", use_container_width=True):
+                    st.session_state["confirm_publish_all"] = False
+
             if subflows:
                 header = st.columns([0.5, 0.2, 0.3])
                 header[0].caption("Nombre")
@@ -535,40 +570,45 @@ def render_cockpit() -> bool:
                     action_cols = row[2].columns([0.5, 0.5])
                     if action_cols[0].button("Editar", key=f"sf-edit-{sf.get('flow_id')}"):
                         st.session_state["subflow_edit_target"] = sf.get("subflow_key")
+                        st.session_state["show_create_subflow"] = True
                     if not sf.get("published"):
                         if action_cols[1].button("Publicar", key=f"sf-pub-{sf.get('flow_id')}"):
                             st.session_state[f"sf-confirm-{sf.get('flow_id')}"] = True
                     if st.session_state.get(f"sf-confirm-{sf.get('flow_id')}"):
-                        st.warning("Confirma la publicación del Subflow.")
-                        if st.button("Confirmar publicación", key=f"sf-confirm-btn-{sf.get('flow_id')}"):
+                        st.warning("Publicar este subflow lo activará para este scope. ¿Publicar ahora?")
+                        c_yes, c_no = st.columns([0.5, 0.5])
+                        if c_yes.button("Sí, publicar", key=f"sf-confirm-btn-{sf.get('flow_id')}", use_container_width=True):
                             res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
                             if isinstance(res, dict) and res.get("error"):
-                                _show_api_error(res, "No se pudo publicar el Subflow")
+                                err_text = str(res.get("error") or "").lower()
+                                if "invalid_subflow_content" in err_text:
+                                    st.error("El contenido no es válido para un subflow.")
+                                elif "invalid_scope_key" in err_text:
+                                    st.error("El scope debe usar minúsculas, números y guiones.")
+                                else:
+                                    st.error("No se pudo publicar. Inténtalo otra vez.")
                             else:
                                 st.success("Subflow publicado.")
                                 st.rerun()
+                        if c_no.button("Cancelar", key=f"sf-cancel-btn-{sf.get('flow_id')}", use_container_width=True):
+                            st.session_state.pop(f"sf-confirm-{sf.get('flow_id')}", None)
             else:
                 st.info("No hay Subflows aún.")
 
-            st.divider()
-            if subflows_drafts:
-                if st.button("Publicar todos", use_container_width=True, disabled=not write_enabled):
-                    for sf in subflows_drafts:
-                        res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
-                        if isinstance(res, dict) and res.get("error"):
-                            _show_api_error(res, f"No se pudo publicar {sf.get('subflow_key')}")
-                            break
-                    else:
-                        st.success("Subflows publicados.")
-                        st.rerun()
-
-            with st.expander("+ Crear subflow", expanded=False):
-                with st.form("cockpit-create-subflow"):
-                    name = st.text_input("Nombre", value="", placeholder="Dolor lumbar")
+            if st.session_state.get("show_create_subflow") or st.session_state.get("subflow_edit_target"):
+                edit_target = st.session_state.get("subflow_edit_target")
+                title = "Editar subflow" if edit_target else "Crear subflow"
+                st.markdown(f"#### {title}")
+                with st.form("subflow-editor"):
+                    name = st.text_input(
+                        "Nombre del subflow",
+                        value=(edit_target or ""),
+                        placeholder="Dolor lumbar",
+                    )
                     content_text = st.text_area(
                         "Contenido",
-                        height=120,
-                        placeholder="Describe en una frase el objetivo del Subflow.",
+                        height=140,
+                        placeholder="Describe en una frase el objetivo del subflow.",
                     )
                     advanced = st.checkbox("Opciones avanzadas", value=False)
                     subflow_key = ""
@@ -581,86 +621,64 @@ def render_cockpit() -> bool:
                         c1, c2 = st.columns([0.5, 0.5])
                         priority = c1.slider("Prioridad", 1, 10, 5)
                         threshold = c2.slider("Umbral", 1, 3, 1)
-                    submitted = st.form_submit_button(
-                        "Crear Subflow",
-                        use_container_width=True,
-                        disabled=not write_enabled,
-                    )
-                if submitted:
-                    payload = {
-                        "vertical_key": selected_vertical_key,
-                        "scope_key": current_scope,
-                        "parent_flow_id": base_flow_id,
-                        "subflow_key": _slugify_subflow_key(subflow_key or name),
-                        "display_name": name.strip() or subflow_key.strip(),
-                        "content_text": content_text.strip(),
-                        "trigger_keywords": _parse_keywords(keywords),
-                        "trigger_priority": int(priority),
-                        "trigger_threshold": int(threshold),
-                        "owner_type": "GLOBAL",
-                    }
-                    if not payload.get("display_name") or not payload.get("content_text"):
-                        st.error("Nombre y contenido son obligatorios.")
+                    c_save, c_cancel = st.columns([0.6, 0.4])
+                    save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
+                    cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+                if cancel:
+                    st.session_state.pop("show_create_subflow", None)
+                    st.session_state.pop("subflow_edit_target", None)
+                if save:
+                    if len((name or "").strip()) < 2:
+                        st.error("El nombre del subflow debe tener al menos 2 caracteres.")
+                    elif not (content_text or "").strip():
+                        st.error("El contenido es obligatorio.")
                     else:
+                        payload = {
+                            "vertical_key": selected_vertical_key,
+                            "scope_key": current_scope,
+                            "parent_flow_id": base_flow_id,
+                            "subflow_key": _slugify_subflow_key(subflow_key or name),
+                            "display_name": name.strip() or subflow_key.strip(),
+                            "content_text": content_text.strip(),
+                            "trigger_keywords": _parse_keywords(keywords),
+                            "trigger_priority": int(priority),
+                            "trigger_threshold": int(threshold),
+                            "owner_type": "GLOBAL",
+                        }
                         res = create_subflow(ctx.token, payload, api_key=ctx.api_key)
                         if isinstance(res, dict) and res.get("error"):
-                            _show_api_error(res, "No se pudo crear el Subflow")
+                            status_code = res.get("status_code")
+                            err_text = str(res.get("error") or "").lower()
+                            if status_code == 409 or "already_exists" in err_text or "exists" in err_text:
+                                st.error("Ya existe un subflow con ese nombre.")
+                            elif "invalid_subflow_content" in err_text:
+                                st.error("El contenido no es válido para un subflow.")
+                            elif "invalid_scope_key" in err_text:
+                                st.error("El scope debe usar minúsculas, números y guiones.")
+                            else:
+                                st.error("No se pudo guardar el borrador. Inténtalo otra vez.")
                         else:
-                            st.success("Subflow creado.")
-                            st.rerun()
-
-            edit_target = st.session_state.get("subflow_edit_target")
-            if edit_target:
-                with st.expander(f"Editar Subflow: {edit_target}", expanded=True):
-                    with st.form("cockpit-edit-subflow"):
-                        upload = st.file_uploader("Reemplazar contenido (JSON)", type=["json"])
-                        keywords = st.text_input("Palabras clave (coma)", value="")
-                        c1, c2 = st.columns([0.5, 0.5])
-                        priority = c1.slider("Prioridad", 1, 10, 5, key="cockpit-edit-pr")
-                        threshold = c2.slider("Umbral", 1, 3, 1, key="cockpit-edit-th")
-                        submitted = st.form_submit_button(
-                            "Guardar cambios",
-                            use_container_width=True,
-                            disabled=not write_enabled or not upload,
-                        )
-                    if submitted and upload:
-                        res = import_subflow(
-                            ctx.token,
-                            file_name=upload.name,
-                            file_bytes=upload.getvalue(),
-                            vertical_key=str(selected_vertical_key),
-                            scope_key=str(current_scope),
-                            parent_flow_id=str(base_flow_id),
-                            subflow_key=_slugify_subflow_key(edit_target),
-                            trigger_keywords=",".join(_parse_keywords(keywords)) or None,
-                            trigger_priority=int(priority),
-                            trigger_threshold=int(threshold),
-                            owner_type="GLOBAL",
-                            api_key=ctx.api_key,
-                        )
-                        if isinstance(res, dict) and res.get("error"):
-                            _show_api_error(res, "No se pudo editar el Subflow")
-                        else:
-                            st.success("Subflow actualizado.")
+                            st.success("Subflow guardado como borrador.")
+                            st.session_state.pop("show_create_subflow", None)
                             st.session_state.pop("subflow_edit_target", None)
                             st.rerun()
 
-            with st.expander("Importar Subflow (JSON)", expanded=False):
-                with st.form("cockpit-import-subflow"):
+            if st.session_state.get("show_import_subflow"):
+                with st.form("subflow-import"):
                     upload = st.file_uploader("Archivo JSON", type=["json"])
-                    subflow_key = st.text_input("Slug del Subflow", value="")
+                    subflow_key = st.text_input("Slug del subflow", value="")
                     keywords = st.text_input("Palabras clave (coma)", value="")
                     c1, c2 = st.columns([0.5, 0.5])
                     priority = c1.slider("Prioridad", 1, 10, 5, key="cockpit-import-pr")
                     threshold = c2.slider("Umbral", 1, 3, 1, key="cockpit-import-th")
-                    submitted = st.form_submit_button(
-                        "Importar Subflow",
-                        use_container_width=True,
-                        disabled=not write_enabled or not upload,
-                    )
-                if submitted and upload:
-                    if not subflow_key.strip():
-                        st.error("El slug es obligatorio.")
+                    c_save, c_cancel = st.columns([0.6, 0.4])
+                    save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
+                    cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+                if cancel:
+                    st.session_state["show_import_subflow"] = False
+                if save:
+                    if not upload or not subflow_key.strip():
+                        st.error("Completa el slug y adjunta un JSON válido.")
                     else:
                         res = import_subflow(
                             ctx.token,
@@ -677,13 +695,24 @@ def render_cockpit() -> bool:
                             api_key=ctx.api_key,
                         )
                         if isinstance(res, dict) and res.get("error"):
-                            _show_api_error(res, "No se pudo importar el Subflow")
+                            status_code = res.get("status_code")
+                            err_text = str(res.get("error") or "").lower()
+                            if status_code == 409 or "already_exists" in err_text or "exists" in err_text:
+                                st.error("Ya existe un subflow con ese nombre.")
+                            elif "invalid_subflow_content" in err_text:
+                                st.error("El contenido no es válido para un subflow.")
+                            elif "invalid_scope_key" in err_text:
+                                st.error("El scope debe usar minúsculas, números y guiones.")
+                            else:
+                                st.error("No se pudo guardar el borrador. Inténtalo otra vez.")
                         else:
-                            st.success("Subflow importado.")
+                            st.success("Subflow guardado como borrador.")
+                            st.session_state["show_import_subflow"] = False
                             st.rerun()
 
         with tab_routing:
-            st.markdown("**Editar selección automática**")
+            st.markdown("**Selección automática**")
+            st.caption("Define cómo el sistema elige el subflow correcto según el mensaje del lead.")
             if subflows:
                 label_map = {
                     f"{sf.get('subflow_key')} ({'Publicado' if sf.get('published') else 'Borrador'})": sf
@@ -712,7 +741,7 @@ def render_cockpit() -> bool:
                     value=bool(selected_sf.get("enabled", True)) if selected_sf else True,
                     key="cockpit-sf-enabled",
                 )
-                if st.button("Guardar selección automática", use_container_width=True, disabled=not write_enabled):
+                if st.button("Guardar", use_container_width=True, disabled=not write_enabled):
                     payload = {
                         "trigger_keywords": _parse_keywords(kw),
                         "trigger_priority": pr,
@@ -721,7 +750,9 @@ def render_cockpit() -> bool:
                     }
                     res = update_subflow(ctx.token, str(selected_sf.get("flow_id")), payload, api_key=ctx.api_key)
                     if isinstance(res, dict) and res.get("error"):
-                        _show_api_error(res, "No se pudo actualizar el Subflow")
+                        st.error("No se pudo guardar. Inténtalo otra vez.")
+                        if debug_mode:
+                            _show_api_error(res, "Detalle técnico")
                     else:
                         st.success("Selección automática actualizada.")
                         st.rerun()
@@ -731,7 +762,7 @@ def render_cockpit() -> bool:
             st.divider()
             with st.expander("Probar selección automática", expanded=False):
                 tenant_id = st.text_input("Tenant id (requerido)", value="")
-                sim_text = st.text_input("Texto de usuario", value="")
+                sim_text = st.text_input("Mensaje de prueba", value="")
                 if st.button(
                     "Probar selección automática",
                     use_container_width=True,
@@ -747,12 +778,14 @@ def render_cockpit() -> bool:
                     if isinstance(res, dict) and res.get("error"):
                         _show_api_error(res, "No se pudo simular la selección automática")
                     else:
+                        picked = res.get("picked") if isinstance(res, dict) else None
+                        chosen = (picked or {}).get("subflow_key") if isinstance(picked, dict) else None
                         st.success("Simulación OK")
+                        st.write(f"Elegido: {chosen or '—'}")
+                        if isinstance(picked, dict) and picked.get("matched"):
+                            st.caption(f"Motivo: {', '.join(picked.get('matched') or [])}")
                         if debug_mode:
                             st.json(res)
-                        else:
-                            chosen = res.get("selected_subflow") if isinstance(res, dict) else None
-                            st.write(f"Subflow seleccionado: {chosen or '—'}")
 
     st.divider()
     with st.expander("Opcional · Operación (Tenants)", expanded=False):
