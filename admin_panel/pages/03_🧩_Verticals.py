@@ -12,11 +12,23 @@ if str(REPO_ROOT) not in sys.path:
 
 from admin_panel.api_client import (
     create_vertical_admin,
+    create_scope,
+    create_subflow,
+    get_catalog,
     get_vertical,
+    import_flow_base,
+    import_subflow,
     list_vertical_files_admin,
+    list_tenants,
+    publish_flow_by_id,
+    publish_subflow,
     preview_vertical_flow_generator,
     read_vertical_file_admin,
     delete_vertical_file_admin,
+    simulate_subflow,
+    tenant_flow_publish_override,
+    tenant_flow_sync,
+    update_subflow,
     update_vertical_file_admin,
 )
 from admin_panel.ui import (
@@ -49,6 +61,647 @@ if not write_enabled:
 def _show_api_error(payload: object, fallback: str) -> None:
     if isinstance(payload, dict) and payload.get("error"):
         st.error(f"{fallback} (HTTP {payload.get('status_code', 'N/A')}): {payload.get('error')}")
+
+
+def _flatten_verticals(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(catalog, dict):
+        return out
+    for item in catalog.get("verticals") or []:
+        if not isinstance(item, dict):
+            continue
+        vkey = item.get("vertical_key") or item.get("key")
+        if not vkey:
+            continue
+        out.append(
+            {
+                "vertical_key": str(vkey),
+                "label": item.get("name") or item.get("label") or str(vkey),
+                "raw": item,
+            }
+        )
+    return out
+
+
+def _flatten_scopes(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(catalog, dict):
+        return out
+    for v in catalog.get("verticals") or []:
+        if not isinstance(v, dict):
+            continue
+        vkey = v.get("vertical_key") or v.get("key")
+        if not vkey:
+            continue
+        for s in v.get("scopes") or []:
+            if not isinstance(s, dict):
+                continue
+            skey = s.get("scope_key") or s.get("key")
+            if not skey:
+                continue
+            out.append(
+                {
+                    "vertical_key": str(vkey),
+                    "scope_key": str(skey),
+                    "label": s.get("display_name") or s.get("label") or str(skey),
+                    "status": s.get("status"),
+                    "source": s.get("source"),
+                    "has_filesystem_definition": bool(s.get("has_filesystem_definition")),
+                }
+            )
+    return out
+
+
+def _flatten_flows(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not isinstance(catalog, dict):
+        return rows
+    for v in catalog.get("verticals") or []:
+        vkey = v.get("vertical_key")
+        for s in v.get("scopes") or []:
+            skey = s.get("scope_key")
+            for f in s.get("flows") or []:
+                rows.append(
+                    {
+                        "vertical_key": vkey,
+                        "scope_key": skey,
+                        "flow_id": f.get("flow_id"),
+                        "name": f.get("name"),
+                        "version": f.get("version"),
+                        "published": bool(f.get("published")),
+                        "published_at": f.get("published_at"),
+                        "owner_type": f.get("owner_type"),
+                        "owner_id": f.get("owner_id"),
+                        "flow_kind": f.get("flow_kind"),
+                        "parent_flow_id": f.get("parent_flow_id"),
+                        "subflow_key": f.get("subflow_key"),
+                        "trigger_keywords": f.get("trigger_keywords"),
+                        "trigger_priority": f.get("trigger_priority"),
+                        "trigger_threshold": f.get("trigger_threshold"),
+                        "archived": f.get("archived"),
+                        "enabled": f.get("enabled"),
+                    }
+                )
+    return rows
+
+
+def _parse_keywords(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return [seg.strip() for seg in str(raw).split(",") if seg.strip()]
+
+
+def _status_label(status: str | None) -> str:
+    key = str(status or "").strip().upper()
+    if key in {"PUBLISHED_OK", "OK"}:
+        return "published_ok"
+    if key in {"DRAFT_ONLY"}:
+        return "draft_only"
+    if key in {"NO_FLOW_YET", "EMPTY"}:
+        return "no_flow_yet"
+    if key:
+        return key.lower()
+    return "no_flow_yet"
+
+
+def _pick_latest_flow(flows: list[dict[str, Any]], *, prefer_published: bool = True) -> dict[str, Any] | None:
+    if not flows:
+        return None
+    candidates = flows
+    if prefer_published:
+        published = [f for f in flows if f.get("published")]
+        if published:
+            candidates = published
+
+    def _key(entry: dict[str, Any]) -> tuple[int, str]:
+        version = entry.get("version")
+        try:
+            vnum = int(version)
+        except Exception:
+            vnum = 0
+        published_at = str(entry.get("published_at") or "")
+        return (vnum, published_at)
+
+    return sorted(candidates, key=_key, reverse=True)[0]
+
+
+def _apply_cockpit_prefill() -> None:
+    prefill = st.session_state.pop("open_verticals", None)
+    if not isinstance(prefill, dict):
+        return
+    vkey = prefill.get("vertical_key")
+    skey = prefill.get("scope_key")
+    tab = prefill.get("tab")
+    if vkey:
+        st.session_state["cockpit_vertical_key"] = str(vkey)
+    if skey:
+        st.session_state["cockpit_scope_key"] = str(skey)
+    if tab:
+        st.session_state["cockpit_tab"] = str(tab)
+
+
+def render_cockpit() -> bool:
+    st.title("Verticals (Cockpit)")
+    st.caption("Crea y publica flows/subflows y asigna a tenants desde aquí.")
+
+    debug_allowed = ctx.is_super_admin or bool(st.session_state.get("debug"))
+    debug_mode = False
+    if debug_allowed:
+        debug_mode = st.toggle(
+            "Modo técnico (Debug)",
+            value=bool(st.session_state.get("cockpit_debug")),
+            key="cockpit_debug",
+            help="Muestra IDs y utilidades avanzadas.",
+        )
+
+    with st.spinner("Cargando catálogo…"):
+        catalog = get_catalog(
+            ctx.token,
+            include_empty_scopes=True,
+            include_drafts=True,
+            include_templates=True,
+            api_key=ctx.api_key,
+        )
+    if isinstance(catalog, dict) and catalog.get("error"):
+        _show_api_error(catalog, "No se pudo cargar el catálogo")
+        return debug_mode
+
+    verticals = _flatten_verticals(catalog or {})
+    scopes = _flatten_scopes(catalog or {})
+    flows = _flatten_flows(catalog or {})
+
+    _apply_cockpit_prefill()
+
+    if not verticals:
+        st.warning("No hay verticales disponibles en el catálogo.")
+        return debug_mode
+
+    vertical_keys = [v.get("vertical_key") for v in verticals]
+    current_vertical = st.session_state.get("cockpit_vertical_key")
+    if current_vertical not in vertical_keys:
+        current_vertical = vertical_keys[0]
+        st.session_state["cockpit_vertical_key"] = current_vertical
+
+    selected_vertical = st.selectbox(
+        "Vertical",
+        options=verticals,
+        index=vertical_keys.index(current_vertical),
+        format_func=lambda v: f"{v.get('label')} ({v.get('vertical_key')})",
+        key="cockpit_vertical_select",
+    )
+    selected_vertical_key = selected_vertical.get("vertical_key") if isinstance(selected_vertical, dict) else current_vertical
+    st.session_state["cockpit_vertical_key"] = selected_vertical_key
+
+    scopes_for_vertical = [s for s in scopes if s.get("vertical_key") == selected_vertical_key]
+    scope_keys = [s.get("scope_key") for s in scopes_for_vertical]
+    current_scope = st.session_state.get("cockpit_scope_key")
+    if current_scope not in scope_keys:
+        current_scope = scope_keys[0] if scope_keys else None
+        st.session_state["cockpit_scope_key"] = current_scope
+
+    left, right = st.columns([0.32, 0.68], gap="large")
+
+    with left:
+        st.markdown("### Scopes")
+        if not scopes_for_vertical:
+            st.info("Este vertical no tiene scopes todavía.")
+        else:
+            selected_scope = st.selectbox(
+                "Scope",
+                options=scopes_for_vertical,
+                index=scope_keys.index(current_scope) if current_scope in scope_keys else 0,
+                format_func=lambda s: f"{s.get('label')} ({s.get('scope_key')})",
+                key="cockpit_scope_select",
+            )
+            current_scope = selected_scope.get("scope_key") if isinstance(selected_scope, dict) else current_scope
+            st.session_state["cockpit_scope_key"] = current_scope
+
+            scope_rows = [
+                {
+                    "scope": s.get("scope_key"),
+                    "estado": _status_label(s.get("status")),
+                }
+                for s in scopes_for_vertical
+            ]
+            st.dataframe(scope_rows, use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.markdown("**Crear scope**")
+        with st.form("cockpit-create-scope"):
+            c1, c2 = st.columns([0.5, 0.5])
+            scope_key = c1.text_input("Scope key", placeholder="ej: osteopatia")
+            scope_label = c2.text_input("Nombre visible", placeholder="Osteopatía")
+            submitted = st.form_submit_button(
+                "+ Crear scope",
+                use_container_width=True,
+                disabled=not write_enabled or not selected_vertical_key,
+            )
+        if submitted:
+            k = (scope_key or "").strip().lower()
+            if not k or not _KEY_RE.match(k):
+                st.error("Scope key inválido.")
+            elif not (scope_label or "").strip():
+                st.error("Nombre visible requerido.")
+            else:
+                res = create_scope(
+                    ctx.token,
+                    vertical_key=str(selected_vertical_key),
+                    scope_key=k,
+                    display_name=scope_label.strip(),
+                    api_key=ctx.api_key,
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    _show_api_error(res, "No se pudo crear el scope")
+                else:
+                    st.success("Scope creado.")
+                    st.session_state["cockpit_scope_key"] = k
+                    st.rerun()
+
+    with right:
+        tab_labels = ["Flow base", "Subflows + routing", "Tenants"]
+        tab_index = 0
+        requested_tab = st.session_state.get("cockpit_tab")
+        if requested_tab in tab_labels:
+            tab_index = tab_labels.index(requested_tab)
+        tab_flow, tab_subflows, tab_tenants = st.tabs(tab_labels)
+        st.session_state["cockpit_tab"] = tab_labels[tab_index]
+
+        base_flows = [
+            f
+            for f in flows
+            if f.get("flow_kind") == "base"
+            and f.get("vertical_key") == selected_vertical_key
+            and f.get("scope_key") == current_scope
+            and str(f.get("owner_type") or "").upper() == "GLOBAL"
+        ]
+        base_flow_active = _pick_latest_flow(base_flows, prefer_published=True)
+        base_flow_id = base_flow_active.get("flow_id") if isinstance(base_flow_active, dict) else None
+        st.session_state["cockpit_base_flow_id"] = base_flow_id
+
+        with tab_flow:
+            st.markdown("### Flow base")
+            if not current_scope:
+                st.warning("Selecciona o crea un scope para continuar.")
+            else:
+                scope_status = next(
+                    (
+                        s.get("status")
+                        for s in scopes_for_vertical
+                        if s.get("scope_key") == current_scope and s.get("vertical_key") == selected_vertical_key
+                    ),
+                    None,
+                )
+                if scope_status:
+                    state_label = _status_label(scope_status)
+                else:
+                    has_published = any(f.get("published") for f in base_flows)
+                    if has_published:
+                        state_label = "published_ok"
+                    elif base_flows:
+                        state_label = "draft_only"
+                    else:
+                        state_label = "no_flow_yet"
+                st.markdown(f"**Estado:** {state_label}")
+
+                with st.form("cockpit-import-flow-base"):
+                    upload = st.file_uploader("Flow base (JSON)", type=["json"])
+                    submitted = st.form_submit_button(
+                        "Subir flow base (JSON)",
+                        use_container_width=True,
+                        disabled=not write_enabled or not upload,
+                    )
+                if submitted and upload:
+                    res = import_flow_base(
+                        ctx.token,
+                        file_name=upload.name,
+                        file_bytes=upload.getvalue(),
+                        vertical_key=str(selected_vertical_key),
+                        scope_key=str(current_scope),
+                        owner_type="GLOBAL",
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, "No se pudo importar el flow base")
+                    else:
+                        st.success("Flow base importado como draft.")
+                        st.rerun()
+
+                draft_base = [f for f in base_flows if not f.get("published")]
+                latest_draft = _pick_latest_flow(draft_base, prefer_published=False)
+                st.divider()
+                st.markdown("**Publicar flow base**")
+                confirm_pub = st.checkbox("Confirmo la publicación", value=False, key="cockpit-base-pub-confirm")
+                confirm_text = st.text_input("Escribe PUBLICAR", value="", key="cockpit-base-pub-text")
+                can_publish = bool(latest_draft) and confirm_pub and confirm_text.strip().upper() == "PUBLICAR"
+                if st.button(
+                    "Publicar flow base",
+                    use_container_width=True,
+                    disabled=not can_publish or not write_enabled,
+                ):
+                    res = publish_flow_by_id(ctx.token, str(latest_draft.get("flow_id")), api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, "No se pudo publicar el flow base")
+                    else:
+                        st.success("Flow base publicado.")
+                        st.rerun()
+
+                if debug_mode:
+                    st.caption(f"base_flow_id: {base_flow_id or '—'}")
+
+        with tab_subflows:
+            st.markdown("### Subflows + routing")
+            if not base_flow_id:
+                st.warning("Primero sube/publica el Flow base.")
+            else:
+                subflows = [
+                    f
+                    for f in flows
+                    if f.get("flow_kind") == "subflow"
+                    and str(f.get("parent_flow_id") or "") == str(base_flow_id)
+                    and str(f.get("owner_type") or "").upper() == "GLOBAL"
+                ]
+
+                if subflows:
+                    rows = []
+                    for sf in subflows:
+                        rows.append(
+                            {
+                                "subflow_key": sf.get("subflow_key"),
+                                "estado": "published" if sf.get("published") else "draft",
+                                "enabled": bool(sf.get("enabled", True)),
+                                "priority": sf.get("trigger_priority") or 5,
+                                "threshold": sf.get("trigger_threshold") or 1,
+                                "keywords": ", ".join(_parse_keywords(sf.get("trigger_keywords"))),
+                            }
+                        )
+                    st.dataframe(rows, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay subflows aún.")
+
+                st.divider()
+                st.markdown("**Editar routing**")
+                if subflows:
+                    label_map = {
+                        f"{sf.get('subflow_key')} ({'published' if sf.get('published') else 'draft'})": sf
+                        for sf in subflows
+                    }
+                    choice = st.selectbox("Subflow", options=list(label_map.keys()), index=0)
+                    selected_sf = label_map.get(choice)
+                    kw_default = ", ".join(_parse_keywords(selected_sf.get("trigger_keywords"))) if selected_sf else ""
+                    kw = st.text_input("Keywords", value=kw_default, key="cockpit-sf-kw")
+                    pr = st.slider(
+                        "Prioridad",
+                        1,
+                        10,
+                        int(selected_sf.get("trigger_priority") or 5),
+                        key="cockpit-sf-pr",
+                    )
+                    th = st.slider(
+                        "Umbral",
+                        1,
+                        3,
+                        int(selected_sf.get("trigger_threshold") or 1),
+                        key="cockpit-sf-th",
+                    )
+                    enabled_state = st.checkbox(
+                        "Activo",
+                        value=bool(selected_sf.get("enabled", True)) if selected_sf else True,
+                        key="cockpit-sf-enabled",
+                    )
+                    if st.button("Guardar cambios", use_container_width=True, disabled=not write_enabled):
+                        payload = {
+                            "trigger_keywords": _parse_keywords(kw),
+                            "trigger_priority": pr,
+                            "trigger_threshold": th,
+                            "enabled": bool(enabled_state),
+                        }
+                        res = update_subflow(ctx.token, str(selected_sf.get("flow_id")), payload, api_key=ctx.api_key)
+                        if isinstance(res, dict) and res.get("error"):
+                            _show_api_error(res, "No se pudo actualizar el subflow")
+                        else:
+                            st.success("Subflow actualizado.")
+                            st.rerun()
+                else:
+                    st.caption("Crea un subflow para editar routing.")
+
+                st.divider()
+                with st.expander("+ Añadir subflow (rápido)", expanded=False):
+                    with st.form("cockpit-create-subflow"):
+                        name = st.text_input("Nombre visible", value="", placeholder="Dolor lumbar")
+                        subflow_key = st.text_input("subflow_key (opcional)", value="", placeholder="dolor_lumbar")
+                        content_text = st.text_area(
+                            "Contenido inicial",
+                            height=120,
+                            placeholder="Guía breve del subflow",
+                        )
+                        keywords = st.text_input("Keywords (coma)", value="", placeholder="lumbar, lumbalgia")
+                        c1, c2 = st.columns([0.5, 0.5])
+                        priority = c1.slider("Prioridad", 1, 10, 5)
+                        threshold = c2.slider("Umbral", 1, 3, 1)
+                        submitted = st.form_submit_button(
+                            "Crear subflow",
+                            use_container_width=True,
+                            disabled=not write_enabled,
+                        )
+                    if submitted:
+                        payload = {
+                            "vertical_key": selected_vertical_key,
+                            "scope_key": current_scope,
+                            "parent_flow_id": base_flow_id,
+                            "subflow_key": _slugify_subflow_key(subflow_key or name),
+                            "display_name": name.strip() or subflow_key.strip(),
+                            "content_text": content_text.strip(),
+                            "trigger_keywords": _parse_keywords(keywords),
+                            "trigger_priority": int(priority),
+                            "trigger_threshold": int(threshold),
+                            "owner_type": "GLOBAL",
+                        }
+                        if not payload.get("display_name") or not payload.get("content_text"):
+                            st.error("Nombre y contenido son obligatorios.")
+                        else:
+                            res = create_subflow(ctx.token, payload, api_key=ctx.api_key)
+                            if isinstance(res, dict) and res.get("error"):
+                                _show_api_error(res, "No se pudo crear el subflow")
+                            else:
+                                st.success("Subflow creado.")
+                                st.rerun()
+
+                with st.expander("Importar subflow (JSON)", expanded=False):
+                    with st.form("cockpit-import-subflow"):
+                        upload = st.file_uploader("Subflow JSON", type=["json"])
+                        subflow_key = st.text_input("subflow_key", value="")
+                        keywords = st.text_input("Keywords (coma)", value="")
+                        c1, c2 = st.columns([0.5, 0.5])
+                        priority = c1.slider("Prioridad", 1, 10, 5, key="cockpit-import-pr")
+                        threshold = c2.slider("Umbral", 1, 3, 1, key="cockpit-import-th")
+                        submitted = st.form_submit_button(
+                            "Importar subflow (JSON)",
+                            use_container_width=True,
+                            disabled=not write_enabled or not upload,
+                        )
+                    if submitted and upload:
+                        if not subflow_key.strip():
+                            st.error("subflow_key requerido.")
+                        else:
+                            res = import_subflow(
+                                ctx.token,
+                                file_name=upload.name,
+                                file_bytes=upload.getvalue(),
+                                vertical_key=str(selected_vertical_key),
+                                scope_key=str(current_scope),
+                                parent_flow_id=str(base_flow_id),
+                                subflow_key=_slugify_subflow_key(subflow_key),
+                                trigger_keywords=",".join(_parse_keywords(keywords)) or None,
+                                trigger_priority=int(priority),
+                                trigger_threshold=int(threshold),
+                                owner_type="GLOBAL",
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(res, dict) and res.get("error"):
+                                _show_api_error(res, "No se pudo importar el subflow")
+                            else:
+                                st.success("Subflow importado.")
+                                st.rerun()
+
+                draft_subflows = [sf for sf in subflows if not sf.get("published")]
+                if draft_subflows:
+                    st.divider()
+                    st.markdown("**Publicar subflows seleccionados**")
+                    draft_labels = {
+                        f"{sf.get('subflow_key')} (v{sf.get('version') or '—'})": sf for sf in draft_subflows
+                    }
+                    selected_publish = st.multiselect("Subflows draft", options=list(draft_labels.keys()))
+                    confirm_pub = st.checkbox("Confirmo publicación", value=False, key="cockpit-sf-pub-confirm")
+                    confirm_text = st.text_input("Escribe PUBLICAR", value="", key="cockpit-sf-pub-text")
+                    can_publish = confirm_pub and confirm_text.strip().upper() == "PUBLICAR" and selected_publish
+                    if st.button(
+                        "Publicar subflows seleccionados",
+                        use_container_width=True,
+                        disabled=not can_publish or not write_enabled,
+                    ):
+                        for label in selected_publish:
+                            sf = draft_labels.get(label)
+                            if not sf:
+                                continue
+                            res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
+                            if isinstance(res, dict) and res.get("error"):
+                                _show_api_error(res, f"No se pudo publicar {sf.get('subflow_key')}")
+                                break
+                        else:
+                            st.success("Subflows publicados.")
+                            st.rerun()
+
+                with st.expander("Probar routing", expanded=False):
+                    tenant_id = st.text_input("Tenant id (requerido)", value="")
+                    sim_text = st.text_input("Texto de usuario", value="")
+                    if st.button(
+                        "Probar routing",
+                        use_container_width=True,
+                        disabled=not sim_text or not tenant_id,
+                    ):
+                        res = simulate_subflow(
+                            ctx.token,
+                            tenant_id=str(tenant_id),
+                            base_flow_id=str(base_flow_id),
+                            text=sim_text,
+                            api_key=ctx.api_key,
+                        )
+                        if isinstance(res, dict) and res.get("error"):
+                            _show_api_error(res, "No se pudo simular routing")
+                        else:
+                            st.success("Simulación OK")
+                            if debug_mode:
+                                st.json(res)
+                            else:
+                                chosen = res.get("selected_subflow") if isinstance(res, dict) else None
+                                st.write(f"Subflow seleccionado: {chosen or '—'}")
+
+        with tab_tenants:
+            st.markdown("### Tenants")
+            tenants_payload = list_tenants(ctx.token, api_key=ctx.api_key)
+            tenants = tenants_payload if isinstance(tenants_payload, list) else tenants_payload.get("items") or []
+            tenants = [t for t in tenants if t.get("vertical_key") == selected_vertical_key]
+            if not tenants:
+                st.info("No hay tenants para este vertical.")
+                tenants = []
+
+            tenant_map = {
+                f"{t.get('name') or t.get('id')} · {t.get('customer_code') or '—'}": t for t in tenants if t.get("id")
+            }
+            selected_tenants = st.multiselect("Selecciona tenants", options=list(tenant_map.keys()))
+
+            if selected_tenants:
+                selected_rows = [tenant_map[k] for k in selected_tenants]
+                st.dataframe(
+                    [
+                        {
+                            "tenant": t.get("name") or t.get("id"),
+                            "code": t.get("customer_code") or "—",
+                            "scopes": ", ".join(t.get("vertical_scopes") or []),
+                            "last_sync": t.get("last_sync_at") or "—",
+                            "override": t.get("flow_override_status") or "—",
+                        }
+                        for t in selected_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            c1, c2 = st.columns([0.5, 0.5])
+            if c1.button(
+                "Sync now",
+                use_container_width=True,
+                disabled=not (selected_tenants and current_scope) or not write_enabled,
+            ):
+                for key in selected_tenants:
+                    tenant_id = tenant_map.get(key, {}).get("id")
+                    if not tenant_id:
+                        continue
+                    res = tenant_flow_sync(
+                        ctx.token,
+                        tenant_id,
+                        vertical_key=str(selected_vertical_key),
+                        scope_key=str(current_scope),
+                        flow_kind="base",
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, f"No se pudo sincronizar {tenant_id}")
+                        break
+                st.success("Sync completado.")
+                st.rerun()
+
+            if c2.button(
+                "Publish override",
+                use_container_width=True,
+                disabled=not (selected_tenants and current_scope) or not write_enabled,
+            ):
+                for key in selected_tenants:
+                    tenant_id = tenant_map.get(key, {}).get("id")
+                    if not tenant_id:
+                        continue
+                    res = tenant_flow_publish_override(
+                        ctx.token,
+                        tenant_id,
+                        vertical_key=str(selected_vertical_key),
+                        scope_key=str(current_scope),
+                        flow_kind="base",
+                        published=True,
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, f"No se pudo publicar override para {tenant_id}")
+                        break
+                st.success("Override publicado.")
+                st.rerun()
+
+            if debug_mode:
+                st.caption("IDs visibles en modo Debug.")
+                st.json([{"id": t.get("id"), "name": t.get("name")} for t in tenants])
+
+    return debug_mode
 
 
 def _is_flow_filename(filename: str) -> bool:
@@ -1558,28 +2211,32 @@ def render_vertical_detail(detail: dict[str, Any]):
 # Main layout
 # -----------------------------------------------------------------------------
 
-vertical_items, vertical_keys, vertical_labels = _get_catalog()
-render_header(vertical_items, vertical_labels)
+debug_mode = render_cockpit()
 
-# Filter + search
-items = vertical_items
-filter_key = st.session_state.get("verticals_filter")
-if filter_key and filter_key != "Todos":
-    items = [v for v in items if str(v.get("key")) == str(filter_key)]
-items = _search_filter(items, st.session_state.get("verticals_search", ""))
-selected_key = _ensure_selected_vertical(items)
+if debug_mode:
+    with st.expander("Modo técnico (Debug): Filesystem / plantillas", expanded=False):
+        vertical_items, vertical_keys, vertical_labels = _get_catalog()
+        render_header(vertical_items, vertical_labels)
 
-left, right = st.columns([0.3, 0.7], gap="large")
+        # Filter + search
+        items = vertical_items
+        filter_key = st.session_state.get("verticals_filter")
+        if filter_key and filter_key != "Todos":
+            items = [v for v in items if str(v.get("key")) == str(filter_key)]
+        items = _search_filter(items, st.session_state.get("verticals_search", ""))
+        selected_key = _ensure_selected_vertical(items)
 
-with left:
-    render_vertical_list(items, vertical_labels)
+        left, right = st.columns([0.3, 0.7], gap="large")
 
-with right:
-    if st.session_state.get("verticals_show_wizard"):
-        render_wizard_create_vertical()
-    elif not selected_key:
-        st.info("Selecciona un vertical para ver el detalle.")
-    else:
-        detail = _load_vertical_detail(selected_key)
-        if detail:
-            render_vertical_detail(detail)
+        with left:
+            render_vertical_list(items, vertical_labels)
+
+        with right:
+            if st.session_state.get("verticals_show_wizard"):
+                render_wizard_create_vertical()
+            elif not selected_key:
+                st.info("Selecciona un vertical para ver el detalle.")
+            else:
+                detail = _load_vertical_detail(selected_key)
+                if detail:
+                    render_vertical_detail(detail)
