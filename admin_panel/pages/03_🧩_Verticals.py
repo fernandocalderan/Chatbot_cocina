@@ -317,8 +317,6 @@ def render_cockpit() -> bool:
                     st.session_state["show_create_scope"] = False
                     st.rerun()
 
-    st.divider()
-
     base_flows = [
         f
         for f in flows
@@ -357,6 +355,26 @@ def render_cockpit() -> bool:
     elif subflows_drafts:
         subflow_state = "Borradores pendientes"
         subflow_tone = "warning"
+
+    st.divider()
+    st.markdown("### Checklist de publicación")
+    checklist = []
+    if base_state == "Publicado":
+        checklist.append("✅ Flow base publicado")
+    elif base_state == "Borrador":
+        checklist.append("⚠️ Flow base en borrador (falta publicar)")
+    else:
+        checklist.append("❌ Flow base pendiente (falta crear)")
+
+    if len(subflows_all) == 0:
+        checklist.append("❌ Subflows pendientes (falta crear)")
+    elif len(subflows_drafts) > 0:
+        checklist.append("⚠️ Subflows con borradores pendientes")
+    else:
+        checklist.append("✅ Subflows publicados")
+
+    for item in checklist:
+        st.caption(item)
 
     st.markdown("#### Estado rápido")
     r1, r2 = st.columns([0.5, 0.5])
@@ -2391,28 +2409,72 @@ debug_mode = render_cockpit()
 if debug_mode:
     with st.expander("⚙️ Modo técnico", expanded=False):
         st.warning("Modo técnico activo: verás herramientas avanzadas.")
-        vertical_items, vertical_keys, vertical_labels = _get_catalog()
-        render_header(vertical_items, vertical_labels)
+        vkey = st.session_state.get("cockpit_vertical_key")
+        skey = st.session_state.get("active_scope_key") or st.session_state.get("cockpit_scope_key")
+        st.code(f"vertical={vkey or '—'} · scope={skey or '—'}", language="text")
 
-        # Filter + search
-        items = vertical_items
-        filter_key = st.session_state.get("verticals_filter")
-        if filter_key and filter_key != "Todos":
-            items = [v for v in items if str(v.get("key")) == str(filter_key)]
-        items = _search_filter(items, st.session_state.get("verticals_search", ""))
-        selected_key = _ensure_selected_vertical(items)
-
-        left, right = st.columns([0.3, 0.7], gap="large")
-
-        with left:
-            render_vertical_list(items, vertical_labels)
-
-        with right:
-            if st.session_state.get("verticals_show_wizard"):
-                render_wizard_create_vertical()
-            elif not selected_key:
-                st.info("Selecciona un vertical para ver el detalle.")
+        if vkey:
+            with st.spinner("Cargando datos técnicos…"):
+                catalog = get_catalog(
+                    ctx.token,
+                    vertical_key=str(vkey),
+                    include_empty_scopes=True,
+                    include_drafts=True,
+                    include_templates=True,
+                    api_key=ctx.api_key,
+                )
+            if isinstance(catalog, dict) and catalog.get("error"):
+                _show_api_error(catalog, "No se pudo cargar el catálogo")
             else:
-                detail = _load_vertical_detail(selected_key)
-                if detail:
-                    render_vertical_detail(detail)
+                flows = _flatten_flows(catalog or {})
+                base_flows = [
+                    f
+                    for f in flows
+                    if f.get("flow_kind") == "base"
+                    and f.get("vertical_key") == vkey
+                    and f.get("scope_key") == skey
+                ]
+                subflows = [
+                    f
+                    for f in flows
+                    if f.get("flow_kind") == "subflow"
+                    and f.get("vertical_key") == vkey
+                    and f.get("scope_key") == skey
+                ]
+                st.markdown("**IDs y metadata (catálogo)**")
+                if base_flows:
+                    st.caption("Flow base")
+                    st.json(base_flows)
+                else:
+                    st.caption("Flow base: sin registros en catálogo.")
+                if subflows:
+                    st.caption("Subflows")
+                    st.json(subflows)
+                else:
+                    st.caption("Subflows: sin registros en catálogo.")
+
+            st.markdown("**Archivos de templates (solo lectura)**")
+            files_payload = list_vertical_files_admin(ctx.token, str(vkey), api_key=ctx.api_key)
+            files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+            file_names = []
+            for it in files_items:
+                if not isinstance(it, dict):
+                    continue
+                fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                if fname:
+                    file_names.append(fname)
+            if not file_names:
+                st.caption("Sin archivos disponibles.")
+            else:
+                selected_file = st.selectbox("Archivo", options=sorted(file_names))
+                if selected_file:
+                    payload = read_vertical_file_admin(ctx.token, str(vkey), selected_file, api_key=ctx.api_key)
+                    content = payload.get("content") if isinstance(payload, dict) else None
+                    if isinstance(content, dict):
+                        st.json(content)
+                    elif isinstance(content, str):
+                        st.code(content, language="text")
+                    else:
+                        st.caption("Sin contenido legible.")
+        else:
+            st.info("Selecciona un vertical para ver detalles técnicos.")
