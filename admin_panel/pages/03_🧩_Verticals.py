@@ -205,7 +205,7 @@ def _apply_cockpit_prefill() -> None:
 
 def render_cockpit() -> bool:
     st.title("Panel de Flows")
-    st.caption("Gestiona Scopes, Flow base y Subflows desde una sola pantalla.")
+    st.caption("Crea y publica cómo habla el asistente: Scope → Flow base → Subflows.")
 
     debug_allowed = ctx.is_super_admin or bool(st.session_state.get("debug"))
     debug_mode = False
@@ -257,15 +257,16 @@ def render_cockpit() -> bool:
 
     scopes_for_vertical = [s for s in scopes if s.get("vertical_key") == selected_vertical_key]
     scope_keys = [s.get("scope_key") for s in scopes_for_vertical]
-    current_scope = st.session_state.get("cockpit_scope_key")
+    current_scope = st.session_state.get("active_scope_key") or st.session_state.get("cockpit_scope_key")
     if current_scope not in scope_keys:
         current_scope = scope_keys[0] if scope_keys else None
         st.session_state["cockpit_scope_key"] = current_scope
+        st.session_state["active_scope_key"] = current_scope
 
     st.markdown("### Scope")
     scope_row = st.columns([0.7, 0.3])
     if not scopes_for_vertical:
-        scope_row[0].info("Este vertical no tiene scopes todavía.")
+        scope_row[0].info("Aún no hay scopes. Crea uno para empezar.")
     else:
         selected_scope = scope_row[0].selectbox(
             "Selecciona un scope",
@@ -276,20 +277,22 @@ def render_cockpit() -> bool:
         )
         current_scope = selected_scope.get("scope_key") if isinstance(selected_scope, dict) else current_scope
         st.session_state["cockpit_scope_key"] = current_scope
+        st.session_state["active_scope_key"] = current_scope
 
     if scope_row[1].button("+ Crear scope", use_container_width=True, disabled=not write_enabled or not selected_vertical_key):
         st.session_state["show_create_scope"] = True
 
     with st.expander("Crear scope", expanded=bool(st.session_state.get("show_create_scope"))):
         with st.form("cockpit-create-scope"):
-            scope_name = st.text_input("Nombre del scope (ej: cocinas-premium-barcelona)")
+            scope_name = st.text_input("Nombre del scope", placeholder="cocinas-premium-barcelona")
+            st.caption("Usa minúsculas y guiones. Ej: cocinas-premium-barcelona")
             submitted = st.form_submit_button("Crear", use_container_width=True, disabled=not write_enabled)
         if submitted:
             name = (scope_name or "").strip().lower()
             if len(name) < 3:
                 st.warning("El nombre del scope debe tener al menos 3 caracteres.")
-            elif not _KEY_RE.match(name):
-                st.error("Nombre inválido. Usa minúsculas, números, _ o -.")
+            elif not re.match(r"^[a-z0-9-]+$", name):
+                st.error("El scope debe usar minúsculas, números y guiones.")
             else:
                 res = create_scope(
                     ctx.token,
@@ -299,10 +302,18 @@ def render_cockpit() -> bool:
                     api_key=ctx.api_key,
                 )
                 if isinstance(res, dict) and res.get("error"):
-                    _show_api_error(res, "No se pudo crear el scope")
+                    status_code = res.get("status_code")
+                    err_text = str(res.get("error") or "").lower()
+                    if status_code == 409 or "already" in err_text or "exists" in err_text:
+                        st.error("Ya existe un scope con ese nombre.")
+                    else:
+                        st.error("No se pudo crear el scope. Revisa el nombre e inténtalo otra vez.")
+                    if debug_mode:
+                        _show_api_error(res, "Detalle técnico")
                 else:
                     st.success("Scope creado.")
                     st.session_state["cockpit_scope_key"] = name
+                    st.session_state["active_scope_key"] = name
                     st.session_state["show_create_scope"] = False
                     st.rerun()
 
