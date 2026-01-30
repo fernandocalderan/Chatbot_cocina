@@ -391,63 +391,118 @@ def render_cockpit() -> bool:
 
     st.markdown("## 1) Flow base")
     if not current_scope:
-        st.warning("Selecciona o crea un scope para continuar.")
+        st.warning("Selecciona o crea un scope para empezar.")
     else:
-        st.markdown(f"**Estado:** {base_state}")
-        primary_label = "Crear Flow base" if base_state == "Sin flow base" else "Editar Flow base"
-        show_flow_editor = st.button(primary_label, use_container_width=True, disabled=not write_enabled)
-        if show_flow_editor:
+        primary_label = "Crear flow base" if base_state == "Sin flow base" else "Editar flow base"
+        has_draft = bool([f for f in base_flows if not f.get("published")])
+        show_publish = base_state == "Borrador" or (base_state == "Publicado" and has_draft)
+        publish_label = "Publicar flow base" if base_state == "Borrador" else "Publicar nueva versión"
+
+        btn_cols = st.columns([0.6, 0.4])
+        if btn_cols[0].button(primary_label, use_container_width=True, disabled=not write_enabled):
+            st.session_state["flow_editor_open"] = True
+        if show_publish and btn_cols[1].button(publish_label, use_container_width=True, disabled=not write_enabled):
+            st.session_state["flow_base_publish_confirm"] = True
+
+        if st.session_state.get("flow_base_publish_confirm"):
+            st.info("Esto activará el flow base para este scope. ¿Publicar ahora?")
+            c_yes, c_no = st.columns([0.5, 0.5])
+            if c_yes.button("Sí, publicar", use_container_width=True):
+                draft_base = [f for f in base_flows if not f.get("published")]
+                latest_draft = _pick_latest_flow(draft_base, prefer_published=False)
+                if not latest_draft:
+                    st.error("No hay un flow base para publicar. Crea o guarda un borrador primero.")
+                else:
+                    res = publish_flow_by_id(ctx.token, str(latest_draft.get("flow_id")), api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        status_code = res.get("status_code")
+                        err_text = str(res.get("error") or "").lower()
+                        if status_code == 404 or "missing_flow" in err_text:
+                            st.error("No hay un flow base para publicar. Crea o guarda un borrador primero.")
+                        elif "invalid_flow_schema" in err_text:
+                            st.error("El flow base no tiene un formato válido. Revisa la plantilla.")
+                        elif status_code == 409 or "conflict" in err_text:
+                            st.error("Hay cambios concurrentes. Recarga e inténtalo de nuevo.")
+                        else:
+                            st.error("No se pudo publicar el flow base. Inténtalo otra vez.")
+                        if debug_mode:
+                            _show_api_error(res, "Detalle técnico")
+                    else:
+                        st.success("Flow base publicado.")
+                        st.session_state["flow_base_publish_confirm"] = False
+                        st.rerun()
+            if c_no.button("Cancelar", use_container_width=True):
+                st.session_state["flow_base_publish_confirm"] = False
+
+        template_flow = {
+            "version": "flow_base",
+            "start_block": "start",
+            "blocks": {
+                "start": {
+                    "id": "start",
+                    "type": "message",
+                    "text": "Hola, soy tu asistente. ¿En qué puedo ayudarte?",
+                    "next": "end",
+                },
+                "end": {"id": "end", "type": "end"},
+            },
+        }
+        st.session_state.setdefault("flow_base_editor_text", "")
+        if st.button("Usar plantilla básica", use_container_width=True, disabled=not write_enabled):
+            st.session_state["flow_base_editor_text"] = json.dumps(template_flow, ensure_ascii=False, indent=2)
             st.session_state["flow_editor_open"] = True
 
-        with st.expander("Editor de Flow base (JSON)", expanded=bool(st.session_state.get("flow_editor_open"))):
-            st.caption("Sube un JSON válido para crear o reemplazar el Flow base.")
-            with st.form("cockpit-import-flow-base"):
-                upload = st.file_uploader("Archivo JSON", type=["json"])
-                submitted = st.form_submit_button(
-                    "Guardar Flow base",
-                    use_container_width=True,
-                    disabled=not write_enabled or not upload,
+        if st.session_state.get("flow_editor_open"):
+            st.markdown("#### Editor de Flow base")
+            st.caption(
+                "Pega aquí la definición del flow base (JSON). Si no tienes uno, empieza con una plantilla."
+            )
+            with st.form("flow-base-editor"):
+                text_value = st.text_area(
+                    "Flow base (JSON)",
+                    value=st.session_state.get("flow_base_editor_text") or "",
+                    height=260,
                 )
-            if submitted and upload:
-                res = import_flow_base(
-                    ctx.token,
-                    file_name=upload.name,
-                    file_bytes=upload.getvalue(),
-                    vertical_key=str(selected_vertical_key),
-                    scope_key=str(current_scope),
-                    owner_type="GLOBAL",
-                    api_key=ctx.api_key,
-                )
-                if isinstance(res, dict) and res.get("error"):
-                    st.error("No se pudo crear/editar el Flow base. Revisa el JSON.")
-                    if debug_mode:
-                        _show_api_error(res, "Detalle técnico")
+                st.session_state["flow_base_editor_text"] = text_value
+                c_save, c_cancel = st.columns([0.6, 0.4])
+                save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
+                cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+            if cancel:
+                st.session_state["flow_editor_open"] = False
+                st.rerun()
+            if save:
+                try:
+                    parsed = json.loads(text_value or "")
+                except Exception:
+                    st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
+                    parsed = None
+                if parsed is None:
+                    pass
                 else:
-                    st.success("Flow base guardado como borrador.")
-                    st.session_state["flow_editor_open"] = False
-                    st.rerun()
-
-        draft_base = [f for f in base_flows if not f.get("published")]
-        latest_draft = _pick_latest_flow(draft_base, prefer_published=False)
-        if latest_draft:
-            st.divider()
-            st.markdown("**Publicar Flow base**")
-            confirm_pub = st.checkbox("Confirmo la publicación", value=False, key="cockpit-base-pub-confirm")
-            confirm_text = st.text_input("Escribe PUBLICAR", value="", key="cockpit-base-pub-text")
-            can_publish = bool(latest_draft) and confirm_pub and confirm_text.strip().upper() == "PUBLICAR"
-            if st.button(
-                "Publicar Flow base",
-                use_container_width=True,
-                disabled=not can_publish or not write_enabled,
-            ):
-                res = publish_flow_by_id(ctx.token, str(latest_draft.get("flow_id")), api_key=ctx.api_key)
-                if isinstance(res, dict) and res.get("error"):
-                    st.error("No se pudo publicar el Flow base.")
-                    if debug_mode:
-                        _show_api_error(res, "Detalle técnico")
-                else:
-                    st.success("Flow base publicado.")
-                    st.rerun()
+                    res = import_flow_base(
+                        ctx.token,
+                        file_name="flow_base.json",
+                        file_bytes=json.dumps(parsed, ensure_ascii=False).encode("utf-8"),
+                        vertical_key=str(selected_vertical_key),
+                        scope_key=str(current_scope),
+                        owner_type="GLOBAL",
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        status_code = res.get("status_code")
+                        err_text = str(res.get("error") or "").lower()
+                        if "invalid_flow_schema" in err_text:
+                            st.error("El flow base no tiene un formato válido. Revisa la plantilla.")
+                        elif status_code and int(status_code) >= 400:
+                            st.error("No se pudo guardar el borrador. Inténtalo otra vez.")
+                        else:
+                            st.error("No se pudo guardar el borrador. Inténtalo otra vez.")
+                        if debug_mode:
+                            _show_api_error(res, "Detalle técnico")
+                    else:
+                        st.success("Borrador guardado.")
+                        st.session_state["flow_editor_open"] = False
+                        st.rerun()
 
         if debug_mode:
             st.caption(f"base_flow_id: {base_flow_id or '—'}")
@@ -2039,7 +2094,12 @@ def render_vertical_detail(detail: dict[str, Any]):
         # Flow base (global)
         with st.expander("Flow base — flow_base.json", expanded=False):
             st.write("Flow base principal del vertical.")
-            if st.session_state.get("verticals_show_advanced"):
+            if st.session_state.get("cockpit_debug"):
+                if st.button("Ver detalles técnicos del Flow base", key=f"flow-base-raw-{selected_key}"):
+                    st.session_state[f"flow_base_raw_{selected_key}"] = True
+                if st.session_state.get(f"flow_base_raw_{selected_key}"):
+                    st.json(assets.get("flow_base") or {})
+            elif st.session_state.get("verticals_show_advanced"):
                 _json_editor(
                     vertical_key=selected_key,
                     title="flow_base",
