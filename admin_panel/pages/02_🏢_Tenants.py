@@ -13,11 +13,9 @@ from admin_panel.api_client import (
     get_published_flow,
     get_tenant_flow,
     include_tenant,
-    import_flow_base,
     issue_widget_token,
     list_tenants,
     publish_flow,
-    publish_flow_by_id,
     reset_sessions,
     tenant_flow_diff,
     tenant_flow_publish_override,
@@ -34,7 +32,7 @@ from admin_panel.ui import (
     render_sidebar_nav,
     require_admin_context,
 )
-from admin_panel.panel_utils import open_wizard
+from admin_panel.panel_utils import open_verticals
 
 init_page(title="SuperAdmin — Tenants", icon="🏢")
 
@@ -340,15 +338,15 @@ for t in tenants:
             if debug_mode:
                 st.caption(f"Tenant activo: `{tenant_id}`")
             else:
-                st.caption("Acciones de flows fuera del Wizard solo en Debug.")
+                st.caption("Gestiona flows y subflows en Verticals.")
             if st.button(
-                "Configurar subflows (Wizard)",
-                key=f"wizard-{tenant_id}",
+                "Abrir en Verticals",
+                key=f"open-verticals-{tenant_id}",
                 use_container_width=True,
                 disabled=not v_current,
             ):
                 primary_scope = scopes_current[0] if scopes_current else None
-                open_wizard(vertical_key=v_current, scope_key=primary_scope, step=3)
+                open_verticals(vertical_key=v_current, scope_key=primary_scope, tab="Subflows + routing")
             if not v_current:
                 st.warning("Tenant sin vertical_key: no se puede resolver catálogo de scopes.")
             catalog_payload = get_catalog(
@@ -387,96 +385,18 @@ for t in tenants:
                     cc2.markdown(badge, unsafe_allow_html=True)
                     cc3.write(str(row.get("flows_count") or 0))
                     cc4.write(str(row.get("published_count") or 0))
-                    action_label = "Ver"
-                    if status == "NO_FLOW_YET":
-                        action_label = "Subir flow base"
-                    elif status == "DRAFT_ONLY":
-                        action_label = "Publicar"
                     action_key = f"scope-action-{tenant_id}-{row.get('scope_key')}"
-                    disabled_action = not write_enabled or not v_current or not debug_mode
-                    clicked = cc5.button(
-                        action_label,
+                    if cc5.button(
+                        "Abrir en Verticals",
                         key=action_key,
-                        disabled=disabled_action,
-                        help=None,
+                        disabled=not v_current,
                         use_container_width=True,
-                    )
-                    if clicked:
-                        st.session_state[action_key] = True
-                    if st.session_state.get(action_key):
-                        if status == "NO_FLOW_YET":
-                            with st.expander(f"Subir flow base ({row.get('scope_key')})", expanded=True):
-                                up = st.file_uploader(
-                                    "Flow base JSON",
-                                    type=["json"],
-                                    key=f"upload-{tenant_id}-{row.get('scope_key')}",
-                                )
-                                confirm_import = st.checkbox(
-                                    "Importar como draft",
-                                    value=False,
-                                    key=f"confirm-import-{tenant_id}-{row.get('scope_key')}",
-                                )
-                                if st.button(
-                                    "Importar",
-                                    key=f"do-import-{tenant_id}-{row.get('scope_key')}",
-                                    disabled=not (up and confirm_import and v_current),
-                                ):
-                                    res = import_flow_base(
-                                        ctx.token,
-                                        file_name=up.name,
-                                        file_bytes=up.getvalue(),
-                                        vertical_key=v_current or "",
-                                        scope_key=row.get("scope_key") or "",
-                                        owner_type="TENANT",
-                                        owner_id=tenant_id,
-                                        api_key=ctx.api_key,
-                                    )
-                                    if isinstance(res, dict) and res.get("error"):
-                                        st.error(res)
-                                    else:
-                                        st.success("Flow base importado como draft.")
-                                        st.rerun()
-                        elif status == "DRAFT_ONLY":
-                            drafts = [f for f in row.get("flows") or [] if not f.get("published")]
-                            drafts_sorted = sorted(drafts, key=lambda f: int(f.get("version") or 0), reverse=True)
-                            latest = drafts_sorted[0] if drafts_sorted else None
-                            with st.expander(f"Publicar ({row.get('scope_key')})", expanded=True):
-                                if latest:
-                                    st.caption(f"Draft v{latest.get('version')} · {latest.get('flow_id')}")
-                                pub_confirm = st.checkbox(
-                                    "Confirmo que quiero publicar este flow y despublicar versiones anteriores.",
-                                    value=False,
-                                    key=f"confirm-pub-{tenant_id}-{row.get('scope_key')}",
-                                )
-                                pub_text = st.text_input(
-                                    "Escribe PUBLICAR para habilitar",
-                                    value="",
-                                    key=f"confirm-pub-text-{tenant_id}-{row.get('scope_key')}",
-                                )
-                                can_pub = pub_confirm and pub_text.strip().lower() == "publicar"
-                                if st.button(
-                                    "Publicar",
-                                    key=f"do-pub-{tenant_id}-{row.get('scope_key')}",
-                                    disabled=not (latest and can_pub),
-                                ):
-                                    res = publish_flow_by_id(
-                                        ctx.token,
-                                        flow_id=str(latest.get("flow_id")),
-                                        api_key=ctx.api_key,
-                                    )
-                                    if isinstance(res, dict) and res.get("error"):
-                                        st.error(res)
-                                    else:
-                                        st.success("Flow publicado.")
-                                        st.rerun()
-                        else:
-                            with st.expander(f"Ver flow ({row.get('scope_key')})", expanded=False):
-                                published = [f for f in row.get("flows") or [] if f.get("published")]
-                                if published:
-                                    p = sorted(published, key=lambda f: int(f.get("version") or 0), reverse=True)[0]
-                                    st.write(f"Publicado v{p.get('version')} · {p.get('published_at') or '—'}")
-                                    if debug_mode:
-                                        st.caption(f"id: {p.get('flow_id')}")
+                    ):
+                        open_verticals(
+                            vertical_key=v_current,
+                            scope_key=row.get("scope_key"),
+                            tab="Flow base",
+                        )
                     if debug_mode:
                         flow_ids = [f.get("flow_id") for f in row.get("flows") or [] if f.get("flow_id")]
                         if flow_ids:

@@ -7,9 +7,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from admin_panel.api_client import create_scope, get_catalog, flatten_catalog_scopes
+from admin_panel.api_client import get_catalog, flatten_catalog_scopes
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
-from admin_panel.panel_utils import open_wizard
+from admin_panel.panel_utils import open_verticals
 
 init_page(title="SuperAdmin — Scopes", icon="🧭")
 
@@ -18,9 +18,9 @@ render_sidebar_nav()
 
 st.title("Scopes")
 st.caption("Catálogo único (FS + DB). Incluye scopes vacíos.")
-st.info("Modo lectura. Usa el Wizard para crear/editar scopes (activar Debug para acciones avanzadas).")
-
-debug_mode = bool(st.session_state.get("debug"))
+st.info("Modo lectura. Gestiona scopes en Verticals.")
+if st.button("Gestionar en Verticals", use_container_width=True):
+    open_verticals(tab="Flow base")
 
 col1, col2, col3 = st.columns([0.4, 0.3, 0.3])
 include_empty = col1.toggle("Incluir vacíos", value=True)
@@ -47,38 +47,6 @@ if vertical_sel != "Todos":
     rows = [r for r in rows if r.get("vertical_key") == vertical_sel]
 
 st.markdown("**Scopes**")
-if debug_mode:
-    with st.expander("Crear scope (Debug)", expanded=False):
-        c1, c2 = st.columns([0.5, 0.5])
-        vertical_input = c1.selectbox(
-            "Vertical existente",
-            options=verticals or [],
-            index=0 if verticals else None,
-        )
-        vertical_custom = c2.text_input("Vertical (nuevo)", value="")
-        scope_key = st.text_input("Scope key", value="", placeholder="ej: osteopatia")
-        display_name = st.text_input("Nombre visible", value="", placeholder="Osteopatía")
-        description = st.text_area("Descripción (opcional)", value="", height=80)
-        vertical_final = (vertical_custom.strip() or vertical_input or "").strip()
-        if st.button("Crear scope", use_container_width=True):
-            if not vertical_final or not scope_key.strip() or not display_name.strip():
-                st.warning("Completa vertical, scope key y nombre visible.")
-            else:
-                res = create_scope(
-                    ctx.token,
-                    vertical_key=vertical_final,
-                    scope_key=scope_key.strip(),
-                    display_name=display_name.strip(),
-                    description=description.strip() or None,
-                    api_key=ctx.api_key,
-                )
-                if isinstance(res, dict) and res.get("error"):
-                    st.error(res)
-                else:
-                    st.success("Scope creado.")
-                    st.rerun()
-else:
-    st.caption("Acciones de creación habilitadas solo en Debug.")
 if not rows:
     st.info("Sin scopes para los filtros actuales.")
 else:
@@ -112,10 +80,14 @@ else:
         elif status == "DRAFT_ONLY":
             action_label = "Publicar"
         if cc6.button(
-            "Abrir en Wizard",
+            "Gestionar en Verticals",
             key=f"scope-action-{row.get('vertical_key')}-{row.get('scope_key')}",
             use_container_width=True,
         ):
-            open_wizard(vertical_key=row.get("vertical_key"), scope_key=row.get("scope_key"), step=3)
-        if debug_mode and not row.get("has_fs_def"):
+            open_verticals(
+                vertical_key=row.get("vertical_key"),
+                scope_key=row.get("scope_key"),
+                tab="Flow base",
+            )
+        if not row.get("has_fs_def"):
             cc2.caption("warning: sin definición FS")

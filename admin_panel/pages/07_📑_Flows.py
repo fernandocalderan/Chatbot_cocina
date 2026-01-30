@@ -7,9 +7,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from admin_panel.api_client import get_catalog, flatten_catalog_flows, publish_flow_by_id
+from admin_panel.api_client import get_catalog, flatten_catalog_flows
 from admin_panel.ui import init_page, render_sidebar_nav, require_admin_context, pill
-from admin_panel.panel_utils import open_wizard
+from admin_panel.panel_utils import open_verticals
 
 init_page(title="SuperAdmin — Flows", icon="📑")
 
@@ -18,9 +18,9 @@ render_sidebar_nav()
 
 st.title("Flows")
 st.caption("Listado global desde /v1/catalog (sin filtros ocultos).")
-st.info("Modo lectura. Usa el Wizard para crear/publicar flows (activar Debug para acciones avanzadas).")
-
-debug_mode = bool(st.session_state.get("debug"))
+st.info("Modo lectura. Gestiona flows en Verticals.")
+if st.button("Gestionar en Verticals", use_container_width=True):
+    open_verticals(tab="Flow base")
 
 col1, col2, col3, col4 = st.columns([0.25, 0.25, 0.25, 0.25])
 include_empty = col1.toggle("Incluir vacíos", value=True)
@@ -76,25 +76,15 @@ else:
         cc4.write(str(row.get("version") or "—"))
         cc5.write(str(row.get("published_at") or "—"))
         cc6.write(str(row.get("owner_type") or "—"))
-        action_label = "Gestionar en Wizard"
+        action_label = "Gestionar en Verticals"
         action_key = f"flow-action-{row.get('flow_id')}"
         if cc7.button(
             action_label,
             key=action_key,
             use_container_width=True,
         ):
-            open_wizard(vertical_key=row.get("vertical_key"), scope_key=row.get("scope_key"), step=3)
-        if debug_mode and not published and str(row.get("owner_type") or "").upper() == "TENANT":
-            if st.button(
-                "Publicar (Debug)",
-                key=f"flow-pub-{row.get('flow_id')}",
-            ):
-                res = publish_flow_by_id(ctx.token, str(row.get("flow_id")), api_key=ctx.api_key)
-                if isinstance(res, dict) and res.get("error"):
-                    st.error(res)
-                else:
-                    st.success("Flow publicado.")
-                    st.rerun()
-        if debug_mode:
-            cc1.caption(f"id: {row.get('flow_id')}")
-            cc6.caption(f"owner_id: {row.get('owner_id')}")
+            open_verticals(
+                vertical_key=row.get("vertical_key"),
+                scope_key=row.get("scope_key"),
+                tab="Flow base",
+            )

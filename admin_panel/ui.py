@@ -122,8 +122,12 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
     with st.sidebar:
         st.markdown("### SuperAdmin")
         st.page_link(_resolve_entrypoint_script(), label="Inicio", icon="🏠")
-        if "SUPER_ADMIN" in (st.session_state.get("admin_roles") or []):
-            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (principal)", icon="⚡")
+        roles = st.session_state.get("admin_roles") or []
+        debug_default = str(os.getenv("PANEL_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+        st.session_state.setdefault("debug", debug_default)
+        debug_allowed = debug_default or ("SUPER_ADMIN" in roles)
+        if "SUPER_ADMIN" in roles and st.session_state.get("debug"):
+            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (Debug)", icon="⚡")
         st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
         st.page_link("pages/06_🧭_Scopes.py", label="Scopes", icon="🧭")
         st.page_link("pages/07_📑_Flows.py", label="Flows", icon="📑")
@@ -131,10 +135,6 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
         st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
         st.page_link("pages/05_🧾_Auditoría.py", label="Auditoría", icon="🧾")
-        debug_default = str(os.getenv("PANEL_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
-        st.session_state.setdefault("debug", debug_default)
-        roles = st.session_state.get("admin_roles") or []
-        debug_allowed = debug_default or ("SUPER_ADMIN" in roles)
         if debug_allowed:
             st.toggle("Debug", key="debug", help="Muestra información extra de diagnóstico.")
         if show_tools:
