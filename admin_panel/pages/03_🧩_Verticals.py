@@ -317,6 +317,16 @@ def render_cockpit() -> bool:
                     st.session_state["show_create_scope"] = False
                     st.rerun()
 
+    files_payload = list_vertical_files_admin(ctx.token, str(selected_vertical_key), api_key=ctx.api_key)
+    files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+    file_names: list[str] = []
+    for it in files_items:
+        if not isinstance(it, dict):
+            continue
+        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+        if fname:
+            file_names.append(fname)
+
     base_flows = [
         f
         for f in flows
@@ -522,6 +532,62 @@ def render_cockpit() -> bool:
                         st.session_state["flow_editor_open"] = False
                         st.rerun()
 
+        flow_file = f"flow_base_scope_{current_scope}.json" if current_scope else "flow_base.json"
+        flow_file_exists = flow_file in file_names
+        st.divider()
+        st.markdown("**Contenido existente (archivo)**")
+        with st.expander("Ver o editar contenido del Flow base", expanded=False):
+            st.caption("Pega aquí el JSON del Flow base. Puedes subir un archivo o escribirlo manualmente.")
+            state_key = f"flow_base_file_text_{flow_file}"
+            if state_key not in st.session_state:
+                if flow_file_exists:
+                    payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), flow_file, api_key=ctx.api_key)
+                    content = payload.get("content") if isinstance(payload, dict) else None
+                    if isinstance(content, dict):
+                        st.session_state[state_key] = json.dumps(content, ensure_ascii=False, indent=2)
+                    else:
+                        st.session_state[state_key] = ""
+                else:
+                    st.session_state[state_key] = ""
+            upload = st.file_uploader("Subir archivo JSON", type=["json"], key=f"flow-upload-{flow_file}")
+            if upload is not None:
+                try:
+                    st.session_state[state_key] = upload.getvalue().decode("utf-8")
+                except Exception:
+                    st.error("No se pudo leer el archivo.")
+            text = st.text_area(
+                "Flow base (JSON)",
+                value=st.session_state.get(state_key) or "",
+                height=220,
+                key=f"flow-text-{flow_file}",
+            )
+            st.session_state[state_key] = text
+            c_save, c_cancel = st.columns([0.6, 0.4])
+            if c_save.button("Guardar contenido", use_container_width=True, key=f"flow-save-{flow_file}"):
+                try:
+                    parsed = json.loads(text or "")
+                except Exception:
+                    st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
+                else:
+                    res = update_vertical_file_admin(
+                        ctx.token,
+                        str(selected_vertical_key),
+                        flow_file,
+                        kind="json",
+                        content=parsed,
+                        validate=True,
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
+                        if debug_mode:
+                            _show_api_error(res, "Detalle técnico")
+                    else:
+                        st.success("Contenido guardado.")
+                        st.rerun()
+            if c_cancel.button("Cancelar", use_container_width=True, key=f"flow-cancel-{flow_file}"):
+                st.session_state.pop(state_key, None)
+
         if debug_mode:
             st.caption(f"base_flow_id: {base_flow_id or '—'}")
 
@@ -613,6 +679,129 @@ def render_cockpit() -> bool:
             else:
                 st.info("No hay Subflows aún.")
 
+            fs_subflows: list[dict[str, str]] = []
+            for it in files_items:
+                if not isinstance(it, dict):
+                    continue
+                sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
+                fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                if not fname or not fname.startswith("subflow_scope_"):
+                    continue
+                if sf and sf.get("scope") == current_scope:
+                    fs_subflows.append(
+                        {
+                            "file": fname,
+                            "key": str(sf.get("key") or ""),
+                        }
+                    )
+                elif current_scope and f"subflow_scope_{current_scope}__" in fname:
+                    parts = fname.replace(".json", "").split("__")
+                    key = parts[-1] if len(parts) >= 3 else fname
+                    fs_subflows.append({"file": fname, "key": key})
+
+            if fs_subflows:
+                st.divider()
+                st.markdown("#### Subflows existentes (archivos)")
+                for entry in fs_subflows:
+                    label = entry.get("key") or entry.get("file")
+                    with st.expander(f"{label}", expanded=False):
+                        sf_file = entry.get("file") or ""
+                        state_key = f"subflow_file_text_{sf_file}"
+                        if state_key not in st.session_state:
+                            payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), sf_file, api_key=ctx.api_key)
+                            content = payload.get("content") if isinstance(payload, dict) else None
+                            if isinstance(content, dict):
+                                st.session_state[state_key] = json.dumps(content, ensure_ascii=False, indent=2)
+                            else:
+                                st.session_state[state_key] = ""
+                        upload = st.file_uploader(
+                            "Subir archivo JSON",
+                            type=["json"],
+                            key=f"sf-upload-{sf_file}",
+                        )
+                        if upload is not None:
+                            try:
+                                st.session_state[state_key] = upload.getvalue().decode("utf-8")
+                            except Exception:
+                                st.error("No se pudo leer el archivo.")
+                        text = st.text_area(
+                            "Subflow (JSON)",
+                            value=st.session_state.get(state_key) or "",
+                            height=200,
+                            key=f"sf-text-{sf_file}",
+                        )
+                        st.session_state[state_key] = text
+                        c_save, c_cancel = st.columns([0.6, 0.4])
+                        if c_save.button("Guardar contenido", use_container_width=True, key=f"sf-save-{sf_file}"):
+                            try:
+                                parsed = json.loads(text or "")
+                            except Exception:
+                                st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
+                            else:
+                                res = update_vertical_file_admin(
+                                    ctx.token,
+                                    str(selected_vertical_key),
+                                    sf_file,
+                                    kind="json",
+                                    content=parsed,
+                                    validate=True,
+                                    api_key=ctx.api_key,
+                                )
+                                if isinstance(res, dict) and res.get("error"):
+                                    st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
+                                    if debug_mode:
+                                        _show_api_error(res, "Detalle técnico")
+                                else:
+                                    st.success("Contenido guardado.")
+                                    st.rerun()
+                        if c_cancel.button("Cancelar", use_container_width=True, key=f"sf-cancel-{sf_file}"):
+                            st.session_state.pop(state_key, None)
+
+            if current_scope:
+                st.divider()
+                st.markdown("#### Crear Subflow (archivo)")
+                with st.form("subflow-create-file"):
+                    subflow_name = st.text_input("Nombre del subflow", placeholder="dolor_lumbar")
+                    st.caption("Pega el JSON del Subflow o sube un archivo.")
+                    upload = st.file_uploader("Archivo JSON", type=["json"], key="sf-create-upload")
+                    text = st.text_area("Subflow (JSON)", height=200, key="sf-create-text")
+                    submitted = st.form_submit_button("Guardar contenido", use_container_width=True, disabled=not write_enabled)
+                if submitted:
+                    raw = ""
+                    if upload is not None:
+                        try:
+                            raw = upload.getvalue().decode("utf-8")
+                        except Exception:
+                            st.error("No se pudo leer el archivo.")
+                            raw = ""
+                    if not raw:
+                        raw = text or ""
+                    if not raw.strip():
+                        st.error("Pega un JSON válido o sube un archivo.")
+                    else:
+                        try:
+                            parsed = json.loads(raw)
+                        except Exception:
+                            st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
+                        else:
+                            sf_key = _slugify_subflow_key(subflow_name or "general")
+                            sf_file = _subflow_filename(str(current_scope), "intent", sf_key)
+                            res = update_vertical_file_admin(
+                                ctx.token,
+                                str(selected_vertical_key),
+                                sf_file,
+                                kind="json",
+                                content=parsed,
+                                validate=True,
+                                api_key=ctx.api_key,
+                            )
+                            if isinstance(res, dict) and res.get("error"):
+                                st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
+                                if debug_mode:
+                                    _show_api_error(res, "Detalle técnico")
+                            else:
+                                st.success("Subflow guardado.")
+                                st.rerun()
             if st.session_state.get("show_create_subflow") or st.session_state.get("subflow_edit_target"):
                 edit_target = st.session_state.get("subflow_edit_target")
                 title = "Editar subflow" if edit_target else "Crear subflow"
