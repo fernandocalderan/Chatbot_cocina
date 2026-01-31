@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from admin_panel.api_client import (
+    archive_subflow,
     create_vertical_admin,
     create_scope,
     create_subflow,
@@ -41,7 +42,7 @@ from admin_panel.ui import (
     require_admin_context,
 )
 
-init_page(title="SuperAdmin — Verticals", icon="🧩")
+init_page(title="Panel de Flows", icon="🧩")
 
 ctx = require_admin_context()
 render_sidebar_nav()
@@ -205,7 +206,24 @@ def _apply_cockpit_prefill() -> None:
 
 def render_cockpit() -> bool:
     st.title("Panel de Flows")
-    st.caption("Crea y publica cómo habla el asistente: Scope → Flow base → Subflows.")
+    st.caption("Configura cómo habla el asistente por sector (Vertical) y especialidad (Scope).")
+    st.markdown(
+        """
+        <style>
+        .panel-editor-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+        }
+        .panel-editor-card textarea {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     debug_allowed = ctx.is_super_admin or bool(st.session_state.get("debug"))
     debug_mode = False
@@ -235,27 +253,76 @@ def render_cockpit() -> bool:
 
     _apply_cockpit_prefill()
 
-    if not verticals:
-        st.warning("No hay verticales disponibles en el catálogo.")
+    st.markdown("### Vertical")
+    v_cols = st.columns([0.6, 0.25, 0.15])
+    selected_vertical_key = None
+    if verticals:
+        vertical_keys = [v.get("vertical_key") for v in verticals]
+        current_vertical = st.session_state.get("cockpit_vertical_key")
+        if current_vertical not in vertical_keys:
+            current_vertical = vertical_keys[0]
+            st.session_state["cockpit_vertical_key"] = current_vertical
+
+        selected_vertical = v_cols[0].selectbox(
+            "Selecciona un vertical",
+            options=verticals,
+            index=vertical_keys.index(current_vertical),
+            format_func=lambda v: f"{v.get('label')} ({v.get('vertical_key')})",
+            key="cockpit_vertical_select",
+        )
+        selected_vertical_key = (
+            selected_vertical.get("vertical_key") if isinstance(selected_vertical, dict) else current_vertical
+        )
+        st.session_state["cockpit_vertical_key"] = selected_vertical_key
+    else:
+        v_cols[0].info("Aún no hay verticales. Crea uno para empezar.")
+
+    if ctx.is_super_admin:
+        if v_cols[1].button("+ Crear vertical", use_container_width=True, disabled=not write_enabled):
+            st.session_state["show_create_vertical"] = True
+
+        with st.expander("Crear vertical", expanded=bool(st.session_state.get("show_create_vertical"))):
+            with st.form("cockpit-create-vertical"):
+                vertical_name = st.text_input("Nombre del vertical", placeholder="clinics_private")
+                st.caption("Sector. Usa minúsculas y guiones. Ej: clinics_private")
+                submitted = st.form_submit_button("Crear", use_container_width=True, disabled=not write_enabled)
+            if submitted:
+                name = (vertical_name or "").strip().lower()
+                if len(name) < 3:
+                    st.warning("El nombre del vertical debe tener al menos 3 caracteres.")
+                elif not re.match(r"^[a-z0-9_-]+$", name):
+                    st.error("El vertical debe usar minúsculas, números y guiones (y guión bajo si aplica).")
+                else:
+                    payload = {"key": name, "label": (vertical_name or "").strip() or name}
+                    res = create_vertical_admin(ctx.token, payload, api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        status_code = res.get("status_code")
+                        err_text = str(res.get("error") or "").lower()
+                        if status_code == 409 or "already" in err_text or "exists" in err_text:
+                            st.error("Ya existe un vertical con ese nombre.")
+                        else:
+                            st.error("No se pudo crear el vertical. Inténtalo otra vez.")
+                        if debug_mode:
+                            _show_api_error(res, "Detalle técnico")
+                    else:
+                        st.success("Vertical creado.")
+                        st.session_state["cockpit_vertical_key"] = name
+                        st.session_state["cockpit_scope_key"] = None
+                        st.session_state["active_scope_key"] = None
+                        st.session_state["show_create_vertical"] = False
+                        st.rerun()
+
+    if not selected_vertical_key:
+        st.info("Selecciona o crea un Vertical para empezar.")
         return debug_mode
 
-    vertical_keys = [v.get("vertical_key") for v in verticals]
-    current_vertical = st.session_state.get("cockpit_vertical_key")
-    if current_vertical not in vertical_keys:
-        current_vertical = vertical_keys[0]
-        st.session_state["cockpit_vertical_key"] = current_vertical
-
-    selected_vertical = st.selectbox(
-        "Vertical",
-        options=verticals,
-        index=vertical_keys.index(current_vertical),
-        format_func=lambda v: f"{v.get('label')} ({v.get('vertical_key')})",
-        key="cockpit_vertical_select",
-    )
-    selected_vertical_key = selected_vertical.get("vertical_key") if isinstance(selected_vertical, dict) else current_vertical
-    st.session_state["cockpit_vertical_key"] = selected_vertical_key
-
     scopes_for_vertical = [s for s in scopes if s.get("vertical_key") == selected_vertical_key]
+    can_delete_vertical = ctx.is_super_admin and write_enabled and not scopes_for_vertical
+    delete_help = "Eliminar vertical"
+    if scopes_for_vertical:
+        delete_help = "Elimina primero los scopes de este vertical."
+    if v_cols[2].button("🗑️", use_container_width=True, disabled=not can_delete_vertical, help=delete_help):
+        st.session_state["vertical_delete_target"] = selected_vertical_key
     scope_keys = [s.get("scope_key") for s in scopes_for_vertical]
     current_scope = st.session_state.get("active_scope_key") or st.session_state.get("cockpit_scope_key")
     if current_scope not in scope_keys:
@@ -264,7 +331,8 @@ def render_cockpit() -> bool:
         st.session_state["active_scope_key"] = current_scope
 
     st.markdown("### Scope")
-    scope_row = st.columns([0.7, 0.3])
+    st.caption(f"Especialidad dentro de {selected_vertical_key}.")
+    scope_row = st.columns([0.6, 0.25, 0.15])
     if not scopes_for_vertical:
         scope_row[0].info("Aún no hay scopes. Crea uno para empezar.")
     else:
@@ -279,13 +347,48 @@ def render_cockpit() -> bool:
         st.session_state["cockpit_scope_key"] = current_scope
         st.session_state["active_scope_key"] = current_scope
 
-    if scope_row[1].button("+ Crear scope", use_container_width=True, disabled=not write_enabled or not selected_vertical_key):
+    base_flows = [
+        f
+        for f in flows
+        if f.get("flow_kind") == "base"
+        and f.get("vertical_key") == selected_vertical_key
+        and f.get("scope_key") == current_scope
+        and str(f.get("owner_type") or "").upper() == "GLOBAL"
+    ]
+    base_flow_active = _pick_latest_flow(base_flows, prefer_published=True)
+    base_flow_id = base_flow_active.get("flow_id") if isinstance(base_flow_active, dict) else None
+    st.session_state["cockpit_base_flow_id"] = base_flow_id
+
+    subflows_all = [
+        f
+        for f in flows
+        if f.get("flow_kind") == "subflow"
+        and str(f.get("parent_flow_id") or "") == str(base_flow_id)
+        and str(f.get("owner_type") or "").upper() == "GLOBAL"
+    ]
+    subflows_drafts = [sf for sf in subflows_all if not sf.get("published")]
+    has_published_base = any(f.get("published") for f in base_flows)
+    has_published_subflows = any(sf.get("published") for sf in subflows_all)
+
+    if scope_row[1].button("+ Crear scope", use_container_width=True, disabled=not write_enabled):
         st.session_state["show_create_scope"] = True
+
+    can_delete_scope = bool(current_scope) and write_enabled and not has_published_base and not has_published_subflows
+    scope_delete_help = "Eliminar scope"
+    if has_published_base or has_published_subflows:
+        scope_delete_help = "El scope tiene flows publicados. Elimina primero esos flows."
+    if scope_row[2].button(
+        "🗑️",
+        use_container_width=True,
+        disabled=not can_delete_scope,
+        help=scope_delete_help,
+    ):
+        st.session_state["scope_delete_target"] = current_scope
 
     with st.expander("Crear scope", expanded=bool(st.session_state.get("show_create_scope"))):
         with st.form("cockpit-create-scope"):
-            scope_name = st.text_input("Nombre del scope", placeholder="cocinas-premium-barcelona")
-            st.caption("Usa minúsculas y guiones. Ej: cocinas-premium-barcelona")
+            scope_name = st.text_input("Nombre del scope", placeholder="dental")
+            st.caption(f"Especialidad dentro de {selected_vertical_key}.")
             submitted = st.form_submit_button("Crear", use_container_width=True, disabled=not write_enabled)
         if submitted:
             name = (scope_name or "").strip().lower()
@@ -305,7 +408,7 @@ def render_cockpit() -> bool:
                     status_code = res.get("status_code")
                     err_text = str(res.get("error") or "").lower()
                     if status_code == 409 or "already" in err_text or "exists" in err_text:
-                        st.error("Ya existe un scope con ese nombre.")
+                        st.error("Ya existe un scope con ese nombre en este vertical.")
                     else:
                         st.error("No se pudo crear el scope. Revisa el nombre e inténtalo otra vez.")
                     if debug_mode:
@@ -317,6 +420,108 @@ def render_cockpit() -> bool:
                     st.session_state["show_create_scope"] = False
                     st.rerun()
 
+    del_vertical = st.session_state.get("vertical_delete_target")
+    if del_vertical:
+        st.warning(
+            f"El vertical '{del_vertical}' se eliminará. Esta acción no se puede deshacer."
+        )
+        c_yes, c_no = st.columns([0.5, 0.5])
+        if c_yes.button("Eliminar vertical", use_container_width=True, disabled=not write_enabled):
+            with st.spinner("Eliminando archivos del vertical..."):
+                files_payload = list_vertical_files_admin(ctx.token, str(del_vertical), api_key=ctx.api_key)
+                files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+                for it in files_items:
+                    fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                    if not fname:
+                        continue
+                    delete_vertical_file_admin(ctx.token, str(del_vertical), fname, api_key=ctx.api_key)
+            st.success("Vertical eliminado.")
+            st.session_state["vertical_delete_target"] = None
+            st.session_state["cockpit_vertical_key"] = None
+            st.session_state["cockpit_scope_key"] = None
+            st.session_state["active_scope_key"] = None
+            st.rerun()
+        if c_no.button("Cancelar", use_container_width=True):
+            st.session_state["vertical_delete_target"] = None
+
+    del_scope = st.session_state.get("scope_delete_target")
+    if del_scope:
+        target_base_flows = [
+            f
+            for f in flows
+            if f.get("flow_kind") == "base"
+            and f.get("vertical_key") == selected_vertical_key
+            and f.get("scope_key") == del_scope
+            and str(f.get("owner_type") or "").upper() == "GLOBAL"
+        ]
+        target_published_base = any(f.get("published") for f in target_base_flows)
+        target_base_active = _pick_latest_flow(target_base_flows, prefer_published=True)
+        target_base_id = target_base_active.get("flow_id") if isinstance(target_base_active, dict) else None
+        target_subflows = [
+            f
+            for f in flows
+            if f.get("flow_kind") == "subflow"
+            and str(f.get("parent_flow_id") or "") == str(target_base_id)
+            and str(f.get("owner_type") or "").upper() == "GLOBAL"
+        ]
+        target_published_subflows = any(sf.get("published") for sf in target_subflows)
+
+        if target_published_base:
+            msg = (
+                f"El flow base publicado del scope '{del_scope}' dejará de estar disponible. "
+                "Esta acción no se puede deshacer."
+            )
+        elif target_published_subflows:
+            msg = (
+                f"Los subflows publicados del scope '{del_scope}' dejarán de estar disponibles. "
+                "Esta acción no se puede deshacer."
+            )
+        else:
+            msg = f"El scope '{del_scope}' se eliminará junto con sus borradores. Esta acción no se puede deshacer."
+        st.warning(msg)
+        c_yes, c_no = st.columns([0.5, 0.5])
+        if c_yes.button("Eliminar scope", use_container_width=True, disabled=not write_enabled):
+            meta_payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), "metadata.json", api_key=ctx.api_key)
+            meta_content = (
+                meta_payload.get("content")
+                if isinstance(meta_payload, dict) and isinstance(meta_payload.get("content"), dict)
+                else {}
+            )
+            if isinstance(meta_content, dict):
+                defs = meta_content.get("scope_definitions") if isinstance(meta_content.get("scope_definitions"), dict) else {}
+                defs.pop(str(del_scope), None)
+                meta_content["scope_definitions"] = defs
+                _write_metadata(str(selected_vertical_key), meta_content)
+
+            files_payload = list_vertical_files_admin(ctx.token, str(selected_vertical_key), api_key=ctx.api_key)
+            files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
+            for it in files_items:
+                fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+                if not fname:
+                    continue
+                if fname == f"prompt_scope_{del_scope}.txt":
+                    delete_vertical_file_admin(ctx.token, str(selected_vertical_key), fname, api_key=ctx.api_key)
+                if fname == f"flow_base_scope_{del_scope}.json":
+                    delete_vertical_file_admin(ctx.token, str(selected_vertical_key), fname, api_key=ctx.api_key)
+                if fname.startswith(f"router_routes_scope_{del_scope}__"):
+                    delete_vertical_file_admin(ctx.token, str(selected_vertical_key), fname, api_key=ctx.api_key)
+                if fname.startswith(f"subflow_scope_{del_scope}__"):
+                    delete_vertical_file_admin(ctx.token, str(selected_vertical_key), fname, api_key=ctx.api_key)
+                if fname.startswith(f"subflows/{del_scope}/"):
+                    delete_vertical_file_admin(ctx.token, str(selected_vertical_key), fname, api_key=ctx.api_key)
+
+            st.success("Scope eliminado.")
+            st.session_state["scope_delete_target"] = None
+            st.session_state["cockpit_scope_key"] = None
+            st.session_state["active_scope_key"] = None
+            st.rerun()
+        if c_no.button("Cancelar", use_container_width=True):
+            st.session_state["scope_delete_target"] = None
+
+    if not current_scope:
+        st.warning("Selecciona o crea un Scope para empezar.")
+        return debug_mode
+
     files_payload = list_vertical_files_admin(ctx.token, str(selected_vertical_key), api_key=ctx.api_key)
     files_items = files_payload.get("items") if isinstance(files_payload, dict) else []
     file_names: list[str] = []
@@ -327,42 +532,45 @@ def render_cockpit() -> bool:
         if fname:
             file_names.append(fname)
 
-    base_flows = [
-        f
-        for f in flows
-        if f.get("flow_kind") == "base"
-        and f.get("vertical_key") == selected_vertical_key
-        and f.get("scope_key") == current_scope
-        and str(f.get("owner_type") or "").upper() == "GLOBAL"
-    ]
-    base_flow_active = _pick_latest_flow(base_flows, prefer_published=True)
-    base_flow_id = base_flow_active.get("flow_id") if isinstance(base_flow_active, dict) else None
-    st.session_state["cockpit_base_flow_id"] = base_flow_id
+    flow_file = f"flow_base_scope_{current_scope}.json" if current_scope else "flow_base.json"
+    flow_file_exists = flow_file in file_names
 
-    has_published_base = any(f.get("published") for f in base_flows)
+    fs_subflows: list[dict[str, str]] = []
+    for it in files_items:
+        if not isinstance(it, dict):
+            continue
+        sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
+        fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
+        if not fname or not fname.startswith("subflow_scope_"):
+            continue
+        if sf and sf.get("scope") == current_scope:
+            fs_subflows.append(
+                {
+                    "file": fname,
+                    "key": str(sf.get("key") or ""),
+                }
+            )
+        elif current_scope and f"subflow_scope_{current_scope}__" in fname:
+            parts = fname.replace(".json", "").split("__")
+            key = parts[-1] if len(parts) >= 3 else fname
+            fs_subflows.append({"file": fname, "key": key})
+
     base_state = "Sin flow base"
     base_tone = "info"
     if has_published_base:
         base_state = "Publicado"
         base_tone = "success"
-    elif base_flows:
+    elif base_flows or flow_file_exists:
         base_state = "Borrador"
         base_tone = "warning"
-
-    subflows_all = [
-        f
-        for f in flows
-        if f.get("flow_kind") == "subflow"
-        and str(f.get("parent_flow_id") or "") == str(base_flow_id)
-        and str(f.get("owner_type") or "").upper() == "GLOBAL"
-    ]
-    subflows_drafts = [sf for sf in subflows_all if not sf.get("published")]
+    subflows_total = len(subflows_all) + len(fs_subflows)
+    subflows_pending = len(subflows_drafts) + len(fs_subflows)
     subflow_state = "Sin subflows"
     subflow_tone = "info"
-    if subflows_all and not subflows_drafts:
+    if subflows_total > 0 and subflows_pending == 0:
         subflow_state = "Todos publicados"
         subflow_tone = "success"
-    elif subflows_drafts:
+    elif subflows_pending > 0:
         subflow_state = "Borradores pendientes"
         subflow_tone = "warning"
 
@@ -376,9 +584,9 @@ def render_cockpit() -> bool:
     else:
         checklist.append("❌ Flow base pendiente (falta crear)")
 
-    if len(subflows_all) == 0:
+    if subflows_total == 0:
         checklist.append("❌ Subflows pendientes (falta crear)")
-    elif len(subflows_drafts) > 0:
+    elif subflows_pending > 0:
         checklist.append("⚠️ Subflows con borradores pendientes")
     else:
         checklist.append("✅ Subflows publicados")
@@ -391,7 +599,7 @@ def render_cockpit() -> bool:
     r1.markdown(f"**Flow base** {pill(base_state, base_tone)}", unsafe_allow_html=True)
     r2.markdown(
         f"**Subflows** {pill(subflow_state, subflow_tone)} "
-        f"<span style='opacity:0.7;'>({len(subflows_all)} total)</span>",
+        f"<span style='opacity:0.7;'>({subflows_total} total)</span>",
         unsafe_allow_html=True,
     )
     s1, s2 = st.columns([0.5, 0.5])
@@ -405,16 +613,16 @@ def render_cockpit() -> bool:
     if base_summary:
         s1.caption(f"ℹ️ {base_summary}")
     subflow_summary = None
-    if len(subflows_all) == 0:
+    if subflows_total == 0:
         subflow_summary = "Aún no hay subflows creados."
-    elif len(subflows_drafts) > 0:
+    elif subflows_pending > 0:
         subflow_summary = "Hay subflows en borrador pendientes de publicar."
-    elif subflows_all:
+    elif subflows_total > 0:
         subflow_summary = "Subflows publicados. Selección automática lista."
     if subflow_summary:
         link = ""
-        if len(subflows_drafts) > 0:
-            link = " · <a href='#subflows-gestionar'>Ir a Gestionar</a>"
+        if subflows_pending > 0:
+            link = " · <a href='#subflows-list'>Ir a Subflows</a>"
         s2.markdown(f"ℹ️ {subflow_summary}{link}", unsafe_allow_html=True)
 
     st.markdown("## 1) Flow base")
@@ -425,12 +633,25 @@ def render_cockpit() -> bool:
         has_draft = bool([f for f in base_flows if not f.get("published")])
         show_publish = base_state == "Borrador" or (base_state == "Publicado" and has_draft)
         publish_label = "Publicar flow base" if base_state == "Borrador" else "Publicar nueva versión"
+        show_delete = base_state != "Sin flow base"
+        can_delete_flow_base = flow_file_exists
+        delete_help = "Eliminar flow base"
+        if show_delete and not flow_file_exists:
+            delete_help = "El flow base no tiene archivo local para eliminar."
 
-        btn_cols = st.columns([0.6, 0.4])
+        btn_cols = st.columns([0.5, 0.25, 0.25])
         if btn_cols[0].button(primary_label, use_container_width=True, disabled=not write_enabled):
             st.session_state["flow_editor_open"] = True
         if show_publish and btn_cols[1].button(publish_label, use_container_width=True, disabled=not write_enabled):
             st.session_state["flow_base_publish_confirm"] = True
+        if show_delete and btn_cols[2].button(
+            "Eliminar flow base",
+            use_container_width=True,
+            disabled=not write_enabled or not can_delete_flow_base,
+            help=delete_help,
+            type="secondary",
+        ):
+            st.session_state["flow_base_delete_confirm"] = True
 
         if st.session_state.get("flow_base_publish_confirm"):
             st.info("Esto activará el flow base para este scope. ¿Publicar ahora?")
@@ -462,6 +683,34 @@ def render_cockpit() -> bool:
             if c_no.button("Cancelar", use_container_width=True):
                 st.session_state["flow_base_publish_confirm"] = False
 
+        if st.session_state.get("flow_base_delete_confirm"):
+            if base_state == "Publicado":
+                msg = "El flow base publicado se eliminará y el asistente quedará inactivo. Esta acción no se puede deshacer."
+            else:
+                msg = "Se eliminará el flow base actual. Esta acción no se puede deshacer."
+            st.warning(msg)
+            c_yes, c_no = st.columns([0.5, 0.5])
+            if c_yes.button("Eliminar flow base", use_container_width=True, disabled=not write_enabled):
+                res = delete_vertical_file_admin(
+                    ctx.token,
+                    str(selected_vertical_key),
+                    flow_file,
+                    api_key=ctx.api_key,
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    st.error("No se pudo eliminar el flow base. Inténtalo otra vez.")
+                    if debug_mode:
+                        _show_api_error(res, "Detalle técnico")
+                else:
+                    st.success("Flow base eliminado.")
+                    st.session_state["flow_base_delete_confirm"] = False
+                    st.session_state["flow_editor_open"] = False
+                    st.session_state["flow_base_editor_text"] = ""
+                    st.session_state["cockpit_base_flow_id"] = None
+                    st.rerun()
+            if c_no.button("Cancelar", use_container_width=True):
+                st.session_state["flow_base_delete_confirm"] = False
+
         template_flow = {
             "version": "flow_base",
             "start_block": "start",
@@ -476,25 +725,48 @@ def render_cockpit() -> bool:
             },
         }
         st.session_state.setdefault("flow_base_editor_text", "")
-        if st.button("Usar plantilla básica", use_container_width=True, disabled=not write_enabled):
-            st.session_state["flow_base_editor_text"] = json.dumps(template_flow, ensure_ascii=False, indent=2)
-            st.session_state["flow_editor_open"] = True
+        if st.session_state.get("flow_base_editor_scope") != current_scope:
+            st.session_state["flow_base_editor_scope"] = current_scope
+            st.session_state["flow_base_editor_text"] = ""
 
         if st.session_state.get("flow_editor_open"):
-            st.markdown("#### Editor de Flow base")
+            if not st.session_state.get("flow_base_editor_text") and flow_file_exists:
+                payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), flow_file, api_key=ctx.api_key)
+                content = payload.get("content") if isinstance(payload, dict) else None
+                if isinstance(content, dict):
+                    st.session_state["flow_base_editor_text"] = json.dumps(content, ensure_ascii=False, indent=2)
+
+            st.markdown("#### Contenido del Flow base")
             st.caption(
-                "Pega aquí la definición del flow base (JSON). Si no tienes uno, empieza con una plantilla."
+                "Pega aquí la definición del Flow base (JSON). Si no tienes uno, empieza con una plantilla."
             )
-            with st.form("flow-base-editor"):
-                text_value = st.text_area(
-                    "Flow base (JSON)",
-                    value=st.session_state.get("flow_base_editor_text") or "",
-                    height=260,
+            with st.expander("Contenido del Flow base", expanded=True):
+                st.markdown("<div class='panel-editor-card'>", unsafe_allow_html=True)
+                upload = st.file_uploader(
+                    "Subir archivo JSON",
+                    type=["json"],
+                    key=f"flow-editor-upload-{flow_file}",
                 )
-                st.session_state["flow_base_editor_text"] = text_value
-                c_save, c_cancel = st.columns([0.6, 0.4])
-                save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
-                cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+                if upload is not None:
+                    try:
+                        st.session_state["flow_base_editor_text"] = upload.getvalue().decode("utf-8")
+                    except Exception:
+                        st.error("No se pudo leer el archivo.")
+                if st.button("Usar plantilla básica", disabled=not write_enabled):
+                    st.session_state["flow_base_editor_text"] = json.dumps(
+                        template_flow, ensure_ascii=False, indent=2
+                    )
+                with st.form("flow-base-editor"):
+                    text_value = st.text_area(
+                        "Flow base (JSON)",
+                        value=st.session_state.get("flow_base_editor_text") or "",
+                        height=480,
+                    )
+                    st.session_state["flow_base_editor_text"] = text_value
+                    c_save, c_cancel = st.columns([0.6, 0.4])
+                    save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
+                    cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
             if cancel:
                 st.session_state["flow_editor_open"] = False
                 st.rerun()
@@ -532,98 +804,105 @@ def render_cockpit() -> bool:
                         st.session_state["flow_editor_open"] = False
                         st.rerun()
 
-        flow_file = f"flow_base_scope_{current_scope}.json" if current_scope else "flow_base.json"
-        flow_file_exists = flow_file in file_names
-        st.divider()
-        st.markdown("**Contenido existente (archivo)**")
-        with st.expander("Ver o editar contenido del Flow base", expanded=False):
-            st.caption("Pega aquí el JSON del Flow base. Puedes subir un archivo o escribirlo manualmente.")
-            state_key = f"flow_base_file_text_{flow_file}"
-            if state_key not in st.session_state:
-                if flow_file_exists:
-                    payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), flow_file, api_key=ctx.api_key)
-                    content = payload.get("content") if isinstance(payload, dict) else None
-                    if isinstance(content, dict):
-                        st.session_state[state_key] = json.dumps(content, ensure_ascii=False, indent=2)
-                    else:
-                        st.session_state[state_key] = ""
-                else:
-                    st.session_state[state_key] = ""
-            upload = st.file_uploader("Subir archivo JSON", type=["json"], key=f"flow-upload-{flow_file}")
-            if upload is not None:
-                try:
-                    st.session_state[state_key] = upload.getvalue().decode("utf-8")
-                except Exception:
-                    st.error("No se pudo leer el archivo.")
-            text = st.text_area(
-                "Flow base (JSON)",
-                value=st.session_state.get(state_key) or "",
-                height=220,
-                key=f"flow-text-{flow_file}",
-            )
-            st.session_state[state_key] = text
-            c_save, c_cancel = st.columns([0.6, 0.4])
-            if c_save.button("Guardar contenido", use_container_width=True, key=f"flow-save-{flow_file}"):
-                try:
-                    parsed = json.loads(text or "")
-                except Exception:
-                    st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
-                else:
-                    res = update_vertical_file_admin(
-                        ctx.token,
-                        str(selected_vertical_key),
-                        flow_file,
-                        kind="json",
-                        content=parsed,
-                        validate=True,
-                        api_key=ctx.api_key,
-                    )
-                    if isinstance(res, dict) and res.get("error"):
-                        st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
-                        if debug_mode:
-                            _show_api_error(res, "Detalle técnico")
-                    else:
-                        st.success("Contenido guardado.")
-                        st.rerun()
-            if c_cancel.button("Cancelar", use_container_width=True, key=f"flow-cancel-{flow_file}"):
-                st.session_state.pop(state_key, None)
-
-        if debug_mode:
-            st.caption(f"base_flow_id: {base_flow_id or '—'}")
-
     st.divider()
     st.markdown("## 2) Subflows")
-    if not base_flow_id:
-        st.warning("Primero crea y publica el Flow base.")
-    else:
-        subflows = [
-            f
-            for f in flows
-            if f.get("flow_kind") == "subflow"
-            and str(f.get("parent_flow_id") or "") == str(base_flow_id)
-            and str(f.get("owner_type") or "").upper() == "GLOBAL"
-        ]
-        tab_manage, tab_routing = st.tabs(["Gestionar", "Selección automática"])
+    base_ready = bool(base_flow_id)
+    if not base_ready:
+        st.warning("Primero crea y publica el Flow base para gestionar subflows publicados.")
 
-        with tab_manage:
-            st.markdown("<a name='subflows-gestionar'></a>", unsafe_allow_html=True)
-            drafts = [sf for sf in subflows if not sf.get("published")]
-            action_bar = st.columns([0.5, 0.3, 0.2])
-            if action_bar[0].button("+ Crear subflow", use_container_width=True, disabled=not write_enabled):
-                st.session_state["show_create_subflow"] = True
-                st.session_state.pop("subflow_edit_target", None)
-            if action_bar[1].button("Importar subflow", use_container_width=True, disabled=not write_enabled):
-                st.session_state["show_import_subflow"] = True
-            if drafts and action_bar[2].button("Publicar todos", use_container_width=True, disabled=not write_enabled):
+    subflows = [
+        f
+        for f in flows
+        if f.get("flow_kind") == "subflow"
+        and str(f.get("parent_flow_id") or "") == str(base_flow_id)
+        and str(f.get("owner_type") or "").upper() == "GLOBAL"
+    ]
+    drafts = [sf for sf in subflows if not sf.get("published")]
+
+    tab_manage, tab_routing = st.tabs(["Subflows", "Selección automática"])
+
+    with tab_manage:
+        st.markdown("<a name='subflows-list'></a>", unsafe_allow_html=True)
+        if st.button("+ Crear subflow", use_container_width=True, disabled=not write_enabled or not base_ready):
+            st.session_state["show_create_subflow"] = True
+            st.session_state.pop("subflow_edit_target", None)
+
+        if st.button(
+            "Importar subflow",
+            use_container_width=False,
+            disabled=not write_enabled or not base_ready,
+            type="secondary",
+        ):
+            st.session_state["show_import_subflow"] = True
+
+        if len(drafts) > 0:
+            if st.button(
+                "Publicar borradores",
+                use_container_width=True,
+                disabled=not write_enabled or not base_ready,
+                type="secondary",
+            ):
                 st.session_state["confirm_publish_all"] = True
 
-            if st.session_state.get("confirm_publish_all"):
-                st.warning(f"Se publicarán {len(drafts)} subflows en borrador. ¿Continuar?")
-                c_yes, c_no = st.columns([0.5, 0.5])
-                if c_yes.button("Sí, publicar", use_container_width=True):
-                    progress = st.progress(0)
-                    total = len(drafts) or 1
-                    for idx, sf in enumerate(drafts, start=1):
+        if st.session_state.get("confirm_publish_all"):
+            st.warning(f"Se publicarán {len(drafts)} subflows en borrador. ¿Continuar?")
+            c_yes, c_no = st.columns([0.5, 0.5])
+            if c_yes.button("Sí, publicar", use_container_width=True):
+                progress = st.progress(0)
+                total = len(drafts) or 1
+                for idx, sf in enumerate(drafts, start=1):
+                    res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
+                    if isinstance(res, dict) and res.get("error"):
+                        err_text = str(res.get("error") or "").lower()
+                        if "invalid_subflow_content" in err_text:
+                            st.error("El contenido no es válido para un subflow.")
+                        elif "invalid_scope_key" in err_text:
+                            st.error("El scope debe usar minúsculas, números y guiones.")
+                        else:
+                            st.error("No se pudo publicar. Inténtalo otra vez.")
+                        break
+                    progress.progress(int(idx / total * 100))
+                else:
+                    st.success("Subflows publicados.")
+                    st.session_state["confirm_publish_all"] = False
+                    st.rerun()
+            if c_no.button("Cancelar", use_container_width=True):
+                st.session_state["confirm_publish_all"] = False
+
+        if subflows:
+            header = st.columns([0.5, 0.2, 0.3])
+            header[0].caption("Nombre")
+            header[1].caption("Estado")
+            header[2].caption("Acciones")
+            for sf in subflows:
+                row = st.columns([0.5, 0.2, 0.3])
+                row[0].write(sf.get("subflow_key"))
+                row[1].write("Publicado" if sf.get("published") else "Borrador")
+                action_cols = row[2].columns([0.34, 0.33, 0.33])
+                if action_cols[0].button("Editar", key=f"sf-edit-{sf.get('flow_id')}"):
+                    st.session_state["subflow_edit_target"] = sf.get("subflow_key")
+                    st.session_state["show_create_subflow"] = True
+                if not sf.get("published"):
+                    if action_cols[1].button("Publicar", key=f"sf-pub-{sf.get('flow_id')}"):
+                        st.session_state[f"sf-confirm-{sf.get('flow_id')}"] = True
+                else:
+                    action_cols[1].write("")
+                if action_cols[2].button(
+                    "🗑️",
+                    key=f"sf-del-{sf.get('flow_id')}",
+                    type="secondary",
+                    help="Eliminar subflow",
+                ):
+                    st.session_state[f"sf-del-confirm-{sf.get('flow_id')}"] = True
+
+                if st.session_state.get(f"sf-confirm-{sf.get('flow_id')}"):
+                    st.warning("Publicar este subflow lo activará para este scope. ¿Publicar ahora?")
+                    c_yes, c_no = st.columns([0.5, 0.5])
+                    if c_yes.button(
+                        "Sí, publicar",
+                        key=f"sf-confirm-btn-{sf.get('flow_id')}",
+                        use_container_width=True,
+                    ):
                         res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
                         if isinstance(res, dict) and res.get("error"):
                             err_text = str(res.get("error") or "").lower()
@@ -633,159 +912,86 @@ def render_cockpit() -> bool:
                                 st.error("El scope debe usar minúsculas, números y guiones.")
                             else:
                                 st.error("No se pudo publicar. Inténtalo otra vez.")
-                            break
-                        progress.progress(int(idx / total * 100))
-                    else:
-                        st.success("Subflows publicados.")
-                        st.session_state["confirm_publish_all"] = False
-                        st.rerun()
-                if c_no.button("Cancelar", use_container_width=True):
-                    st.session_state["confirm_publish_all"] = False
+                        else:
+                            st.success("Subflow publicado.")
+                            st.rerun()
+                    if c_no.button(
+                        "Cancelar",
+                        key=f"sf-cancel-btn-{sf.get('flow_id')}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.pop(f"sf-confirm-{sf.get('flow_id')}", None)
 
-            if subflows:
-                header = st.columns([0.5, 0.2, 0.3])
-                header[0].caption("Nombre")
-                header[1].caption("Estado")
-                header[2].caption("Acciones")
-                for sf in subflows:
-                    row = st.columns([0.5, 0.2, 0.3])
-                    row[0].write(sf.get("subflow_key"))
-                    row[1].write("Publicado" if sf.get("published") else "Borrador")
-                    action_cols = row[2].columns([0.5, 0.5])
-                    if action_cols[0].button("Editar", key=f"sf-edit-{sf.get('flow_id')}"):
-                        st.session_state["subflow_edit_target"] = sf.get("subflow_key")
-                        st.session_state["show_create_subflow"] = True
-                    if not sf.get("published"):
-                        if action_cols[1].button("Publicar", key=f"sf-pub-{sf.get('flow_id')}"):
-                            st.session_state[f"sf-confirm-{sf.get('flow_id')}"] = True
-                    if st.session_state.get(f"sf-confirm-{sf.get('flow_id')}"):
-                        st.warning("Publicar este subflow lo activará para este scope. ¿Publicar ahora?")
-                        c_yes, c_no = st.columns([0.5, 0.5])
-                        if c_yes.button("Sí, publicar", key=f"sf-confirm-btn-{sf.get('flow_id')}", use_container_width=True):
-                            res = publish_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
-                            if isinstance(res, dict) and res.get("error"):
-                                err_text = str(res.get("error") or "").lower()
-                                if "invalid_subflow_content" in err_text:
-                                    st.error("El contenido no es válido para un subflow.")
-                                elif "invalid_scope_key" in err_text:
-                                    st.error("El scope debe usar minúsculas, números y guiones.")
-                                else:
-                                    st.error("No se pudo publicar. Inténtalo otra vez.")
-                            else:
-                                st.success("Subflow publicado.")
-                                st.rerun()
-                        if c_no.button("Cancelar", key=f"sf-cancel-btn-{sf.get('flow_id')}", use_container_width=True):
-                            st.session_state.pop(f"sf-confirm-{sf.get('flow_id')}", None)
-            else:
-                st.info("No hay Subflows aún.")
+                if st.session_state.get(f"sf-del-confirm-{sf.get('flow_id')}"):
+                    st.warning("Este subflow se eliminará. Esta acción no se puede deshacer.")
+                    c_yes, c_no = st.columns([0.5, 0.5])
+                    if c_yes.button(
+                        "Eliminar subflow",
+                        key=f"sf-del-btn-{sf.get('flow_id')}",
+                        use_container_width=True,
+                    ):
+                        res = archive_subflow(ctx.token, str(sf.get("flow_id")), api_key=ctx.api_key)
+                        if isinstance(res, dict) and res.get("error"):
+                            st.error("No se pudo eliminar el subflow. Inténtalo otra vez.")
+                            if debug_mode:
+                                _show_api_error(res, "Detalle técnico")
+                        else:
+                            st.success("Subflow eliminado.")
+                            st.session_state.pop(f"sf-del-confirm-{sf.get('flow_id')}", None)
+                            st.rerun()
+                    if c_no.button(
+                        "Cancelar",
+                        key=f"sf-del-cancel-{sf.get('flow_id')}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.pop(f"sf-del-confirm-{sf.get('flow_id')}", None)
+        else:
+            st.info("No hay Subflows aún.")
 
-            fs_subflows: list[dict[str, str]] = []
-            for it in files_items:
-                if not isinstance(it, dict):
-                    continue
-                sf = it.get("subflow") if isinstance(it.get("subflow"), dict) else None
-                fname = str(it.get("normalized_filename") or it.get("filename") or "").strip()
-                if not fname or not fname.startswith("subflow_scope_"):
-                    continue
-                if sf and sf.get("scope") == current_scope:
-                    fs_subflows.append(
-                        {
-                            "file": fname,
-                            "key": str(sf.get("key") or ""),
-                        }
+        if fs_subflows:
+            st.divider()
+            st.markdown("#### Subflows existentes")
+            for entry in fs_subflows:
+                label = entry.get("key") or entry.get("file")
+                with st.expander(f"{label}", expanded=False):
+                    st.markdown("<div class='panel-editor-card'>", unsafe_allow_html=True)
+                    sf_file = entry.get("file") or ""
+                    state_key = f"subflow_file_text_{sf_file}"
+                    if state_key not in st.session_state:
+                        payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), sf_file, api_key=ctx.api_key)
+                        content = payload.get("content") if isinstance(payload, dict) else None
+                        if isinstance(content, dict):
+                            st.session_state[state_key] = json.dumps(content, ensure_ascii=False, indent=2)
+                        else:
+                            st.session_state[state_key] = ""
+                    upload = st.file_uploader(
+                        "Subir archivo JSON",
+                        type=["json"],
+                        key=f"sf-upload-{sf_file}",
                     )
-                elif current_scope and f"subflow_scope_{current_scope}__" in fname:
-                    parts = fname.replace(".json", "").split("__")
-                    key = parts[-1] if len(parts) >= 3 else fname
-                    fs_subflows.append({"file": fname, "key": key})
-
-            if fs_subflows:
-                st.divider()
-                st.markdown("#### Subflows existentes (archivos)")
-                for entry in fs_subflows:
-                    label = entry.get("key") or entry.get("file")
-                    with st.expander(f"{label}", expanded=False):
-                        sf_file = entry.get("file") or ""
-                        state_key = f"subflow_file_text_{sf_file}"
-                        if state_key not in st.session_state:
-                            payload = read_vertical_file_admin(ctx.token, str(selected_vertical_key), sf_file, api_key=ctx.api_key)
-                            content = payload.get("content") if isinstance(payload, dict) else None
-                            if isinstance(content, dict):
-                                st.session_state[state_key] = json.dumps(content, ensure_ascii=False, indent=2)
-                            else:
-                                st.session_state[state_key] = ""
-                        upload = st.file_uploader(
-                            "Subir archivo JSON",
-                            type=["json"],
-                            key=f"sf-upload-{sf_file}",
-                        )
-                        if upload is not None:
-                            try:
-                                st.session_state[state_key] = upload.getvalue().decode("utf-8")
-                            except Exception:
-                                st.error("No se pudo leer el archivo.")
-                        text = st.text_area(
-                            "Subflow (JSON)",
-                            value=st.session_state.get(state_key) or "",
-                            height=200,
-                            key=f"sf-text-{sf_file}",
-                        )
-                        st.session_state[state_key] = text
-                        c_save, c_cancel = st.columns([0.6, 0.4])
-                        if c_save.button("Guardar contenido", use_container_width=True, key=f"sf-save-{sf_file}"):
-                            try:
-                                parsed = json.loads(text or "")
-                            except Exception:
-                                st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
-                            else:
-                                res = update_vertical_file_admin(
-                                    ctx.token,
-                                    str(selected_vertical_key),
-                                    sf_file,
-                                    kind="json",
-                                    content=parsed,
-                                    validate=True,
-                                    api_key=ctx.api_key,
-                                )
-                                if isinstance(res, dict) and res.get("error"):
-                                    st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
-                                    if debug_mode:
-                                        _show_api_error(res, "Detalle técnico")
-                                else:
-                                    st.success("Contenido guardado.")
-                                    st.rerun()
-                        if c_cancel.button("Cancelar", use_container_width=True, key=f"sf-cancel-{sf_file}"):
-                            st.session_state.pop(state_key, None)
-
-            if current_scope:
-                st.divider()
-                st.markdown("#### Crear Subflow (archivo)")
-                with st.form("subflow-create-file"):
-                    subflow_name = st.text_input("Nombre del subflow", placeholder="dolor_lumbar")
-                    st.caption("Pega el JSON del Subflow o sube un archivo.")
-                    upload = st.file_uploader("Archivo JSON", type=["json"], key="sf-create-upload")
-                    text = st.text_area("Subflow (JSON)", height=200, key="sf-create-text")
-                    submitted = st.form_submit_button("Guardar contenido", use_container_width=True, disabled=not write_enabled)
-                if submitted:
-                    raw = ""
                     if upload is not None:
                         try:
-                            raw = upload.getvalue().decode("utf-8")
+                            st.session_state[state_key] = upload.getvalue().decode("utf-8")
                         except Exception:
                             st.error("No se pudo leer el archivo.")
-                            raw = ""
-                    if not raw:
-                        raw = text or ""
-                    if not raw.strip():
-                        st.error("Pega un JSON válido o sube un archivo.")
-                    else:
+                    text = st.text_area(
+                        "Subflow (JSON)",
+                        value=st.session_state.get(state_key) or "",
+                        height=460,
+                        key=f"sf-text-{sf_file}",
+                    )
+                    st.session_state[state_key] = text
+                    c_save, c_cancel = st.columns([0.6, 0.4])
+                    if c_save.button("Guardar contenido", use_container_width=True, key=f"sf-save-{sf_file}"):
                         try:
-                            parsed = json.loads(raw)
+                            parsed = json.loads(text or "")
                         except Exception:
                             st.error("El contenido no es un JSON válido. Revisa comas y llaves.")
                         else:
-                            sf_key = _slugify_subflow_key(subflow_name or "general")
-                            sf_file = _subflow_filename(str(current_scope), "intent", sf_key)
+                            if str(parsed.get("plan") or "").strip().lower() == "base":
+                                st.warning(
+                                    "Esto parece un Flow base, no un Subflow. Revisa el campo plan."
+                                )
                             res = update_vertical_file_admin(
                                 ctx.token,
                                 str(selected_vertical_key),
@@ -796,16 +1002,77 @@ def render_cockpit() -> bool:
                                 api_key=ctx.api_key,
                             )
                             if isinstance(res, dict) and res.get("error"):
-                                st.error("No se pudo guardar el contenido. Inténtalo otra vez.")
+                                err_text = str(res.get("error") or "").lower()
+                                if "invalid_json" in err_text:
+                                    msg = "El JSON no es válido."
+                                elif "invalid_flow_schema" in err_text or "missing_blocks" in err_text or "missing_start_block" in err_text:
+                                    msg = "El subflow no cumple el formato esperado."
+                                elif "invalid_subflow_key" in err_text:
+                                    msg = "El subflow no tiene un identificador válido."
+                                elif "invalid_scope_key" in err_text:
+                                    msg = "El scope del subflow no es válido."
+                                elif "invalid_router_save_to" in err_text:
+                                    msg = "El campo save_to del subflow no es válido."
+                                elif "invalid_filename" in err_text:
+                                    msg = "El nombre del archivo no es válido para un subflow."
+                                else:
+                                    msg = "El subflow no cumple el formato esperado."
+                                st.error(msg)
                                 if debug_mode:
                                     _show_api_error(res, "Detalle técnico")
                             else:
-                                st.success("Subflow guardado.")
+                                st.success("Contenido guardado.")
                                 st.rerun()
-            if st.session_state.get("show_create_subflow") or st.session_state.get("subflow_edit_target"):
+                    if c_cancel.button("Cancelar", use_container_width=True, key=f"sf-cancel-{sf_file}"):
+                        st.session_state.pop(state_key, None)
+                    if st.button(
+                        "Eliminar subflow",
+                        key=f"sf-file-del-{sf_file}",
+                        use_container_width=True,
+                        disabled=not write_enabled,
+                        type="secondary",
+                    ):
+                        st.session_state[f"sf-file-del-confirm-{sf_file}"] = True
+                    if st.session_state.get(f"sf-file-del-confirm-{sf_file}"):
+                        confirm_text = st.text_input(
+                            "Escribe ELIMINAR para confirmar",
+                            key=f"sf-file-del-text-{sf_file}",
+                        )
+                        del_cols = st.columns([0.5, 0.5])
+                        if del_cols[0].button(
+                            "Eliminar ahora",
+                            key=f"sf-file-del-confirm-btn-{sf_file}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            if confirm_text.strip().upper() != "ELIMINAR":
+                                st.error("Confirmación incorrecta.")
+                            else:
+                                res_del = delete_vertical_file_admin(
+                                    ctx.token, str(selected_vertical_key), sf_file, api_key=ctx.api_key
+                                )
+                                if isinstance(res_del, dict) and res_del.get("error"):
+                                    _show_api_error(res_del, f"No se pudo borrar {sf_file}")
+                                else:
+                                    st.success("Subflow eliminado.")
+                                    st.session_state.pop(f"sf-file-del-confirm-{sf_file}", None)
+                                    st.session_state.pop(f"sf-file-del-text-{sf_file}", None)
+                                    st.session_state.pop(state_key, None)
+                                    st.rerun()
+                        if del_cols[1].button(
+                            "Cancelar",
+                            key=f"sf-file-del-cancel-btn-{sf_file}",
+                            use_container_width=True,
+                        ):
+                            st.session_state.pop(f"sf-file-del-confirm-{sf_file}", None)
+                            st.session_state.pop(f"sf-file-del-text-{sf_file}", None)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+            if base_ready and (st.session_state.get("show_create_subflow") or st.session_state.get("subflow_edit_target")):
                 edit_target = st.session_state.get("subflow_edit_target")
                 title = "Editar subflow" if edit_target else "Crear subflow"
                 st.markdown(f"#### {title}")
+                st.markdown("<div class='panel-editor-card'>", unsafe_allow_html=True)
                 with st.form("subflow-editor"):
                     name = st.text_input(
                         "Nombre del subflow",
@@ -814,23 +1081,29 @@ def render_cockpit() -> bool:
                     )
                     content_text = st.text_area(
                         "Contenido",
-                        height=140,
+                        height=460,
                         placeholder="Describe en una frase el objetivo del subflow.",
                     )
-                    advanced = st.checkbox("Opciones avanzadas", value=False)
                     subflow_key = ""
                     keywords = ""
                     priority = 5
                     threshold = 1
-                    if advanced:
-                        subflow_key = st.text_input("Slug (opcional)", value="", placeholder="dolor_lumbar")
+                    with st.expander("Opciones avanzadas", expanded=False):
                         keywords = st.text_input("Palabras clave (coma)", value="", placeholder="lumbar, lumbalgia")
                         c1, c2 = st.columns([0.5, 0.5])
                         priority = c1.slider("Prioridad", 1, 10, 5)
                         threshold = c2.slider("Umbral", 1, 3, 1)
+                        if debug_mode:
+                            default_slug = _slugify_subflow_key(name or edit_target or "")
+                            subflow_key = st.text_input(
+                                "Slug (solo técnico)",
+                                value=default_slug,
+                                placeholder="dolor_lumbar",
+                            )
                     c_save, c_cancel = st.columns([0.6, 0.4])
                     save = c_save.form_submit_button("Guardar borrador", use_container_width=True)
                     cancel = c_cancel.form_submit_button("Cancelar", use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
                 if cancel:
                     st.session_state.pop("show_create_subflow", None)
                     st.session_state.pop("subflow_edit_target", None)
@@ -870,7 +1143,7 @@ def render_cockpit() -> bool:
                             st.session_state.pop("subflow_edit_target", None)
                             st.rerun()
 
-            if st.session_state.get("show_import_subflow"):
+            if base_ready and st.session_state.get("show_import_subflow"):
                 with st.form("subflow-import"):
                     upload = st.file_uploader("Archivo JSON", type=["json"])
                     subflow_key = st.text_input("Slug del subflow", value="")
@@ -948,7 +1221,7 @@ def render_cockpit() -> bool:
                     value=bool(selected_sf.get("enabled", True)) if selected_sf else True,
                     key="cockpit-sf-enabled",
                 )
-                if st.button("Guardar", use_container_width=True, disabled=not write_enabled):
+                if st.button("Guardar", use_container_width=True, disabled=not write_enabled or not base_ready):
                     payload = {
                         "trigger_keywords": _parse_keywords(kw),
                         "trigger_priority": pr,
@@ -967,35 +1240,39 @@ def render_cockpit() -> bool:
                 st.caption("Crea un Subflow para editar la selección automática.")
 
             st.divider()
-            with st.expander("Probar selección automática", expanded=False):
-                tenant_id = st.text_input("Tenant id (requerido)", value="")
+            with st.expander("Simular selección automática", expanded=False):
+                tenant_id = st.text_input("Tenant (opcional)", value="")
                 sim_text = st.text_input("Mensaje de prueba", value="")
                 if st.button(
-                    "Probar selección automática",
+                    "Simular",
                     use_container_width=True,
-                    disabled=not sim_text or not tenant_id,
+                    disabled=not sim_text,
                 ):
-                    res = simulate_subflow(
-                        ctx.token,
-                        tenant_id=str(tenant_id),
-                        base_flow_id=str(base_flow_id),
-                        text=sim_text,
-                        api_key=ctx.api_key,
-                    )
-                    if isinstance(res, dict) and res.get("error"):
-                        _show_api_error(res, "No se pudo simular la selección automática")
+                    if not base_flow_id:
+                        st.warning("Publica el Flow base para simular.")
+                    elif not tenant_id:
+                        st.warning("Selecciona un tenant para simular.")
                     else:
-                        picked = res.get("picked") if isinstance(res, dict) else None
-                        chosen = (picked or {}).get("subflow_key") if isinstance(picked, dict) else None
-                        st.success("Simulación OK")
-                        st.write(f"Elegido: {chosen or '—'}")
-                        if isinstance(picked, dict) and picked.get("matched"):
-                            st.caption(f"Motivo: {', '.join(picked.get('matched') or [])}")
-                        if debug_mode:
-                            st.json(res)
+                        res = simulate_subflow(
+                            ctx.token,
+                            tenant_id=str(tenant_id),
+                            base_flow_id=str(base_flow_id),
+                            text=sim_text,
+                            api_key=ctx.api_key,
+                        )
+                        if isinstance(res, dict) and res.get("error"):
+                            _show_api_error(res, "No se pudo simular la selección automática")
+                        else:
+                            picked = res.get("picked") if isinstance(res, dict) else None
+                            chosen = (picked or {}).get("subflow_key") if isinstance(picked, dict) else None
+                            st.success("Simulación OK")
+                            st.write(f"Elegido: {chosen or '—'}")
+                            if isinstance(picked, dict) and picked.get("matched"):
+                                st.caption(f"Motivo: {', '.join(picked.get('matched') or [])}")
 
     st.divider()
-    with st.expander("Opcional · Operación (Tenants)", expanded=False):
+    with st.expander("Aplicación del flow", expanded=False):
+        st.caption("Se sincronizará el Flow base publicado del scope seleccionado con los tenants.")
         tenants_payload = list_tenants(ctx.token, api_key=ctx.api_key)
         tenants = tenants_payload if isinstance(tenants_payload, list) else tenants_payload.get("items") or []
         tenants = [t for t in tenants if t.get("vertical_key") == selected_vertical_key]
@@ -1032,23 +1309,32 @@ def render_cockpit() -> bool:
             use_container_width=True,
             disabled=not (selected_tenants and current_scope) or not write_enabled,
         ):
-            for key in selected_tenants:
-                tenant_id = tenant_map.get(key, {}).get("id")
-                if not tenant_id:
-                    continue
-                res = tenant_flow_sync(
-                    ctx.token,
-                    tenant_id,
-                    vertical_key=str(selected_vertical_key),
-                    scope_key=str(current_scope),
-                    flow_kind="base",
-                    api_key=ctx.api_key,
-                )
-                if isinstance(res, dict) and res.get("error"):
-                    _show_api_error(res, f"No se pudo sincronizar {tenant_id}")
-                    break
-            st.success("Sincronización completada.")
-            st.rerun()
+            st.session_state["tenant_sync_confirm"] = True
+
+        if st.session_state.get("tenant_sync_confirm"):
+            st.warning("Se sincronizará el Flow base publicado con los tenants seleccionados. ¿Continuar?")
+            c_yes, c_no = st.columns([0.5, 0.5])
+            if c_yes.button("Sí, sincronizar", use_container_width=True):
+                for key in selected_tenants:
+                    tenant_id = tenant_map.get(key, {}).get("id")
+                    if not tenant_id:
+                        continue
+                    res = tenant_flow_sync(
+                        ctx.token,
+                        tenant_id,
+                        vertical_key=str(selected_vertical_key),
+                        scope_key=str(current_scope),
+                        flow_kind="base",
+                        api_key=ctx.api_key,
+                    )
+                    if isinstance(res, dict) and res.get("error"):
+                        _show_api_error(res, f"No se pudo sincronizar {tenant_id}")
+                        break
+                st.success("Sincronización completada.")
+                st.session_state["tenant_sync_confirm"] = False
+                st.rerun()
+            if c_no.button("Cancelar", use_container_width=True):
+                st.session_state["tenant_sync_confirm"] = False
 
         if c2.button(
             "Publicar override",
@@ -1074,9 +1360,6 @@ def render_cockpit() -> bool:
             st.success("Override publicado.")
             st.rerun()
 
-        if debug_mode:
-            st.caption("Modo técnico activo: verás herramientas avanzadas.")
-            st.json([{"id": t.get("id"), "name": t.get("name")} for t in tenants])
 
     return debug_mode
 
