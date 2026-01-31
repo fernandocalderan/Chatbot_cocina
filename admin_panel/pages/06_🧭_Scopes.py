@@ -18,8 +18,8 @@ render_sidebar_nav()
 
 st.title("Scopes")
 st.caption("Catálogo único (FS + DB). Incluye scopes vacíos.")
-st.info("Modo lectura. Gestiona scopes en Verticals.")
-if st.button("Gestionar en Verticals", use_container_width=True):
+st.info("Modo lectura. Gestiona scopes en Panel de Flows.")
+if st.button("Gestionar en Panel de Flows", use_container_width=True):
     open_verticals(tab="Flow base")
 
 col1, col2, col3 = st.columns([0.4, 0.3, 0.3])
@@ -80,7 +80,7 @@ else:
         elif status == "DRAFT_ONLY":
             action_label = "Publicar"
         if cc6.button(
-            "Gestionar en Verticals",
+            "Gestionar en Panel de Flows",
             key=f"scope-action-{row.get('vertical_key')}-{row.get('scope_key')}",
             use_container_width=True,
         ):

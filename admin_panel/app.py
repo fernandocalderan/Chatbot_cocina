@@ -16,7 +16,7 @@ def main() -> None:
     render_sidebar_nav(show_tools=True)
 
     st.title("SuperAdmin")
-    st.caption("Panel de administración de la plataforma (tenants, verticals, auditoría).")
+    st.caption("Panel de administración de la plataforma (tenants, flows, auditoría).")
 
     if not ctx.is_super_admin:
         st.warning("Acceso limitado: no tienes rol SUPER_ADMIN.")
@@ -27,7 +27,7 @@ def main() -> None:
     with c2:
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
     with c3:
-        st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
+        st.page_link("pages/03_🧩_Verticals.py", label="Panel de Flows", icon="🧩")
 
 
 if __name__ == "__main__":

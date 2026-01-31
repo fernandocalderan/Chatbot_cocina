@@ -18,8 +18,8 @@ render_sidebar_nav()
 
 st.title("Flows")
 st.caption("Listado global desde /v1/catalog (sin filtros ocultos).")
-st.info("Modo lectura. Gestiona flows en Verticals.")
-if st.button("Gestionar en Verticals", use_container_width=True):
+st.info("Modo lectura. Gestiona flows en Panel de Flows.")
+if st.button("Gestionar en Panel de Flows", use_container_width=True):
     open_verticals(tab="Flow base")
 
 col1, col2, col3, col4 = st.columns([0.25, 0.25, 0.25, 0.25])
@@ -76,7 +76,7 @@ else:
         cc4.write(str(row.get("version") or "—"))
         cc5.write(str(row.get("published_at") or "—"))
         cc6.write(str(row.get("owner_type") or "—"))
-        action_label = "Gestionar en Verticals"
+        action_label = "Gestionar en Panel de Flows"
         action_key = f"flow-action-{row.get('flow_id')}"
         if cc7.button(
             action_label,

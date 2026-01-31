@@ -183,7 +183,7 @@ if not ctx.is_super_admin:
     st.warning("Esta herramienta está disponible solo para SUPER_ADMIN.")
     st.stop()
 if not st.session_state.get("debug"):
-    st.warning("El Wizard está disponible solo en modo Debug. La creación se hace en Verticals.")
+    st.warning("El Wizard está disponible solo en modo Debug. La creación se hace en Panel de Flows.")
     st.stop()
 
 _init_state()
@@ -193,7 +193,7 @@ step = min(max(step, 1), 7)
 
 st.title("⚡ Wizard completo")
 st.caption("Crear flow base + subflows + routing + publicar + asignar tenants.")
-st.info("La creación se hace en Verticals. Wizard = modo guiado (Debug).")
+st.info("La creación se hace en Panel de Flows. Wizard = modo guiado (Debug).")
 
 progress = (step - 1) / 6
 st.progress(progress)

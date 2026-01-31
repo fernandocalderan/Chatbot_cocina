@@ -338,15 +338,15 @@ for t in tenants:
             if debug_mode:
                 st.caption(f"Tenant activo: `{tenant_id}`")
             else:
-                st.caption("Gestiona flows y subflows en Verticals.")
+                st.caption("Gestiona flows y subflows en Panel de Flows.")
             if st.button(
-                "Abrir en Verticals",
+                "Abrir en Panel de Flows",
                 key=f"open-verticals-{tenant_id}",
                 use_container_width=True,
                 disabled=not v_current,
             ):
                 primary_scope = scopes_current[0] if scopes_current else None
-                open_verticals(vertical_key=v_current, scope_key=primary_scope, tab="Subflows + routing")
+                open_verticals(vertical_key=v_current, scope_key=primary_scope, tab="Subflows")
             if not v_current:
                 st.warning("Tenant sin vertical_key: no se puede resolver catálogo de scopes.")
             catalog_payload = get_catalog(
@@ -387,7 +387,7 @@ for t in tenants:
                     cc4.write(str(row.get("published_count") or 0))
                     action_key = f"scope-action-{tenant_id}-{row.get('scope_key')}"
                     if cc5.button(
-                        "Abrir en Verticals",
+                        "Abrir en Panel de Flows",
                         key=action_key,
                         disabled=not v_current,
                         use_container_width=True,

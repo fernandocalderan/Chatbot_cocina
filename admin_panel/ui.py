@@ -126,19 +126,22 @@ def render_sidebar_nav(*, show_tools: bool = True) -> None:
         debug_default = str(os.getenv("PANEL_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
         st.session_state.setdefault("debug", debug_default)
         debug_allowed = debug_default or ("SUPER_ADMIN" in roles)
-        if "SUPER_ADMIN" in roles and st.session_state.get("debug"):
-            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (Debug)", icon="⚡")
-        st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
-        st.page_link("pages/06_🧭_Scopes.py", label="Scopes", icon="🧭")
-        st.page_link("pages/07_📑_Flows.py", label="Flows", icon="📑")
+        st.markdown("#### Asistente")
+        st.page_link("pages/03_🧩_Verticals.py", label="Panel de Flows", icon="🧩")
+        st.markdown("#### Operación")
         st.page_link("pages/02_🏢_Tenants.py", label="Tenants", icon="🏢")
-        st.page_link("pages/03_🧩_Verticals.py", label="Verticals", icon="🧩")
-        st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
+        st.markdown("#### Supervisión")
+        st.page_link("pages/01_📊_Overview.py", label="Overview", icon="📊")
         st.page_link("pages/05_🧾_Auditoría.py", label="Auditoría", icon="🧾")
+        if "SUPER_ADMIN" in roles:
+            st.markdown("#### Administración")
+            st.page_link("pages/04_➕_Crear_tenant.py", label="Crear tenant", icon="➕")
+        st.markdown("---")
         if debug_allowed:
             st.toggle("Debug", key="debug", help="Muestra información extra de diagnóstico.")
-        if show_tools:
-            st.markdown("---")
+        if debug_allowed and "SUPER_ADMIN" in roles and st.session_state.get("debug"):
+            st.page_link("pages/08_⚡_Wizard.py", label="Wizard (Debug)", icon="⚡")
+        if show_tools and debug_allowed:
             st.page_link("pages/widget_tester.py", label="Widget tester", icon="🧪")
 
 

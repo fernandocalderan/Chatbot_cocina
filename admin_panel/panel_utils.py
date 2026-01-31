@@ -38,4 +38,4 @@ def open_verticals(
     try:
         st.switch_page("pages/03_🧩_Verticals.py")
     except Exception:
-        st.page_link("pages/03_🧩_Verticals.py", label="Abrir Verticals", icon="🧩")
+        st.page_link("pages/03_🧩_Verticals.py", label="Abrir Panel de Flows", icon="🧩")
